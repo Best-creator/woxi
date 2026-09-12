@@ -89,7 +89,6 @@ E2E 跑在 `next dev` 上，首次访问某个路由需要现编译，因此 `pl
 - `src/features/articles`：文章领域模型和 SQLite 仓储。
 - `src/features/outlines`：大纲生成/审核 Agent、用例和不可变大纲版本仓储。
 - `src/features/content`：人物语言风格、正文生成/审核 Agent、正文用例和不可变正文版本仓储。
-- `src/features/generation`：阶段 1 遗留的「大纲直接映射成整篇」生成端口与 Demo/OpenAI 适配器。退役旧端点后已无任何生产代码引用，仅自身测试还在覆盖，待后续删除。
 - `src/features/sources`：资料领域模型、解析端口和 SQLite 仓储。
 - `src/features/publishing`：公众号主题和共享 HTML 渲染器。
 - `src/app/api`：经过 Zod 校验的 HTTP 边界。
