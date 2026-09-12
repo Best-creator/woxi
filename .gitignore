@@ -1,0 +1,16 @@
+node_modules/
+node_modules.broken/
+.next/
+.next.stale-*/
+coverage/
+playwright-report/
+test-results/
+test-results.stale-*/
+.data/
+.data/*.stale-*
+next-env.d.ts
+*.tsbuildinfo
+work/*.log
+work/ms-playwright/
+.env.local
+env/.env.local

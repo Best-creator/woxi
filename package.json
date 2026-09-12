@@ -1,0 +1,37 @@
+{
+  "name": "zhiwen-content-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "node tests/helpers/reset-e2e-db.mjs && node tests/helpers/run-e2e.mjs"
+  },
+  "dependencies": {
+    "lucide-react": "^1.42.0",
+    "next": "^16.3.4",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
+    "@types/node": "^26.5.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^6.1.1",
+    "eslint": "^9.39.2",
+    "eslint-config-next": "^16.3.4",
+    "jsdom": "^30.0.1",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.0"
+  }
+}

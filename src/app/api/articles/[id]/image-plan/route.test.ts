@@ -1,0 +1,118 @@
+// @vitest-environment node
+
+import { describe, expect, it } from "vitest";
+import { SqliteArticleRepository } from "@/features/articles/sqlite-repository";
+import { SqliteImageAssetRepository } from "@/features/images/sqlite-repository";
+import type { ImagePlanSuggestion } from "@/features/images/domain";
+import { VisualPlannerError } from "@/features/images/openai-visual-planner";
+import type { ImageAssetRepository } from "@/features/images/repository";
+import type { VisualPlanner } from "@/features/images/visual-planner";
+import { createTestDatabase } from "../../../../../../tests/helpers/test-db";
+import { requestJson } from "../../../../../../tests/helpers/request";
+import { createImagePlanRouteHandler } from "./route";
+
+const suggestion: ImagePlanSuggestion = {
+  type: "cover",
+  anchorBlockId: null,
+  purpose: "封面",
+  prompt: "信息图",
+  altText: "复利封面",
+  aspectRatio: "cover"
+};
+
+function planner(run: () => Promise<ImagePlanSuggestion[]> = async () => [suggestion]): VisualPlanner {
+  return { plan: async () => run() };
+}
+
+async function setup(withContent = true) {
+  const db = createTestDatabase();
+  const articles = new SqliteArticleRepository(db);
+  const images = new SqliteImageAssetRepository(db);
+  const created = await articles.create({ topic: "复利" });
+  if (!withContent) return { articles, images, article: created };
+  const saved = await articles.save(
+    {
+      ...created,
+      blocks: [{ id: "block-1", type: "paragraph", content: "正文", order: 0, version: 1 }]
+    },
+    created.updatedAt
+  );
+  if (saved.kind !== "saved") throw new Error("fixture should save");
+  return { articles, images, article: saved.article };
+}
+
+describe("image plan route", () => {
+  const context = (id: string) => ({ params: Promise.resolve({ id }) });
+
+  it("returns the saved article and assets", async () => {
+    const { articles, images, article } = await setup();
+    const POST = createImagePlanRouteHandler(articles, images, planner());
+
+    const response = await POST(
+      requestJson(`http://test/api/articles/${article.id}/image-plan`, { expectedUpdatedAt: article.updatedAt }),
+      context(article.id)
+    );
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).assets).toHaveLength(1);
+  });
+
+  it("maps invalid input and articles without content to 400", async () => {
+    const { articles, images, article } = await setup(false);
+    const POST = createImagePlanRouteHandler(articles, images, planner());
+    const invalid = await POST(new Request("http://test/image-plan", { method: "POST", body: "{" }), context(article.id));
+    const noContent = await POST(
+      requestJson("http://test/image-plan", { expectedUpdatedAt: article.updatedAt }),
+      context(article.id)
+    );
+
+    expect(invalid.status).toBe(400);
+    expect(noContent.status).toBe(400);
+  });
+
+  it("maps missing, stale, and planner failures to their HTTP statuses", async () => {
+    const { articles, images, article } = await setup();
+    const missing = await createImagePlanRouteHandler(articles, images, planner())(
+      requestJson("http://test/image-plan", { expectedUpdatedAt: article.updatedAt }),
+      context("missing")
+    );
+    const stale = await createImagePlanRouteHandler(articles, images, planner())(
+      requestJson("http://test/image-plan", { expectedUpdatedAt: "2026-01-01T00:00:00.000Z" }),
+      context(article.id)
+    );
+    const failed = await createImagePlanRouteHandler(
+      articles,
+      images,
+      planner(async () => { throw new VisualPlannerError("upstream", "unavailable"); })
+    )(
+      requestJson("http://test/image-plan", { expectedUpdatedAt: article.updatedAt }),
+      context(article.id)
+    );
+
+    expect(missing.status).toBe(404);
+    expect(stale.status).toBe(409);
+    expect(failed.status).toBe(502);
+  });
+
+  it("keeps an invalid repository plan at 400 even when its message matches a planner error", async () => {
+    const { articles, images, article } = await setup();
+    const collisionRepository: ImageAssetRepository = {
+      list: images.list.bind(images),
+      findById: images.findById.bind(images),
+      findByAssetId: images.findByAssetId.bind(images),
+      applyPlan: async () => ({
+        kind: "invalid_plan" as const,
+        message: "配图分析失败，请稍后重试"
+      }),
+      update: images.update.bind(images),
+      remove: images.remove.bind(images),
+      refreshPlaceholder: images.refreshPlaceholder.bind(images)
+    };
+    const response = await createImagePlanRouteHandler(articles, collisionRepository, planner())(
+      requestJson("http://test/image-plan", { expectedUpdatedAt: article.updatedAt }),
+      context(article.id)
+    );
+
+    expect(response.status).toBe(400);
+  });
+});

@@ -1,0 +1,97 @@
+# 知文内容工作台
+
+面向微信公众号知识类图文的结构化创作工作台。创作被拆成四步，每一步都由 LLM 参与并必须人工确认后才放行：
+
+1. **资料来源** —— 粘贴资料并生成 Knowledge Brief；
+2. **文章大纲** —— 生成大纲 → 独立审核 → 按审核意见修订 → 确认；
+3. **正文文章** —— 选人物语言风格 → 整篇生成 → 独立审核 → 确认内容；
+4. **配图** —— 分析配图需求、编辑提示词并预览占位图。
+
+前两步共用 `/articles/{id}` 的四步工作台（当前步骤存在 URL 的 `?step=` 中）；第 3 步的正文闭环就嵌在第 3 步面板内，不额外开一个页面。
+
+## 环境要求
+
+- Node.js 22 以上（使用内置 `node:sqlite`）
+- pnpm 11 或更高版本
+
+## 本地运行
+
+```powershell
+pnpm install
+Copy-Item env/.env.example env/.env.local
+pnpm dev
+```
+
+访问 `http://127.0.0.1:3000`。默认数据库位于 `.data/content-platform.db`，可以通过 `CONTENT_DB_PATH` 修改。
+
+在 `env/.env.local` 中填写模型密钥、默认模型、模型白名单和可选服务地址：
+
+```ini
+LLM_API_KEY=
+LLM_MODEL=
+LLM_MODELS=model-a,model-b
+```
+
+`LLM_MODELS` 是逗号分隔的可选模型白名单，默认 `LLM_MODEL` 会始终保留在可用列表中。真实 LLM 使用 OpenAI 兼容的 `{LLM_BASE_URL}/v1/chat/completions` endpoint。留空 `LLM_API_KEY` 时，大纲生成/审核、正文生成/审核和配图规划都使用不会发出外部请求的确定性 Demo 回退，适合本地开发和自动测试。图片 endpoint 已预留配置，但当前阶段不会调用真实图片生成服务。
+
+没有资料时仍可生成大纲和正文，但系统会标记事实性表述需要人工核验；在发布前应补充可靠资料或完成人工核对。
+
+## 两道审核门
+
+- **大纲审核**：`blocked` 阻止确认；`needs_revision` 需要勾选"我已了解审核警告"才能确认。
+- **正文审核**：`blocked` 阻止确认内容；`needs_revision` 同样需要显式勾选警告才能确认。确认后文章状态进入 `content_ready`，`ready_to_publish` 保留给后续配图与发布流程。
+
+审核结果绑定到不可变的正文修订（`article_revisions` 的 `scope = 'content'`）。编辑正文、更换人物语言风格或改变启用资料，都会让已保存的审核自动过期。
+
+## 人物语言风格
+
+正文页提供五个预设（通俗科普老师、理性分析者、朋友聊天式、故事讲述者、简洁知识卡片）和一个自定义档位。风格只影响措辞、句式、节奏、称呼、开场和最终标题，不会改变事实、知识边界、章节顺序和必须解释的关键概念。
+
+`POST /api/articles/{id}/content/generate` 的 `styleProfile` 既接受完整 profile，也接受 `{ "preset": "knowledge_cards", "customInstructions": "一句一条" }` 这种简写——只给 `preset` 时由服务端按预设补齐其余派生字段。
+
+## 长度档位与版本
+
+- 长度档位 `short` / `standard` / `deep` 决定推荐总字数，审核会检查是否明显过短、冗长或重复。
+- 大纲版本和正文版本独立编号，互不影响。
+- 生成、审核前内容变化和主动保存都会创建去重后的不可变版本；恢复旧版本产生新版本，历史永不移动。
+- 大纲变化后旧正文仍然保留，但会标记为"基于旧大纲"，此时不能审核、确认内容或产出新的配图计划。
+
+## 验证
+
+```powershell
+pnpm test
+pnpm lint
+pnpm build
+pnpm test:e2e
+```
+
+端到端测试默认使用系统已安装的 Chrome，覆盖桌面和移动两个视口：
+
+- `tests/e2e/foundation-flow.spec.ts`：建文章 → 加资料 → 生成并确认大纲，落到第 3 步。
+- `tests/e2e/outline-workflow.spec.ts`：大纲生成 / 审核 / 版本 / 确认。
+- `tests/e2e/content-workflow.spec.ts`：风格选择、正文生成 / 审核 / 确认内容、版本保存与恢复、配图与预览、移动端只读。
+- `tests/e2e/article-workflow.spec.ts`：确认大纲后在四步工作台内推进到配图。
+
+E2E 跑在 `next dev` 上，首次访问某个路由需要现编译，因此 `playwright.config.ts` 的等待上限比默认值宽松。
+
+## 当前边界
+
+- 支持粘贴纯文本和 Markdown 资料；资料可以添加、启停和删除。
+- 网页、PDF 和 DOCX 资料会保存为"暂不支持"，不会进入生成上下文。
+- 本地 `/api/image-assets/:id/content` 占位 URL 只用于规划预览；将内容发布到公众号前，仍需在后续素材上传阶段替换为公众号可用的线上素材。
+- `POST /api/articles/{id}/generate` 是阶段 1 遗留端点，已退役：固定返回 `410` 和 `{"error":"请使用分阶段纲要与正文生成接口"}`，不再生成 Demo 全文；工作台只通过 `POST /api/articles/{id}/content/generate` 生成正文，只有一个正文生成入口。
+- 登录鉴权尚未启用，只适合本机单人使用。
+- 文件上传、网页抓取、PDF/DOCX 解析、真实图片生成和公众号素材上传不在当前阶段范围。
+- 公众号预览使用经过转义的内联样式 HTML；仍需在已登录的微信公众号编辑器中完成一次人工粘贴验收。
+
+## 模块边界
+
+- `src/features/articles`：文章领域模型和 SQLite 仓储。
+- `src/features/outlines`：大纲生成/审核 Agent、用例和不可变大纲版本仓储。
+- `src/features/content`：人物语言风格、正文生成/审核 Agent、正文用例和不可变正文版本仓储。
+- `src/features/generation`：阶段 1 遗留的「大纲直接映射成整篇」生成端口与 Demo/OpenAI 适配器。退役旧端点后已无任何生产代码引用，仅自身测试还在覆盖，待后续删除。
+- `src/features/sources`：资料领域模型、解析端口和 SQLite 仓储。
+- `src/features/publishing`：公众号主题和共享 HTML 渲染器。
+- `src/app/api`：经过 Zod 校验的 HTTP 边界。
+- `src/components`：列表、编辑器、生成控制、审核面板和公众号预览。
+- `tests/helpers/run-e2e.mjs`：启动测试服务器、运行 Playwright，并按已知进程 ID 回收服务。
