@@ -7,9 +7,14 @@ export default defineConfig([
   ...nextTypeScript,
   globalIgnores([
     ".next/**",
+    ".next.stale-*/**",
     "coverage/**",
     "playwright-report/**",
     "test-results/**",
+    "test-results.stale-*/**",
+    "node_modules.broken/**",
+    ".data/**",
+    "work/ms-playwright/**",
     "next-env.d.ts"
   ])
 ]);
