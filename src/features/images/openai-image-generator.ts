@@ -34,7 +34,10 @@ export class OpenAiImageGenerator implements ImageGenerator {
           model: this.config.model,
           prompt: input.prompt,
           size: sizeForAspectRatio(input.aspectRatio),
-          n: 1
+          n: 1,
+          // 强制内联返回 base64：部分网关的图床域名（url 指向的文件服务）
+          // 从用户网络不可达，内联数据可直接落盘并经本地 content 路由分发。
+          response_format: "b64_json"
         }),
         signal: AbortSignal.timeout(IMAGE_GENERATION_TIMEOUT_MS)
       });
