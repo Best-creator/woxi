@@ -61,8 +61,8 @@ export function OutlineReviewPanel({
         {result && (previewing || !isStale) ? <span className={`review-status review-status-${result.status}`}>{statusCopy[result.status]}</span> : null}
       </div>
 
-      {!previewing && isStale ? <p className="review-stale" role="status">审核已过期</p> : null}
-      {!result ? <p className="panel-empty">{previewing ? "该版本尚未审核" : "生成大纲后可进行审核"}</p> : null}
+      {!previewing && isStale ? <p className="review-stale" role="status">大纲或资料已更新，请重新审核后再确认大纲</p> : null}
+      {!result && (previewing || !isStale) ? <p className="panel-empty">{previewing ? "该版本尚未审核" : "生成大纲后可进行审核"}</p> : null}
       {result ? (
         <div className="review-summary">
           <p>{result.summary}</p>

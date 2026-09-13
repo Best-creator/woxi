@@ -319,7 +319,9 @@ export function OutlineWorkspace({
       setVersions((items) => addVersion(items, result.revision));
       setCurrentReview(null);
       setPreviewVersionId(null);
-      setIsReviewStale(false);
+      // 审核意见已应用：旧审核不再对应当前大纲，置为 stale 引导用户重新审核，
+      // 否则面板清空后确认按钮灰着且没有任何下一步提示。
+      setIsReviewStale(true);
     }, "applying");
   }
 

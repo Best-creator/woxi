@@ -74,8 +74,25 @@ describe("OutlineReviewPanel", () => {
       />
     );
 
-    expect(screen.getByText("审核已过期")).toBeVisible();
+    expect(screen.getByText("大纲或资料已更新，请重新审核后再确认大纲")).toBeVisible();
     expect(screen.getByRole("button", { name: "确认大纲" })).toBeDisabled();
+  });
+
+  it("guides a re-review when stale without any review to display", () => {
+    render(
+      <OutlineReviewPanel
+        review={null}
+        isStale
+        canReview
+        onReview={vi.fn()}
+        onConfirm={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText("大纲或资料已更新，请重新审核后再确认大纲")).toBeVisible();
+    expect(screen.queryByText("生成大纲后可进行审核")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "确认大纲" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "审核大纲" })).toBeEnabled();
   });
 
   it("offers applying a needs-revision review and hides it after a passed review", async () => {

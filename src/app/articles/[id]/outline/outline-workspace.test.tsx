@@ -79,7 +79,7 @@ describe("OutlineWorkspace", () => {
     await user.clear(screen.getByLabelText("一句话解释"));
     await user.type(screen.getByLabelText("一句话解释"), "新的解释");
 
-    expect(screen.getByText("审核已过期")).toBeVisible();
+    expect(screen.getByText("大纲或资料已更新，请重新审核后再确认大纲")).toBeVisible();
     expect(screen.getByRole("button", { name: "确认大纲" })).toBeDisabled();
   });
 
@@ -91,7 +91,7 @@ describe("OutlineWorkspace", () => {
 
     await userEvent.click(screen.getByRole("checkbox", { name: "启用课堂笔记" }));
 
-    expect(await screen.findByText("审核已过期")).toBeVisible();
+    expect(await screen.findByText("大纲或资料已更新，请重新审核后再确认大纲")).toBeVisible();
     fetchSpy.mockRestore();
   });
 
@@ -436,5 +436,7 @@ describe("OutlineWorkspace", () => {
     expect(screen.getByText("每个选择都会放弃别的可能")).toBeVisible();
     expect(screen.getByRole("button", { name: "查看大纲 v2，审核修订" })).toBeVisible();
     expect(screen.queryByText("章节目标不够具体。")).not.toBeInTheDocument();
+    expect(screen.getByText("大纲或资料已更新，请重新审核后再确认大纲")).toBeVisible();
+    expect(screen.getByRole("button", { name: "确认大纲" })).toBeDisabled();
   });
 });
