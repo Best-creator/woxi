@@ -289,6 +289,81 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
     });
   }
 
+  async beginGeneration(
+    articleId: string,
+    assetId: string,
+    expectedUpdatedAt: string
+  ): Promise<ImagePlanMutationResult> {
+    return this.inTransaction(() => {
+      const article = this.currentArticle(articleId, expectedUpdatedAt);
+      if (!article) return this.missingOrConflict(articleId, expectedUpdatedAt);
+      const asset = this.assetForArticle(articleId, assetId);
+      if (!asset) return { kind: "not_found" };
+      if (asset.status === "disabled") {
+        return { kind: "invalid_state", message: "禁用图片不能生成" };
+      }
+      if (asset.status === "generating") {
+        return { kind: "invalid_state", message: "图片正在生成中" };
+      }
+
+      this.updateAsset({
+        ...asset,
+        status: "generating",
+        updatedAt: nextTimestamp(asset.updatedAt)
+      });
+      return this.saveAggregate(article, expectedUpdatedAt, this.listSync(articleId));
+    });
+  }
+
+  async completeGeneration(
+    articleId: string,
+    assetId: string,
+    expectedUpdatedAt: string,
+    result: { publicUrl: string | null; filePath: string | null }
+  ): Promise<ImagePlanMutationResult> {
+    return this.inTransaction(() => {
+      const article = this.currentArticle(articleId, expectedUpdatedAt);
+      if (!article) return this.missingOrConflict(articleId, expectedUpdatedAt);
+      const asset = this.assetForArticle(articleId, assetId);
+      if (!asset) return { kind: "not_found" };
+      if (asset.status !== "generating") {
+        return { kind: "invalid_state", message: "图片不在生成中，无法保存结果" };
+      }
+
+      this.updateAsset({
+        ...asset,
+        status: "generated",
+        publicUrl: result.publicUrl,
+        filePath: result.filePath,
+        updatedAt: nextTimestamp(asset.updatedAt)
+      });
+      return this.saveAggregate(article, expectedUpdatedAt, this.listSync(articleId));
+    });
+  }
+
+  async failGeneration(
+    articleId: string,
+    assetId: string,
+    expectedUpdatedAt: string
+  ): Promise<ImagePlanMutationResult> {
+    return this.inTransaction(() => {
+      const article = this.currentArticle(articleId, expectedUpdatedAt);
+      if (!article) return this.missingOrConflict(articleId, expectedUpdatedAt);
+      const asset = this.assetForArticle(articleId, assetId);
+      if (!asset) return { kind: "not_found" };
+      if (asset.status !== "generating") {
+        return { kind: "invalid_state", message: "图片不在生成中，无法记录失败" };
+      }
+
+      this.updateAsset({
+        ...asset,
+        status: "failed",
+        updatedAt: nextTimestamp(asset.updatedAt)
+      });
+      return this.saveAggregate(article, expectedUpdatedAt, this.listSync(articleId));
+    });
+  }
+
   private inTransaction(work: () => ImagePlanMutationResult): ImagePlanMutationResult {
     this.db.exec("BEGIN IMMEDIATE");
     try {
@@ -386,7 +461,8 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
       .prepare(`
         UPDATE image_assets
         SET anchor_block_id = ?, prompt = ?, alt_text = ?, aspect_ratio = ?,
-            status = ?, placeholder_url = ?, manually_edited = ?, updated_at = ?
+            status = ?, placeholder_url = ?, file_path = ?, public_url = ?,
+            manually_edited = ?, updated_at = ?
         WHERE id = ? AND article_id = ?
       `)
       .run(
@@ -396,6 +472,8 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
         asset.aspectRatio,
         asset.status,
         asset.placeholderUrl,
+        asset.filePath,
+        asset.publicUrl,
         asset.manuallyEdited ? 1 : 0,
         asset.updatedAt,
         asset.id,

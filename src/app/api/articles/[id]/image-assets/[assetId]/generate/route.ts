@@ -1,0 +1,77 @@
+import { z } from "zod";
+import type { ArticleRepository } from "@/features/articles/repository";
+import {
+  generateImageAsset,
+  type GenerateImageAssetDependencies
+} from "@/features/images/generate-image-asset";
+import type { ImageGenerator } from "@/features/images/image-generator";
+import type { ImageAssetRepository } from "@/features/images/repository";
+import { getArticleRepository, getImageGenerator, getImageAssetRepository } from "@/server/services";
+
+export const runtime = "nodejs";
+export const maxDuration = 300;
+
+interface RouteContext {
+  params: Promise<{ id: string; assetId: string }>;
+}
+
+const requestSchema = z.object({
+  expectedUpdatedAt: z.iso.datetime()
+});
+
+function generationResponse(result: Awaited<ReturnType<typeof generateImageAsset>>) {
+  if (result.kind === "saved") {
+    return Response.json({ article: result.article, assets: result.assets });
+  }
+  if (result.kind === "conflict") {
+    return Response.json({ error: "文章已在其他位置更新，请刷新后重试" }, { status: 409 });
+  }
+  if (result.kind === "not_found") {
+    return Response.json({ error: "图片资产不存在" }, { status: 404 });
+  }
+  if (result.kind === "invalid_state") {
+    return Response.json({ error: result.message }, { status: 400 });
+  }
+  return Response.json({ error: result.message }, { status: 502 });
+}
+
+export function createImageAssetGenerateRouteHandler(
+  _articles: ArticleRepository,
+  images: ImageAssetRepository,
+  generator: ImageGenerator | null,
+  storageDir?: string
+) {
+  return async function POST(request: Request, context: RouteContext) {
+    if (!generator) {
+      return Response.json({ error: "图片生成服务未配置" }, { status: 503 });
+    }
+    const { id, assetId } = await context.params;
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return Response.json({ error: "请求内容不是有效的 JSON" }, { status: 400 });
+    }
+    const input = requestSchema.safeParse(body);
+    if (!input.success) {
+      return Response.json({ error: "文章版本信息无效" }, { status: 400 });
+    }
+
+    const dependencies: GenerateImageAssetDependencies = { images, generator };
+    if (storageDir) dependencies.storageDir = storageDir;
+    return generationResponse(
+      await generateImageAsset(
+        { articleId: id, assetId, expectedUpdatedAt: input.data.expectedUpdatedAt },
+        dependencies
+      )
+    );
+  };
+}
+
+export function POST(request: Request, context: RouteContext) {
+  return createImageAssetGenerateRouteHandler(
+    getArticleRepository(),
+    getImageAssetRepository(),
+    getImageGenerator()
+  )(request, context);
+}

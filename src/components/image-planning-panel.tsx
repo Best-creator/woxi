@@ -1,6 +1,6 @@
 "use client";
 
-import { ImagePlus, MapPin, RefreshCw, Trash2 } from "lucide-react";
+import { ImagePlus, MapPin, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 import { useState } from "react";
 import type { Article, ContentBlock } from "@/features/articles/domain";
 import type { ImageAsset, ImageAspectRatio } from "@/features/images/domain";
@@ -27,6 +27,8 @@ export interface ImagePlanningPanelProps {
     assetId: string,
     expectedUpdatedAt: string
   ) => Promise<ImageMutationPayload>;
+  /** 真实图片生成服务；未提供（未配置）时不显示生成入口。 */
+  generateImage?: (assetId: string, expectedUpdatedAt: string) => Promise<ImageMutationPayload>;
 }
 
 const typeLabels: Record<ImageAsset["type"], string> = {
@@ -87,7 +89,8 @@ export function ImagePlanningPanel({
   planImages,
   updateAsset,
   deleteAsset,
-  refreshPlaceholder
+  refreshPlaceholder,
+  generateImage
 }: ImagePlanningPanelProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -253,6 +256,28 @@ export function ImagePlanningPanel({
                       />
                       启用
                     </label>
+                    {generateImage ? (
+                      <button
+                        className="icon-button image-generate-button"
+                        type="button"
+                        title={
+                          asset.status === "generated"
+                            ? `重新生成配图 ${index + 1}`
+                            : `生成配图 ${index + 1}`
+                        }
+                        aria-label={
+                          asset.status === "generated"
+                            ? `重新生成配图 ${index + 1}`
+                            : `生成配图 ${index + 1}`
+                        }
+                        disabled={locked || busy || asset.status === "disabled" || asset.status === "generating"}
+                        onClick={() =>
+                          void run(() => generateImage(asset.id, article.updatedAt))
+                        }
+                      >
+                        <Sparkles size={15} aria-hidden="true" />
+                      </button>
+                    ) : null}
                     <button
                       className="icon-button"
                       type="button"

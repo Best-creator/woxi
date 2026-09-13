@@ -331,3 +331,83 @@ describe("image asset contracts", () => {
     expect(await images.findById(article.id, retained.id)).toBeNull();
   });
 });
+
+describe("image generation state machine", () => {
+  it("moves placeholder -> generating -> generated and persists url and file path", async () => {
+    const { articles, images, article } = await createArticleWithBlocks();
+    const planned = await images.applyPlan(article.id, article.updatedAt, [cover]);
+    if (planned.kind !== "saved") throw new Error("plan should save");
+    const asset = planned.assets[0];
+    if (!asset) throw new Error("asset should exist");
+
+    const begun = await images.beginGeneration(article.id, asset.id, planned.article.updatedAt);
+    if (begun.kind !== "saved") throw new Error("begin should save");
+    expect(begun.assets[0]?.status).toBe("generating");
+    expect(begun.article.updatedAt).not.toBe(planned.article.updatedAt);
+
+    const staleBegin = await images.beginGeneration(article.id, asset.id, planned.article.updatedAt);
+    expect(staleBegin).toEqual({ kind: "conflict" });
+
+    const completed = await images.completeGeneration(article.id, asset.id, begun.article.updatedAt, {
+      publicUrl: "https://cdn.example.test/x.png",
+      filePath: "C:/tmp/x.png"
+    });
+    if (completed.kind !== "saved") throw new Error("complete should save");
+    expect(completed.assets[0]).toMatchObject({
+      status: "generated",
+      publicUrl: "https://cdn.example.test/x.png",
+      filePath: "C:/tmp/x.png"
+    });
+
+    // 生成成功后允许重新生成：generated 状态可以再次 begin。
+    const regenerate = await images.beginGeneration(article.id, asset.id, completed.article.updatedAt);
+    expect(regenerate.kind).toBe("saved");
+
+    const afterReload = await images.findById(article.id, asset.id);
+    expect(afterReload?.filePath).toBe("C:/tmp/x.png");
+    void articles;
+  });
+
+  it("moves generating -> failed and keeps the placeholder usable", async () => {
+    const { images, article } = await createArticleWithBlocks();
+    const planned = await images.applyPlan(article.id, article.updatedAt, [cover]);
+    if (planned.kind !== "saved") throw new Error("plan should save");
+    const asset = planned.assets[0];
+    if (!asset) throw new Error("asset should exist");
+
+    const begun = await images.beginGeneration(article.id, asset.id, planned.article.updatedAt);
+    if (begun.kind !== "saved") throw new Error("begin should save");
+
+    const failed = await images.failGeneration(article.id, asset.id, begun.article.updatedAt);
+    if (failed.kind !== "saved") throw new Error("fail should save");
+    expect(failed.assets[0]?.status).toBe("failed");
+
+    // 失败后可以重试；disabled 后不能生成。
+    const retry = await images.beginGeneration(article.id, asset.id, failed.article.updatedAt);
+    if (retry.kind !== "saved") throw new Error("retry should save");
+
+    const disabled = await images.update(article.id, asset.id, retry.article.updatedAt, {
+      enabled: false
+    });
+    if (disabled.kind !== "saved") throw new Error("disable should save");
+    expect(
+      await images.beginGeneration(article.id, asset.id, disabled.article.updatedAt)
+    ).toMatchObject({ kind: "invalid_state" });
+  });
+
+  it("refuses completion when the asset is not generating", async () => {
+    const { images, article } = await createArticleWithBlocks();
+    const planned = await images.applyPlan(article.id, article.updatedAt, [cover]);
+    if (planned.kind !== "saved") throw new Error("plan should save");
+    const asset = planned.assets[0];
+    if (!asset) throw new Error("asset should exist");
+
+    const completed = await images.completeGeneration(
+      article.id,
+      asset.id,
+      planned.article.updatedAt,
+      { publicUrl: "https://cdn.example.test/x.png", filePath: null }
+    );
+    expect(completed).toMatchObject({ kind: "invalid_state" });
+  });
+});

@@ -55,6 +55,9 @@ export interface ArticleWorkspaceProps {
   updateImageAsset?: UpdateImageAsset;
   deleteImageAsset?: DeleteImageAsset;
   refreshPlaceholder?: DeleteImageAsset;
+  generateImage?: DeleteImageAsset;
+  /** 服务端配置了图片生成能力时为 true，控制生成入口显隐。 */
+  imageGenerationEnabled?: boolean;
   autosaveDelayMs?: number;
   initialStep?: string | null;
   initialVersions?: ArticleRevision<OutlineRevisionSnapshot>[];
@@ -135,6 +138,14 @@ function refreshPlaceholderRequest(articleId: string, assetId: string, expectedU
   );
 }
 
+function generateImageRequest(articleId: string, assetId: string, expectedUpdatedAt: string) {
+  return imageMutationRequest(
+    `/api/articles/${articleId}/image-assets/${assetId}/generate`,
+    "POST",
+    { expectedUpdatedAt }
+  );
+}
+
 export function ArticleWorkspace({
   initialArticle,
   initialSources = [],
@@ -144,6 +155,8 @@ export function ArticleWorkspace({
   updateImageAsset = updateImageAssetRequest,
   deleteImageAsset = deleteImageAssetRequest,
   refreshPlaceholder = refreshPlaceholderRequest,
+  generateImage = generateImageRequest,
+  imageGenerationEnabled = false,
   autosaveDelayMs = 2_000,
   initialStep = null,
   initialVersions = [],
@@ -481,6 +494,12 @@ export function ArticleWorkspace({
               updateImageAsset={(assetId, input) => beginImageOperation(() => updateImageAsset(articleRef.current.id, assetId, input))}
               deleteImageAsset={(assetId, expectedUpdatedAt) => beginImageOperation(() => deleteImageAsset(articleRef.current.id, assetId, expectedUpdatedAt))}
               refreshPlaceholder={(assetId, expectedUpdatedAt) => beginImageOperation(() => refreshPlaceholder(articleRef.current.id, assetId, expectedUpdatedAt))}
+              generateImage={
+                imageGenerationEnabled
+                  ? (assetId, expectedUpdatedAt) =>
+                      beginImageOperation(() => generateImage(articleRef.current.id, assetId, expectedUpdatedAt))
+                  : undefined
+              }
             />
           </section>
         ) : null}

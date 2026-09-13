@@ -1,11 +1,17 @@
 // @vitest-environment node
 
+import { mkdir, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { SqliteArticleRepository } from "@/features/articles/sqlite-repository";
 import { SqliteImageAssetRepository } from "@/features/images/sqlite-repository";
 import type { ImagePlanSuggestion } from "@/features/images/domain";
 import { createTestDatabase } from "../../../../../../tests/helpers/test-db";
 import { createImageAssetContentRouteHandler } from "./route";
+
+const storageDir = resolve(tmpdir(), "wo-xi-content-route-test");
+const PNG_BYTES = Buffer.from("89504e470d0a1a0a-test", "binary");
 
 const suggestion: ImagePlanSuggestion = {
   type: "cover",
@@ -59,6 +65,49 @@ describe("image asset content route", () => {
   it("returns 404 for generated assets without a usable file reference", async () => {
     const { db, images, asset } = await setup();
     db.prepare("UPDATE image_assets SET status = 'generated', file_path = NULL, public_url = NULL WHERE id = ?").run(asset.id);
+
+    const response = await createImageAssetContentRouteHandler(images)(
+      new Request("http://test/content"),
+      context(asset.id)
+    );
+
+    expect(response.status).toBe(404);
+  });
+
+  it("serves the generated file with a binary content type for generated assets", async () => {
+    const { db, images, article, asset } = await setup();
+    const begun = await images.beginGeneration(article.id, asset.id, article.updatedAt);
+    if (begun.kind !== "saved") throw new Error("fixture should begin");
+    const filePath = resolve(storageDir, `${asset.id}.png`);
+    await mkdir(storageDir, { recursive: true });
+    await writeFile(filePath, PNG_BYTES);
+    const completed = await images.completeGeneration(article.id, asset.id, begun.article.updatedAt, {
+      publicUrl: null,
+      filePath
+    });
+    if (completed.kind !== "saved") throw new Error("fixture should complete");
+    void db;
+
+    const response = await createImageAssetContentRouteHandler(images)(
+      new Request("http://test/content"),
+      context(asset.id)
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("image/png");
+    const body = Buffer.from(await response.arrayBuffer());
+    expect(body.equals(PNG_BYTES)).toBe(true);
+  });
+
+  it("returns 404 when the generated file is missing on disk", async () => {
+    const { images, article, asset } = await setup();
+    const begun = await images.beginGeneration(article.id, asset.id, article.updatedAt);
+    if (begun.kind !== "saved") throw new Error("fixture should begin");
+    const completed = await images.completeGeneration(article.id, asset.id, begun.article.updatedAt, {
+      publicUrl: null,
+      filePath: resolve(storageDir, "never-written.png")
+    });
+    if (completed.kind !== "saved") throw new Error("fixture should complete");
 
     const response = await createImageAssetContentRouteHandler(images)(
       new Request("http://test/content"),

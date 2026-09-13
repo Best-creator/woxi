@@ -22,6 +22,7 @@ export interface GenerationPanelProps {
   updateImageAsset: (assetId: string, input: ImageAssetPatch & { expectedUpdatedAt: string }) => Promise<ImageMutationPayload>;
   deleteImageAsset: (assetId: string, expectedUpdatedAt: string) => Promise<ImageMutationPayload>;
   refreshPlaceholder: (assetId: string, expectedUpdatedAt: string) => Promise<ImageMutationPayload>;
+  generateImage?: (assetId: string, expectedUpdatedAt: string) => Promise<ImageMutationPayload>;
 }
 
 export function GenerationPanel({
@@ -33,7 +34,8 @@ export function GenerationPanel({
   planImages,
   updateImageAsset,
   deleteImageAsset,
-  refreshPlaceholder
+  refreshPlaceholder,
+  generateImage
 }: GenerationPanelProps) {
   return (
     <section className="generation-panel generation-panel-images" aria-label="配图规划">
@@ -51,6 +53,7 @@ export function GenerationPanel({
         updateAsset={updateImageAsset}
         deleteAsset={deleteImageAsset}
         refreshPlaceholder={refreshPlaceholder}
+        generateImage={generateImage}
       />
     </section>
   );

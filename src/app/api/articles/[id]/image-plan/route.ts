@@ -10,6 +10,7 @@ import {
 } from "@/server/services";
 
 export const runtime = "nodejs";
+export const maxDuration = 150;
 
 interface RouteContext {
   params: Promise<{ id: string }>;

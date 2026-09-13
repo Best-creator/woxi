@@ -7,6 +7,8 @@ import { DemoVisualPlanner } from "@/features/images/demo-visual-planner";
 import { OpenAiVisualPlanner } from "@/features/images/openai-visual-planner";
 import { SqliteImageAssetRepository } from "@/features/images/sqlite-repository";
 import { OpenAiJsonClient } from "@/features/llm/openai-json-client";
+import type { ImageGenerator } from "@/features/images/image-generator";
+import { OpenAiImageGenerator } from "@/features/images/openai-image-generator";
 import { DemoOutlineGenerator, DemoOutlineReviewer } from "@/features/outlines/demo-outline-agents";
 import { OpenAiOutlineGenerator } from "@/features/outlines/openai-outline-generator";
 import { OpenAiOutlineReviewer } from "@/features/outlines/openai-outline-reviewer";
@@ -42,6 +44,7 @@ let outlineGenerator: OutlineGenerator | undefined;
 let outlineReviewer: OutlineReviewer | undefined;
 let openAiJsonClient: OpenAiJsonClient | undefined;
 let webSearch: WebSearchPort | undefined;
+let imageGenerator: ImageGenerator | undefined;
 let database: ReturnType<typeof openDatabase> | undefined;
 
 function getDatabase() {
@@ -158,4 +161,12 @@ export function getWebSearch(): WebSearchPort {
     ? new NullWebSearch()
     : new ResilientWebSearch(new SogouWebSearch(), new BingWebSearch());
   return webSearch;
+}
+
+/** 真实图片生成器；未配置 IMAGE_API_KEY 时返回 null（调用方自行降级或拒绝）。 */
+export function getImageGenerator(): ImageGenerator | null {
+  const config = getServerConfig().image;
+  if (!config) return null;
+  imageGenerator ??= new OpenAiImageGenerator(config);
+  return imageGenerator;
 }

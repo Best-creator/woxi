@@ -159,6 +159,88 @@ describe("ImagePlanningPanel", () => {
     expect(deleteAsset).toHaveBeenCalledWith("asset-1", article.updatedAt);
   });
 
+  it("generates a real image when configured, then allows regeneration after success", async () => {
+    const user = userEvent.setup();
+    const article = articleFixture({ blocks: [paragraphBlock()] });
+    const generatedArticle = { ...article, updatedAt: "2026-09-09T00:00:03.000Z" };
+    const generatedAssets = [
+      imageAsset({ status: "generated", publicUrl: "https://cdn.example.test/a.png" })
+    ];
+    const generateImage = vi.fn(async () => ({ article: generatedArticle, assets: generatedAssets }));
+
+    // 未配置生成服务时按钮不出现。
+    const { unmount } = render(
+      <ImagePlanningPanel article={article} assets={[imageAsset()]} onResult={vi.fn()} />
+    );
+    expect(screen.queryByRole("button", { name: "生成配图 1" })).not.toBeInTheDocument();
+    unmount();
+
+    // 有状态包装组件模拟 workspace 的 onResult 回灌。
+    function TestPanel() {
+      const [currentArticle, setCurrentArticle] = useState(article);
+      const [assets, setAssets] = useState([imageAsset()]);
+      return (
+        <ImagePlanningPanel
+          article={currentArticle}
+          assets={assets}
+          generateImage={generateImage}
+          onResult={(nextArticle, nextAssets) => {
+            setCurrentArticle(nextArticle);
+            setAssets(nextAssets);
+          }}
+        />
+      );
+    }
+    render(<TestPanel />);
+
+    await user.click(screen.getByRole("button", { name: "生成配图 1" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "重新生成配图 1" })).toBeVisible()
+    );
+    expect(generateImage).toHaveBeenCalledWith("asset-1", article.updatedAt);
+    expect(screen.getByText("已生成")).toBeVisible();
+  });
+
+  it("hides and disables the generate entry per status and configuration", async () => {
+    const user = userEvent.setup();
+    const article = articleFixture({ blocks: [paragraphBlock()] });
+    const generateImage = vi.fn(async () => ({ article, assets: [imageAsset()] }));
+
+    // disabled 状态的资产不能生成。
+    const { rerender } = render(
+      <ImagePlanningPanel
+        article={article}
+        assets={[imageAsset({ status: "disabled" })]}
+        onResult={vi.fn()}
+        generateImage={generateImage}
+      />
+    );
+    expect(screen.getByRole("button", { name: "生成配图 1" })).toBeDisabled();
+
+    // generating 状态的资产不能重复触发生成。
+    rerender(
+      <ImagePlanningPanel
+        article={article}
+        assets={[imageAsset({ status: "generating" })]}
+        onResult={vi.fn()}
+        generateImage={generateImage}
+      />
+    );
+    expect(screen.getByRole("button", { name: "生成配图 1" })).toBeDisabled();
+
+    // 正常状态可点击。
+    rerender(
+      <ImagePlanningPanel
+        article={article}
+        assets={[imageAsset()]}
+        onResult={vi.fn()}
+        generateImage={generateImage}
+      />
+    );
+    await user.click(screen.getByRole("button", { name: "生成配图 1" }));
+    await waitFor(() => expect(generateImage).toHaveBeenCalledOnce());
+  });
+
   it("shows assets without editable controls in read-only mode", () => {
     const article = articleFixture({ blocks: [paragraphBlock()] });
     render(
