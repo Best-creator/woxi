@@ -127,7 +127,13 @@ export function getVisualPlanner() {
   if (!visualPlanner) {
     const config = getServerConfig();
     visualPlanner = config.llm
-      ? new OpenAiVisualPlanner(config.llm)
+      ? new OpenAiVisualPlanner({
+          baseUrl: config.llm.baseUrl,
+          apiKey: config.llm.apiKey,
+          // 视觉规划是结构化 JSON 输出任务，深度推理模型（reasoning tokens 占比高）
+          // 规划一次可达两分钟，容易撞上超时；优先用 LLM_VISUAL_MODEL 指定的快模型。
+          model: config.llm.visualModel || config.llm.model
+        })
       : new DemoVisualPlanner();
   }
   return visualPlanner;

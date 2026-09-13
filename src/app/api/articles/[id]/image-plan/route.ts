@@ -17,7 +17,8 @@ interface RouteContext {
 }
 
 const requestSchema = z.object({
-  expectedUpdatedAt: z.iso.datetime()
+  expectedUpdatedAt: z.iso.datetime(),
+  model: z.string().trim().min(1).optional()
 });
 
 export function createImagePlanRouteHandler(
@@ -38,7 +39,9 @@ export function createImagePlanRouteHandler(
       return Response.json({ error: "文章版本信息无效" }, { status: 400 });
     }
 
-    const result = await planImages(id, input.data.expectedUpdatedAt, articles, images, planner);
+    const result = await planImages(id, input.data.expectedUpdatedAt, articles, images, planner, {
+      model: input.data.model
+    });
     if (result.kind === "not_found") {
       return Response.json({ error: "文章不存在" }, { status: 404 });
     }

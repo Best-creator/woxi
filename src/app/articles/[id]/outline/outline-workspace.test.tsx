@@ -149,8 +149,10 @@ describe("OutlineWorkspace", () => {
 
     await user.click(screen.getByRole("button", { name: "刷新可用模型" }));
 
-    expect(await screen.findByRole("option", { name: "gemini-3.0-pro" })).toBeVisible();
-    expect(screen.getByLabelText("生成模型")).toHaveValue("grok-4.6");
+    // 生成模型与审核模型两个下拉都包含同名选项：断言限定在生成模型下拉内。
+    const generateSelect = screen.getByLabelText("生成模型");
+    expect(generateSelect).toHaveValue("grok-4.6");
+    expect(within(generateSelect).getByRole("option", { name: "gemini-3.0-pro" })).toBeVisible();
     expect(fetchSpy).toHaveBeenCalledWith("/api/llm/models");
     fetchSpy.mockRestore();
   });

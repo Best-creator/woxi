@@ -5,6 +5,7 @@ import { useState } from "react";
 import type { Article, ContentBlock } from "@/features/articles/domain";
 import type { ImageAsset, ImageAspectRatio } from "@/features/images/domain";
 import type { ImageAssetPatch } from "@/features/images/repository";
+import { ModelSelect } from "./model-select";
 
 export interface ImageMutationPayload {
   article: Article;
@@ -17,7 +18,7 @@ export interface ImagePlanningPanelProps {
   readOnly?: boolean;
   locked?: boolean;
   onResult: (article: Article, assets: ImageAsset[]) => void;
-  planImages?: (expectedUpdatedAt: string) => Promise<ImageMutationPayload>;
+  planImages?: (expectedUpdatedAt: string, model?: string) => Promise<ImageMutationPayload>;
   updateAsset?: (
     assetId: string,
     input: ImageAssetPatch & { expectedUpdatedAt: string }
@@ -29,6 +30,9 @@ export interface ImagePlanningPanelProps {
   ) => Promise<ImageMutationPayload>;
   /** 真实图片生成服务；未提供（未配置）时不显示生成入口。 */
   generateImage?: (assetId: string, expectedUpdatedAt: string) => Promise<ImageMutationPayload>;
+  /** 配图规划的模型选择：默认走服务端 LLM_VISUAL_MODEL（快模型），可手动切换。 */
+  llmEnabled?: boolean;
+  availableModels?: string[];
 }
 
 const typeLabels: Record<ImageAsset["type"], string> = {
@@ -90,11 +94,14 @@ export function ImagePlanningPanel({
   updateAsset,
   deleteAsset,
   refreshPlaceholder,
-  generateImage
+  generateImage,
+  llmEnabled = false,
+  availableModels = []
 }: ImagePlanningPanelProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [drafts, setDrafts] = useState<Record<string, ImageDraft>>({});
+  const [planModel, setPlanModel] = useState("");
   const anchors = article.blocks.filter((block) => block.type !== "image");
 
   function updateDraft(asset: ImageAsset, field: "prompt" | "altText", value: string) {
@@ -134,15 +141,28 @@ export function ImagePlanningPanel({
         ) : null}
         {error ? <p className="image-plan-error" role="alert">{error}</p> : null}
         {!readOnly ? (
-          <button
-            className="button button-primary generation-button"
-            type="button"
-            disabled={locked || busy || !planImages}
-            onClick={() => planImages && void run(() => planImages(article.updatedAt))}
-          >
-            <ImagePlus size={16} aria-hidden="true" />
-            {busy ? "正在分析..." : "分析配图需求"}
-          </button>
+          <>
+            <ModelSelect
+              enabled={llmEnabled}
+              availableModels={availableModels}
+              value={planModel}
+              id="image-plan-model"
+              label="规划模型"
+              disabled={locked || busy}
+              includeDefaultOption
+              defaultOptionLabel="默认（轻量快模型）"
+              onChange={setPlanModel}
+            />
+            <button
+              className="button button-primary generation-button"
+              type="button"
+              disabled={locked || busy || !planImages}
+              onClick={() => planImages && void run(() => planImages(article.updatedAt, planModel || undefined))}
+            >
+              <ImagePlus size={16} aria-hidden="true" />
+              {busy ? "正在分析..." : "分析配图需求"}
+            </button>
+          </>
         ) : null}
       </div>
     );

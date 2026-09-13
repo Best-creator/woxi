@@ -47,7 +47,33 @@ describe("ImagePlanningPanel", () => {
     await user.click(screen.getByRole("button", { name: "分析配图需求" }));
 
     await waitFor(() => expect(onResult).toHaveBeenCalledWith(plannedArticle, plannedAssets));
-    expect(planImages).toHaveBeenCalledWith("2026-09-09T00:00:00.000Z");
+    // 规划模型下拉默认选「默认」：不透传 model（第二参为 undefined）。
+    expect(planImages).toHaveBeenCalledWith("2026-09-09T00:00:00.000Z", undefined);
+  });
+
+  it("passes the selected planning model to the plan request", async () => {
+    const user = userEvent.setup();
+    const article = articleFixture({ blocks: [paragraphBlock()] });
+    const planImages = vi.fn(async () => ({
+      article,
+      assets: [imageAsset({ id: "asset-new" })]
+    }));
+    const onResult = vi.fn();
+    render(
+      <ImagePlanningPanel
+        article={article}
+        assets={[]}
+        onResult={onResult}
+        planImages={planImages}
+        llmEnabled
+        availableModels={["glm-5.3-flash", "grok-4.6"]}
+      />
+    );
+
+    await user.selectOptions(screen.getByLabelText("规划模型"), "glm-5.3-flash");
+    await user.click(screen.getByRole("button", { name: "分析配图需求" }));
+
+    await waitFor(() => expect(planImages).toHaveBeenCalledWith("2026-09-09T00:00:00.000Z", "glm-5.3-flash"));
   });
 
   it("renders planned asset details and returns the server snapshot after editing its prompt", async () => {

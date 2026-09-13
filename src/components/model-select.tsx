@@ -10,6 +10,9 @@ export interface ModelSelectProps {
   label?: string;
   disabled?: boolean;
   refreshing?: boolean;
+  /** 首位追加「默认」空值选项：选中后不透传，由服务端按任务类型选默认模型。 */
+  includeDefaultOption?: boolean;
+  defaultOptionLabel?: string;
   onRefresh?: () => void;
   onChange: (model: string) => void;
 }
@@ -22,6 +25,8 @@ export function ModelSelect({
   label = "生成模型",
   disabled = false,
   refreshing = false,
+  includeDefaultOption = false,
+  defaultOptionLabel = "默认（服务端配置）",
   onRefresh,
   onChange
 }: ModelSelectProps) {
@@ -35,6 +40,7 @@ export function ModelSelect({
           disabled={disabled || !enabled || refreshing}
           onChange={(event) => onChange(event.target.value)}
         >
+          {includeDefaultOption ? <option value="">{defaultOptionLabel}</option> : null}
           {enabled ? availableModels.map((model) => (
             <option key={model} value={model}>{model}</option>
           )) : <option value="">演示模式</option>}

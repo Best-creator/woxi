@@ -8,7 +8,8 @@ const config = {
   model: "grok-4.6",
   availableModels: ["grok-4.6"],
   researchModel: "",
-  reviewModel: ""
+  reviewModel: "",
+  visualModel: ""
 };
 
 describe("LLM model discovery", () => {

@@ -188,7 +188,8 @@ describe("ArticleWorkspace", () => {
 
     await user.click(screen.getByRole("button", { name: "分析配图需求" }));
 
-    expect(planImages).toHaveBeenCalledWith("article-1", "2026-09-09T00:00:00.000Z");
+    // 规划模型默认走服务端配置（下拉为空 → model 为 undefined）。
+    expect(planImages).toHaveBeenCalledWith("article-1", "2026-09-09T00:00:00.000Z", undefined);
   });
 
   it("persists an embedded outline edit after navigating away before its debounce", async () => {

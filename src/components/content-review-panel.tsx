@@ -4,6 +4,8 @@ import { Check, CircleAlert, ShieldAlert, Sparkles } from "lucide-react";
 import { useState } from "react";
 import type { ContentReviewResult } from "@/features/content/ports";
 import type { ArticleReview } from "@/features/revisions/domain";
+import { ModelSelect } from "./model-select";
+import type { ReviewModelSelect } from "./outline-review-panel";
 
 export interface ContentReviewPanelProps {
   review: ArticleReview<ContentReviewResult> | null;
@@ -15,6 +17,7 @@ export interface ContentReviewPanelProps {
   isApproving?: boolean;
   approved?: boolean;
   disabled?: boolean;
+  modelSelect?: ReviewModelSelect;
   onReview: () => void;
   onApprove: (acknowledgeWarnings: boolean) => void;
   onLocateIssue?: (blockIds: string[]) => void;
@@ -46,6 +49,7 @@ export function ContentReviewPanel({
   isApproving = false,
   approved = false,
   disabled = false,
+  modelSelect,
   onReview,
   onApprove,
   onLocateIssue
@@ -120,6 +124,19 @@ export function ContentReviewPanel({
             </ul>
           ) : null}
         </div>
+      ) : null}
+
+      {modelSelect ? (
+        <ModelSelect
+          enabled={modelSelect.enabled}
+          availableModels={modelSelect.availableModels}
+          value={modelSelect.value}
+          id="content-review-model"
+          label="审核模型"
+          includeDefaultOption
+          defaultOptionLabel="默认（轻量快模型）"
+          onChange={modelSelect.onChange}
+        />
       ) : null}
 
       {requiresAcknowledgement ? (

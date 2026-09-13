@@ -151,6 +151,8 @@ export function ContentWorkspace({
   const [versionReviews, setVersionReviews] = useState<ContentVersionReviews>(initialVersionReviews);
   const [previewVersionId, setPreviewVersionId] = useState<string | null>(null);
   const [availableModels, setAvailableModels] = useState(llmConfig.availableModels);
+  // 审核模型独立于生成模型：默认空值走服务端 LLM_REVIEW_MODEL（快模型）。
+  const [reviewModel, setReviewModel] = useState("");
   const [isRefreshingModels, setIsRefreshingModels] = useState(false);
   const [model, setModel] = useState(
     llmConfig.enabled ? llmConfig.defaultModel ?? llmConfig.availableModels[0] ?? "" : ""
@@ -257,10 +259,11 @@ export function ContentWorkspace({
     void run(async () => {
       setPreviewVersionId(null);
       const saved = await prepareArticle();
-      // 审核不透传模型选择器的值：审核走服务端默认的 LLM_REVIEW_MODEL（打分类轻量模型），
-      // 模型选择器面向正文生成等改写任务。
+      // 审核模型可选：面板下拉选「默认」时不透传，走服务端 LLM_REVIEW_MODEL；
+      // 选了具体模型则用用户的选择（每个流程都可切换）。
       const result = await (reviewContent ?? reviewContentRequest(saved.id))({
-        expectedUpdatedAt: saved.updatedAt
+        expectedUpdatedAt: saved.updatedAt,
+        ...(reviewModel ? { model: reviewModel } : {})
       });
       setCurrentReview(result);
       setVersions((items) => addVersion(items, result.revision));
@@ -415,6 +418,12 @@ export function ContentWorkspace({
             isApproving={operation === "approving"}
             approved={approved && !isPreviewing}
             disabled={isBusy}
+            modelSelect={{
+              enabled: llmConfig.enabled,
+              availableModels,
+              value: reviewModel,
+              onChange: setReviewModel
+            }}
             onReview={handleReview}
             onApprove={handleApprove}
             onLocateIssue={locateIssue}

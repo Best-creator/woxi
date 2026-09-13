@@ -4,6 +4,15 @@ import { Check, CircleAlert, ShieldAlert, Sparkles } from "lucide-react";
 import { useState } from "react";
 import type { OutlineReviewResult } from "@/features/outlines/domain";
 import type { ArticleReview } from "@/features/revisions/domain";
+import { ModelSelect } from "./model-select";
+
+/** 审核模型选择配置：缺省渲染时不显示下拉，审核走服务端默认（LLM_REVIEW_MODEL）。 */
+export interface ReviewModelSelect {
+  enabled: boolean;
+  availableModels: string[];
+  value: string;
+  onChange: (model: string) => void;
+}
 
 export interface OutlineReviewPanelProps {
   review: ArticleReview<OutlineReviewResult> | null;
@@ -16,6 +25,7 @@ export interface OutlineReviewPanelProps {
   confirmed?: boolean;
   disabled?: boolean;
   previewing?: boolean;
+  modelSelect?: ReviewModelSelect;
   onReview: () => void;
   onConfirm: (acknowledgeWarnings: boolean) => void;
   onApplyReview?: () => void;
@@ -38,6 +48,7 @@ export function OutlineReviewPanel({
   confirmed = false,
   disabled = false,
   previewing = false,
+  modelSelect,
   onReview,
   onConfirm,
   onApplyReview
@@ -72,6 +83,19 @@ export function OutlineReviewPanel({
             </ul>
           ) : null}
         </div>
+      ) : null}
+
+      {modelSelect && !previewing ? (
+        <ModelSelect
+          enabled={modelSelect.enabled}
+          availableModels={modelSelect.availableModels}
+          value={modelSelect.value}
+          id="outline-review-model"
+          label="审核模型"
+          includeDefaultOption
+          defaultOptionLabel="默认（轻量快模型）"
+          onChange={modelSelect.onChange}
+        />
       ) : null}
 
       {requiresAcknowledgement ? (

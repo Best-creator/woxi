@@ -46,7 +46,7 @@ export class OpenAiVisualPlanner implements VisualPlanner {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          model: this.config.model,
+          model: input.model?.trim() || this.config.model,
           stream: false,
           response_format: { type: "json_object" },
           messages: [

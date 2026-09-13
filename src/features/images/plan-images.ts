@@ -27,7 +27,8 @@ export async function planImages(
   expectedUpdatedAt: string,
   articles: ArticleRepository,
   images: ImageAssetRepository,
-  planner: VisualPlanner
+  planner: VisualPlanner,
+  options?: { model?: string }
 ): Promise<PlanImagesResult> {
   const article = await articles.findById(articleId);
   if (!article) return { kind: "not_found" };
@@ -47,7 +48,8 @@ export async function planImages(
     suggestions = await planner.plan({
       title: article.title,
       topic: article.topic,
-      blocks
+      blocks,
+      ...(options?.model ? { model: options.model } : {})
     });
   } catch (error) {
     return { kind: "planner_error", message: plannerErrorMessage(error) };

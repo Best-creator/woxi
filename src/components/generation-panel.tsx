@@ -18,11 +18,14 @@ export interface GenerationPanelProps {
   readOnly?: boolean;
   imageOperationsLocked?: boolean;
   onImageResult: (result: ImageMutationPayload) => void;
-  planImages: (expectedUpdatedAt: string) => Promise<ImageMutationPayload>;
+  planImages: (expectedUpdatedAt: string, model?: string) => Promise<ImageMutationPayload>;
   updateImageAsset: (assetId: string, input: ImageAssetPatch & { expectedUpdatedAt: string }) => Promise<ImageMutationPayload>;
   deleteImageAsset: (assetId: string, expectedUpdatedAt: string) => Promise<ImageMutationPayload>;
   refreshPlaceholder: (assetId: string, expectedUpdatedAt: string) => Promise<ImageMutationPayload>;
   generateImage?: (assetId: string, expectedUpdatedAt: string) => Promise<ImageMutationPayload>;
+  /** 配图规划的模型选择（默认走服务端 LLM_VISUAL_MODEL）。 */
+  llmEnabled?: boolean;
+  availableModels?: string[];
 }
 
 export function GenerationPanel({
@@ -35,7 +38,9 @@ export function GenerationPanel({
   updateImageAsset,
   deleteImageAsset,
   refreshPlaceholder,
-  generateImage
+  generateImage,
+  llmEnabled = false,
+  availableModels = []
 }: GenerationPanelProps) {
   return (
     <section className="generation-panel generation-panel-images" aria-label="配图规划">
@@ -54,6 +59,8 @@ export function GenerationPanel({
         deleteAsset={deleteImageAsset}
         refreshPlaceholder={refreshPlaceholder}
         generateImage={generateImage}
+        llmEnabled={llmEnabled}
+        availableModels={availableModels}
       />
     </section>
   );

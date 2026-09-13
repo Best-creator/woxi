@@ -34,7 +34,7 @@ type SaveArticle = (
   expectedUpdatedAt: string
 ) => Promise<SaveArticleResult>;
 
-type PlanImages = (articleId: string, expectedUpdatedAt: string) => Promise<ImageMutationPayload>;
+type PlanImages = (articleId: string, expectedUpdatedAt: string, model?: string) => Promise<ImageMutationPayload>;
 type UpdateImageAsset = (
   articleId: string,
   assetId: string,
@@ -114,8 +114,11 @@ async function imageMutationRequest(
   return { article: result.article, assets: result.assets };
 }
 
-function planImagesRequest(articleId: string, expectedUpdatedAt: string) {
-  return imageMutationRequest(`/api/articles/${articleId}/image-plan`, "POST", { expectedUpdatedAt });
+function planImagesRequest(articleId: string, expectedUpdatedAt: string, model?: string) {
+  return imageMutationRequest(`/api/articles/${articleId}/image-plan`, "POST", {
+    expectedUpdatedAt,
+    ...(model ? { model } : {})
+  });
 }
 
 function updateImageAssetRequest(
@@ -491,7 +494,10 @@ export function ArticleWorkspace({
               readOnly={isNarrowViewport}
               imageOperationsLocked={isDirty || autosaveBlocked || saveState === "saving"}
               onImageResult={applyImageResult}
-              planImages={(expectedUpdatedAt) => beginImageOperation(() => planImages(articleRef.current.id, expectedUpdatedAt))}
+              planImages={(expectedUpdatedAt, model) =>
+                beginImageOperation(() => planImages(articleRef.current.id, expectedUpdatedAt, model))}
+              llmEnabled={llmConfig.enabled}
+              availableModels={llmConfig.availableModels}
               updateImageAsset={(assetId, input) => beginImageOperation(() => updateImageAsset(articleRef.current.id, assetId, input))}
               deleteImageAsset={(assetId, expectedUpdatedAt) => beginImageOperation(() => deleteImageAsset(articleRef.current.id, assetId, expectedUpdatedAt))}
               refreshPlaceholder={(assetId, expectedUpdatedAt) => beginImageOperation(() => refreshPlaceholder(articleRef.current.id, assetId, expectedUpdatedAt))}

@@ -172,6 +172,8 @@ export function OutlineWorkspace({
   const [previewVersionId, setPreviewVersionId] = useState<string | null>(null);
   const [availableModels, setAvailableModels] = useState(llmConfig.availableModels);
   const [isRefreshingModels, setIsRefreshingModels] = useState(false);
+  // 审核模型独立于生成模型：默认空值走服务端 LLM_REVIEW_MODEL（快模型）。
+  const [reviewModel, setReviewModel] = useState("");
   // 「按审核意见改大纲」后旧审核必然失效（新大纲没有对应审核记录），需要显式标记；
   // 手动修改是否失效则实时比对当前草稿与审核快照——改回已审核的内容即自动恢复确认可用。
   const [reviewApplied, setReviewApplied] = useState(false);
@@ -295,10 +297,11 @@ export function OutlineWorkspace({
     void run(async () => {
       setPreviewVersionId(null);
       const saved = await persistChanges();
-      // 审核不透传模型选择器的值：模型选择器面向生成等改写任务，
-      // 审核走服务端默认的 LLM_REVIEW_MODEL（打分类轻量模型），未配置时回落主模型。
+      // 审核模型可选：面板下拉选「默认」时不透传，走服务端 LLM_REVIEW_MODEL；
+      // 选了具体模型则用用户的选择（每个流程都可切换）。
       const result = await (reviewOutline ?? reviewOutlineRequest(saved.id))({
-        expectedUpdatedAt: saved.updatedAt
+        expectedUpdatedAt: saved.updatedAt,
+        ...(reviewModel ? { model: reviewModel } : {})
       });
       setCurrentReview(result);
       setVersions((items) => addVersion(items, result.revision));
@@ -473,6 +476,12 @@ export function OutlineWorkspace({
             confirmed={Boolean(article.outlineConfirmedAt)}
             disabled={isBusy}
             previewing={isPreviewing}
+            modelSelect={{
+              enabled: llmConfig.enabled,
+              availableModels,
+              value: reviewModel,
+              onChange: setReviewModel
+            }}
             onReview={handleReview}
             onConfirm={handleConfirm}
             onApplyReview={handleApplyReview}
