@@ -17,6 +17,8 @@ export interface LlmProviderConfig extends ProviderConfig {
   reviewModel: string;
   /** 配图视觉规划等结构化输出任务使用的模型；为空时回落到 model。规划输出 JSON，深度推理模型慢且易超时。 */
   visualModel: string;
+  /** 从参考图提取形象等看图任务使用的模型；为空时回落到 model。需要模型本身支持图片输入。 */
+  visionModel: string;
 }
 
 export interface ServerConfig {
@@ -40,6 +42,7 @@ const envSchema = z.object({
   LLM_RESEARCH_MODEL: z.string().default(""),
   LLM_REVIEW_MODEL: z.string().default(""),
   LLM_VISUAL_MODEL: z.string().default(""),
+  LLM_VISION_MODEL: z.string().default(""),
   IMAGE_BASE_URL: z.url().default("https://image2.xiaobupao.cn"),
   IMAGE_API_KEY: z.string().default(""),
   IMAGE_MODEL: z.string().default("gpt-image-2")
@@ -88,7 +91,8 @@ function llmProvider(
   models: string,
   researchModel: string,
   reviewModel: string,
-  visualModel: string
+  visualModel: string,
+  visionModel: string
 ): LlmProviderConfig | null {
   const config = provider(baseUrl, apiKey, model, "LLM", false);
   if (!config) return null;
@@ -103,7 +107,8 @@ function llmProvider(
     availableModels,
     researchModel: researchModel.trim(),
     reviewModel: reviewModel.trim(),
-    visualModel: visualModel.trim()
+    visualModel: visualModel.trim(),
+    visionModel: visionModel.trim()
   };
 }
 
@@ -122,7 +127,8 @@ export function parseServerConfig(
       value.LLM_MODELS,
       value.LLM_RESEARCH_MODEL,
       value.LLM_REVIEW_MODEL,
-      value.LLM_VISUAL_MODEL
+      value.LLM_VISUAL_MODEL,
+      value.LLM_VISION_MODEL
     ),
     image: provider(value.IMAGE_BASE_URL, value.IMAGE_API_KEY, value.IMAGE_MODEL, "IMAGE")
   };

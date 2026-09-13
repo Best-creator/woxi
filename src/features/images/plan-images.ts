@@ -3,7 +3,7 @@ import type { ArticleRepository } from "@/features/articles/repository";
 import type { ImageAsset } from "./domain";
 import { VisualPlannerError } from "./openai-visual-planner";
 import type { ImageAssetRepository } from "./repository";
-import type { VisualPlanner } from "./visual-planner";
+import type { VisualCharacterBrief, VisualPlanner } from "./visual-planner";
 
 export type PlanImagesResult =
   | { kind: "planned"; article: Article; assets: ImageAsset[] }
@@ -28,7 +28,7 @@ export async function planImages(
   articles: ArticleRepository,
   images: ImageAssetRepository,
   planner: VisualPlanner,
-  options?: { model?: string }
+  options?: { model?: string; style?: string; character?: VisualCharacterBrief }
 ): Promise<PlanImagesResult> {
   const article = await articles.findById(articleId);
   if (!article) return { kind: "not_found" };
@@ -49,6 +49,8 @@ export async function planImages(
       title: article.title,
       topic: article.topic,
       blocks,
+      ...(options?.style?.trim() ? { style: options.style.trim() } : {}),
+      ...(options?.character ? { character: options.character } : {}),
       ...(options?.model ? { model: options.model } : {})
     });
   } catch (error) {

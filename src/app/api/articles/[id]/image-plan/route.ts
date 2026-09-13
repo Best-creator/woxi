@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ReferenceCharacterRepository } from "@/features/characters/domain";
 import type { ArticleRepository } from "@/features/articles/repository";
 import type { ImageAssetRepository } from "@/features/images/repository";
 import { planImages } from "@/features/images/plan-images";
@@ -6,6 +7,7 @@ import type { VisualPlanner } from "@/features/images/visual-planner";
 import {
   getArticleRepository,
   getImageAssetRepository,
+  getReferenceCharacterRepository,
   getVisualPlanner
 } from "@/server/services";
 
@@ -18,13 +20,16 @@ interface RouteContext {
 
 const requestSchema = z.object({
   expectedUpdatedAt: z.iso.datetime(),
-  model: z.string().trim().min(1).optional()
+  model: z.string().trim().min(1).optional(),
+  style: z.string().trim().min(1).max(200).optional(),
+  characterId: z.string().trim().min(1).optional()
 });
 
 export function createImagePlanRouteHandler(
   articles: ArticleRepository,
   images: ImageAssetRepository,
-  planner: VisualPlanner
+  planner: VisualPlanner,
+  characters: ReferenceCharacterRepository | null = null
 ) {
   return async function POST(request: Request, context: RouteContext) {
     const { id } = await context.params;
@@ -39,8 +44,27 @@ export function createImagePlanRouteHandler(
       return Response.json({ error: "文章版本信息无效" }, { status: 400 });
     }
 
+    // 参考形象由服务端解析成外形描述，避免信任客户端拼好的文案。
+    let character;
+    if (input.data.characterId) {
+      if (!characters) {
+        return Response.json({ error: "参考形象功能不可用" }, { status: 400 });
+      }
+      const record = await characters.findById(input.data.characterId);
+      if (!record) {
+        return Response.json({ error: "参考形象不存在或已删除，请重新选择" }, { status: 400 });
+      }
+      character = {
+        name: record.name,
+        persona: record.persona,
+        description: record.description
+      };
+    }
+
     const result = await planImages(id, input.data.expectedUpdatedAt, articles, images, planner, {
-      model: input.data.model
+      ...(input.data.model ? { model: input.data.model } : {}),
+      ...(input.data.style ? { style: input.data.style } : {}),
+      ...(character ? { character } : {})
     });
     if (result.kind === "not_found") {
       return Response.json({ error: "文章不存在" }, { status: 404 });
@@ -68,6 +92,7 @@ export function POST(request: Request, context: RouteContext) {
   return createImagePlanRouteHandler(
     getArticleRepository(),
     getImageAssetRepository(),
-    getVisualPlanner()
+    getVisualPlanner(),
+    getReferenceCharacterRepository()
   )(request, context);
 }

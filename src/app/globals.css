@@ -1445,6 +1445,125 @@ h2 {
   min-width: 0;
 }
 
+.plan-guide {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 12px;
+}
+
+.plan-guide-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.plan-guide-field {
+  display: grid;
+  flex: 1 1 180px;
+  gap: 5px;
+  min-width: 0;
+}
+
+.plan-guide-field > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.plan-guide-field input,
+.plan-guide-field select,
+.plan-guide-field textarea {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  min-width: 0;
+  padding: 7px 8px;
+  width: 100%;
+}
+
+.plan-guide-field textarea {
+  resize: vertical;
+}
+
+.plan-upload-form {
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 10px;
+  padding-top: 10px;
+}
+
+.plan-upload-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.plan-character-card {
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 12px;
+  padding-top: 10px;
+}
+
+.plan-character-thumb {
+  background: var(--surface-subtle);
+  border-radius: var(--radius-sm);
+  flex: 0 0 120px;
+  height: 90px;
+  object-fit: cover;
+  width: 120px;
+}
+
+.plan-character-fields {
+  display: grid;
+  flex: 1;
+  gap: 8px;
+  min-width: 0;
+}
+
+.plan-character-name {
+  font-size: 13px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.plan-character-actions {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.plan-character-actions .outline-model-control {
+  flex: 1 1 200px;
+}
+
+.plan-character-delete {
+  color: #b42318;
+}
+
+.plan-guide-actions {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+@media (max-width: 720px) {
+  .plan-character-card {
+    flex-direction: column;
+  }
+
+  .plan-character-thumb {
+    width: 100%;
+  }
+}
+
 .image-plan-error {
   background: #fff4ed;
   border: 1px solid #f4c7a8;

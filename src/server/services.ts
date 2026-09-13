@@ -1,4 +1,7 @@
 import { SqliteArticleRepository } from "@/features/articles/sqlite-repository";
+import { SqliteReferenceCharacterRepository } from "@/features/characters/sqlite-repository";
+import type { CharacterDescriber } from "@/features/characters/character-describer";
+import { OpenAiCharacterDescriber } from "@/features/characters/openai-character-describer";
 import { DemoContentGenerator, DemoContentReviewer } from "@/features/content/demo-content-agents";
 import { OpenAiContentGenerator } from "@/features/content/openai-content-generator";
 import { OpenAiContentReviewer } from "@/features/content/openai-content-reviewer";
@@ -23,6 +26,8 @@ import { SqliteOutlineWorkflowRepository } from "@/features/outlines/sqlite-work
 import { SqliteContentWorkflowRepository } from "@/features/content/sqlite-workflow-repository";
 import type { VisualPlanner } from "@/features/images/visual-planner";
 import { openDatabase } from "./db";
+import { getCharacterImageStore } from "./character-storage";
+export { getCharacterImageStore };
 import { SqliteSourceRepository } from "@/features/sources/sqlite-repository";
 import { SqliteSourceWorkflow } from "@/features/sources/sqlite-workflow";
 import { getServerConfig } from "./config";
@@ -45,9 +50,16 @@ let outlineReviewer: OutlineReviewer | undefined;
 let openAiJsonClient: OpenAiJsonClient | undefined;
 let webSearch: WebSearchPort | undefined;
 let imageGenerator: ImageGenerator | undefined;
+let characterRepository: SqliteReferenceCharacterRepository | undefined;
+let characterDescriber: CharacterDescriber | undefined;
 let database: ReturnType<typeof openDatabase> | undefined;
 
-function getDatabase() {
+/** 供轻量仓储（如配图偏好）复用的共享数据库连接。 */
+export function getDatabase() {
+  return getDatabaseInternal();
+}
+
+function getDatabaseInternal() {
   if (!database) {
     database = openDatabase(getServerConfig().databasePath);
   }
@@ -137,6 +149,30 @@ export function getVisualPlanner() {
       : new DemoVisualPlanner();
   }
   return visualPlanner;
+}
+
+export function getReferenceCharacterRepository() {
+  characterRepository ??= new SqliteReferenceCharacterRepository(getDatabase());
+  return characterRepository;
+}
+
+export function getCharacterDescriber(): CharacterDescriber | null {
+  const config = getServerConfig();
+  if (!config.llm) return null;
+  if (!characterDescriber) {
+    characterDescriber = new OpenAiCharacterDescriber({
+      baseUrl: config.llm.baseUrl,
+      apiKey: config.llm.apiKey,
+      model: getVisionDefaultModel()
+    });
+  }
+  return characterDescriber;
+}
+
+/** 看图任务（参考形象提取）的默认模型；优先 LLM_VISION_MODEL。 */
+export function getVisionDefaultModel() {
+  const llm = getServerConfig().llm;
+  return llm?.visionModel || llm?.model || "";
 }
 
 function getOpenAiJsonClient() {

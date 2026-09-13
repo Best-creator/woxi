@@ -165,4 +165,57 @@ describe("OpenAiVisualPlanner", () => {
 
     await expectPlannerError(fetchResponse(completion(JSON.stringify(invalidAnchor))), "invalid_response");
   });
+
+  it("injects drawing style and reference character guidance into the system prompt", async () => {
+    let request: { init?: RequestInit } = {};
+    const fetchFn = (async (_url: string | URL | Request, init?: RequestInit) => {
+      request = { init };
+      return completion(JSON.stringify(validPlan));
+    }) as typeof fetch;
+
+    await new OpenAiVisualPlanner(config, fetchFn).plan({
+      ...input,
+      style: "简笔画",
+      character: {
+        name: "蘑菇老师",
+        persona: "自媒体科普老师",
+        description: "红伞白点的卡通蘑菇，戴圆框眼镜"
+      }
+    });
+
+    const body = JSON.parse(String(request.init?.body)) as {
+      messages: Array<{ role: string; content: string | Array<unknown> }>;
+    };
+    const system = body.messages.find((message) => message.role === "system")?.content as string;
+
+    expect(system).toContain("简笔画");
+    expect(system).toContain("蘑菇老师");
+    expect(system).toContain("自媒体科普老师");
+    expect(system).toContain("红伞白点的卡通蘑菇，戴圆框眼镜");
+    expect(system).toContain("画面文字");
+    // 用户消息中同步携带风格与形象，且不把整个 input 原样透传。
+    const userPayload = JSON.parse(body.messages.find((message) => message.role === "user")?.content as string) as Record<string, unknown>;
+    expect(userPayload).toMatchObject({
+      style: "简笔画",
+      character: { name: "蘑菇老师" },
+      title: "机会成本"
+    });
+  });
+
+  it("keeps the base prompt when no style or character is provided", async () => {
+    let request: { init?: RequestInit } = {};
+    const fetchFn = (async (_url: string | URL | Request, init?: RequestInit) => {
+      request = { init };
+      return completion(JSON.stringify(validPlan));
+    }) as typeof fetch;
+
+    await new OpenAiVisualPlanner(config, fetchFn).plan(input);
+
+    const system = (JSON.parse(String(request.init?.body)) as {
+      messages: Array<{ role: string; content: string }>;
+    }).messages[0].content;
+    expect(system).not.toContain("绘制风格：");
+    expect(system).not.toContain("参考形象：");
+    expect(system).toContain("画面文字");
+  });
 });

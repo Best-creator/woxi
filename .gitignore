@@ -10,7 +10,7 @@ test-results.stale-*/
 .data/*.stale-*
 next-env.d.ts
 *.tsbuildinfo
-work/*.log
+work/
 work/ms-playwright/
 .env.local
 env/.env.local

@@ -13,6 +13,7 @@ import type { Article, ContentBlock } from "@/features/articles/domain";
 import type { SaveArticleResult } from "@/features/articles/repository";
 import type { ImageAsset } from "@/features/images/domain";
 import type { ImageAssetPatch } from "@/features/images/repository";
+import type { ImagePlanGuideOptions } from "@/components/image-planning-panel";
 import type { ContentRevisionSnapshot, ArticleRevision, OutlineRevisionSnapshot } from "@/features/revisions/domain";
 import type { SourceDocument } from "@/features/sources/domain";
 import type { PublicLlmConfig } from "@/server/config";
@@ -34,7 +35,7 @@ type SaveArticle = (
   expectedUpdatedAt: string
 ) => Promise<SaveArticleResult>;
 
-type PlanImages = (articleId: string, expectedUpdatedAt: string, model?: string) => Promise<ImageMutationPayload>;
+type PlanImages = (articleId: string, expectedUpdatedAt: string, model?: string, options?: ImagePlanGuideOptions) => Promise<ImageMutationPayload>;
 type UpdateImageAsset = (
   articleId: string,
   assetId: string,
@@ -114,10 +115,17 @@ async function imageMutationRequest(
   return { article: result.article, assets: result.assets };
 }
 
-function planImagesRequest(articleId: string, expectedUpdatedAt: string, model?: string) {
+function planImagesRequest(
+  articleId: string,
+  expectedUpdatedAt: string,
+  model?: string,
+  options?: ImagePlanGuideOptions
+) {
   return imageMutationRequest(`/api/articles/${articleId}/image-plan`, "POST", {
     expectedUpdatedAt,
-    ...(model ? { model } : {})
+    ...(model ? { model } : {}),
+    ...(options?.style ? { style: options.style } : {}),
+    ...(options?.characterId ? { characterId: options.characterId } : {})
   });
 }
 
@@ -543,8 +551,12 @@ export function ArticleWorkspace({
               readOnly={isNarrowViewport}
               imageOperationsLocked={isDirty || autosaveBlocked || saveState === "saving"}
               onImageResult={applyImageResult}
-              planImages={(expectedUpdatedAt, model) =>
-                beginImageOperation(() => planImages(articleRef.current.id, expectedUpdatedAt, model))}
+              planImages={(expectedUpdatedAt, model, options) =>
+                beginImageOperation(() =>
+                  options
+                    ? planImages(articleRef.current.id, expectedUpdatedAt, model, options)
+                    : planImages(articleRef.current.id, expectedUpdatedAt, model)
+                )}
               llmEnabled={llmConfig.enabled}
               availableModels={llmConfig.availableModels}
               updateImageAsset={(assetId, input) => beginImageOperation(() => updateImageAsset(articleRef.current.id, assetId, input))}

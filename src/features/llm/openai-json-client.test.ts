@@ -13,7 +13,8 @@ const config: LlmProviderConfig = {
   availableModels: ["default-model", "alternate-model"],
   researchModel: "",
   reviewModel: "",
-  visualModel: ""
+  visualModel: "",
+  visionModel: ""
 };
 
 const schema = z.object({ answer: z.string() });

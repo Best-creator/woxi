@@ -1,7 +1,7 @@
 "use client";
 
 import { ImagePlus } from "lucide-react";
-import { ImagePlanningPanel, type ImageMutationPayload } from "./image-planning-panel";
+import { ImagePlanningPanel, type ImageMutationPayload, type ImagePlanGuideOptions } from "./image-planning-panel";
 import type { Article } from "@/features/articles/domain";
 import type { ImageAsset } from "@/features/images/domain";
 import type { ImageAssetPatch } from "@/features/images/repository";
@@ -18,7 +18,7 @@ export interface GenerationPanelProps {
   readOnly?: boolean;
   imageOperationsLocked?: boolean;
   onImageResult: (result: ImageMutationPayload) => void;
-  planImages: (expectedUpdatedAt: string, model?: string) => Promise<ImageMutationPayload>;
+  planImages: (expectedUpdatedAt: string, model?: string, options?: ImagePlanGuideOptions) => Promise<ImageMutationPayload>;
   updateImageAsset: (assetId: string, input: ImageAssetPatch & { expectedUpdatedAt: string }) => Promise<ImageMutationPayload>;
   deleteImageAsset: (assetId: string, expectedUpdatedAt: string) => Promise<ImageMutationPayload>;
   refreshPlaceholder: (assetId: string, expectedUpdatedAt: string) => Promise<ImageMutationPayload>;

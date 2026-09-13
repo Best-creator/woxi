@@ -78,6 +78,25 @@ export function migrateDatabase(db: DatabaseSync) {
     CREATE INDEX IF NOT EXISTS image_assets_anchor_idx
       ON image_assets(anchor_block_id);
 
+    CREATE TABLE IF NOT EXISTS reference_characters (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      persona TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      mime_type TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS article_image_settings (
+      article_id TEXT PRIMARY KEY,
+      style TEXT NOT NULL DEFAULT '',
+      character_id TEXT,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS article_revisions (
       id TEXT PRIMARY KEY,
       article_id TEXT NOT NULL,

@@ -76,6 +76,79 @@ describe("ImagePlanningPanel", () => {
     await waitFor(() => expect(planImages).toHaveBeenCalledWith("2026-09-09T00:00:00.000Z", "glm-5.3-flash"));
   });
 
+  it("sends style and character guide options with the plan request", async () => {
+    const user = userEvent.setup();
+    const character = {
+      id: "char-1",
+      name: "蘑菇老师",
+      persona: "自媒体科普老师",
+      description: "红伞白点的卡通蘑菇",
+      mimeType: "image/png",
+      filePath: "/tmp/mushroom.png",
+      publicUrl: "/api/characters/char-1/image",
+      createdAt: "2026-09-09T00:00:00.000Z",
+      updatedAt: "2026-09-09T00:00:00.000Z"
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const payload = url.includes("/api/characters")
+        ? { characters: [character] }
+        : { style: "", characterId: null };
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    }));
+    try {
+      const article = articleFixture({ blocks: [paragraphBlock()] });
+      const planImages = vi.fn(async () => ({ article, assets: [imageAsset()] }));
+      const onResult = vi.fn();
+      render(
+        <ImagePlanningPanel
+          article={article}
+          assets={[]}
+          onResult={onResult}
+          planImages={planImages}
+        />
+      );
+
+      await screen.findByRole("option", { name: "蘑菇老师" });
+      await user.selectOptions(screen.getByLabelText("绘制风格"), "简笔画");
+      await user.selectOptions(screen.getByLabelText("参考形象"), "char-1");
+      await user.click(screen.getByRole("button", { name: "分析配图需求" }));
+
+      await waitFor(() =>
+        expect(planImages).toHaveBeenCalledWith("2026-09-09T00:00:00.000Z", undefined, {
+          style: "简笔画",
+          characterId: "char-1"
+        })
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("shows the re-analysis entry with a confirm guard when assets already exist", async () => {
+    const user = userEvent.setup();
+    const article = articleFixture({ blocks: [paragraphBlock()] });
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const planImages = vi.fn();
+    render(
+      <ImagePlanningPanel
+        article={article}
+        assets={[imageAsset()]}
+        onResult={vi.fn()}
+        planImages={planImages}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "按当前风格与形象重新分析" }));
+
+    expect(confirmSpy).toHaveBeenCalledOnce();
+    expect(planImages).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
   it("renders planned asset details and returns the server snapshot after editing its prompt", async () => {
     const user = userEvent.setup();
     const article = articleFixture({ blocks: [paragraphBlock()] });

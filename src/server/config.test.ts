@@ -27,21 +27,24 @@ describe("parseServerConfig", () => {
       availableModels: ["gpt-5.6-terra", "gpt-5.6-sol"],
       researchModel: "",
       reviewModel: "",
-      visualModel: ""
+      visualModel: "",
+      visionModel: ""
     });
   });
 
-  it("keeps a dedicated research model when configured", () => {
+  it("keeps dedicated research and vision models when configured", () => {
     expect(parseServerConfig({
       LLM_API_KEY: "secret",
       LLM_MODEL: "gpt-5.6-terra",
       LLM_RESEARCH_MODEL: "grok-4.20-multi",
-      LLM_VISUAL_MODEL: "glm-5.3-flash"
+      LLM_VISUAL_MODEL: "glm-5.3-flash",
+      LLM_VISION_MODEL: "grok-4.6"
     }).llm).toMatchObject({
       model: "gpt-5.6-terra",
       researchModel: "grok-4.20-multi",
       reviewModel: "",
-      visualModel: "glm-5.3-flash"
+      visualModel: "glm-5.3-flash",
+      visionModel: "grok-4.6"
     });
   });
 

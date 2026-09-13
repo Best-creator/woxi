@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { SqliteArticleRepository } from "@/features/articles/sqlite-repository";
 import { SqliteImageAssetRepository } from "@/features/images/sqlite-repository";
+import { SqliteReferenceCharacterRepository } from "@/features/characters/sqlite-repository";
 import type { ImagePlanSuggestion } from "@/features/images/domain";
 import { VisualPlannerError } from "@/features/images/openai-visual-planner";
 import type { ImageAssetRepository } from "@/features/images/repository";
@@ -113,6 +114,57 @@ describe("image plan route", () => {
     };
     const response = await createImagePlanRouteHandler(articles, collisionRepository, planner())(
       requestJson("http://test/image-plan", { expectedUpdatedAt: article.updatedAt }),
+      context(article.id)
+    );
+
+    expect(response.status).toBe(400);
+  });
+
+  it("resolves the reference character and style into planner input", async () => {
+    const { articles, images, article } = await setup();
+    const characters = new SqliteReferenceCharacterRepository(createTestDatabase());
+    const created = await characters.create({
+      name: "蘑菇老师",
+      persona: "自媒体科普老师",
+      description: "红伞白点的卡通蘑菇",
+      mimeType: "image/png",
+      filePath: "/tmp/mushroom.png"
+    });
+    let received: Parameters<VisualPlanner["plan"]>[0] | undefined;
+    const capturingPlanner: VisualPlanner = {
+      plan: async (input) => {
+        received = input;
+        return [suggestion];
+      }
+    };
+    const capturing = createImagePlanRouteHandler(articles, images, capturingPlanner, characters);
+
+    const response = await capturing(
+      requestJson(`http://test/api/articles/${article.id}/image-plan`, {
+        expectedUpdatedAt: article.updatedAt,
+        style: "简笔画",
+        characterId: created.id
+      }),
+      context(article.id)
+    );
+
+    expect(response.status).toBe(200);
+    expect(received).toMatchObject({
+      style: "简笔画",
+      character: { name: "蘑菇老师", persona: "自媒体科普老师", description: "红伞白点的卡通蘑菇" }
+    });
+  });
+
+  it("rejects an unknown reference character with 400", async () => {
+    const { articles, images, article } = await setup();
+    const characters = new SqliteReferenceCharacterRepository(createTestDatabase());
+    const POST = createImagePlanRouteHandler(articles, images, planner(), characters);
+
+    const response = await POST(
+      requestJson(`http://test/api/articles/${article.id}/image-plan`, {
+        expectedUpdatedAt: article.updatedAt,
+        characterId: "missing"
+      }),
       context(article.id)
     );
 
