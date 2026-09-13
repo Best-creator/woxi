@@ -33,7 +33,7 @@ LLM_MODELS=model-a,model-b
 LLM_RESEARCH_MODEL=
 ```
 
-`LLM_MODELS` 是逗号分隔的可选模型白名单，默认 `LLM_MODEL` 会始终保留在可用列表中。`LLM_RESEARCH_MODEL` 是「AI 联网搜集资料」专用的深度研究模型（如多 agent 模型），留空时回落到 `LLM_MODEL`。真实 LLM 使用 OpenAI 兼容的 `{LLM_BASE_URL}/v1/chat/completions` endpoint。留空 `LLM_API_KEY` 时，大纲生成/审核、正文生成/审核和配图规划都使用不会发出外部请求的确定性 Demo 回退，适合本地开发和自动测试（联网搜集资料仍会真实访问搜索引擎）。图片 endpoint 已预留配置，但当前阶段不会调用真实图片生成服务。
+`LLM_MODELS` 是逗号分隔的可选模型白名单，默认 `LLM_MODEL` 会始终保留在可用列表中。`LLM_RESEARCH_MODEL` 是「AI 联网搜集资料」专用的深度研究模型（如多 agent 模型），留空时回落到 `LLM_MODEL`。真实 LLM 使用 OpenAI 兼容的 `{LLM_BASE_URL}/v1/chat/completions` endpoint。留空 `LLM_API_KEY` 时，大纲生成/审核、正文生成/审核和配图规划都使用不会发出外部请求的确定性 Demo 回退，适合本地开发和自动测试（联网搜集资料仍会真实访问搜索引擎，可用 `WO_XI_DISABLE_WEB_SEARCH=1` 禁用）。图片配置走 OpenAI 兼容的 `{IMAGE_BASE_URL}/v1/images/generations`，留空 `IMAGE_API_KEY` 时第 4 步不显示真实生成入口。
 
 ## AI 联网搜集资料
 
