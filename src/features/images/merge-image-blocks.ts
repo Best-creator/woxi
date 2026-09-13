@@ -10,7 +10,9 @@ function imageBlock(asset: ImageAsset): ContentBlock {
   return {
     id: randomUUID(),
     type: "image",
-    content: imageContentUrl(asset.id),
+    // 真图生成后直接引用公网 CDN 链接：复制到公众号时图片可被外部访问；
+    // 未生成时回落 content route（占位 SVG / 本地生成文件）。
+    content: asset.publicUrl ?? imageContentUrl(asset.id),
     altText: asset.altText,
     assetId: asset.id,
     order: 0,

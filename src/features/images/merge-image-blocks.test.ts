@@ -64,4 +64,19 @@ describe("mergeImageBlocks", () => {
 
     expect(blocks.some((block) => block.type === "image")).toBe(false);
   });
+
+  it("references the public CDN url once an image is generated, falling back to the content route", () => {
+    const generated = mergeImageBlocks(
+      twoBlocks(),
+      [asset({ status: "generated", publicUrl: "https://cdn.example.test/a.png" })]
+    );
+    expect(generated.find((block) => block.type === "image")?.content).toBe(
+      "https://cdn.example.test/a.png"
+    );
+
+    const placeholder = mergeImageBlocks(twoBlocks(), [asset()]);
+    expect(placeholder.find((block) => block.type === "image")?.content).toBe(
+      "/api/image-assets/asset-1/content"
+    );
+  });
 });
