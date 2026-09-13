@@ -1,4 +1,4 @@
-import { rememberDiscoveredLlmModels } from "./config";
+import { freshDiscoveredLlmModels, rememberDiscoveredLlmModels, toPublicLlmConfig } from "./config";
 import type { LlmProviderConfig, PublicLlmConfig, ServerConfig } from "./config";
 import { LlmError } from "@/features/llm/errors";
 
@@ -28,8 +28,14 @@ export function pickPreferredModel(models: string[]) {
 
 export async function discoverLlmModels(
   config: LlmProviderConfig,
-  fetchFn: typeof fetch = fetch
+  fetchFn: typeof fetch = fetch,
+  options: { force?: boolean } = {}
 ) {
+  // 有效期内直接复用缓存；手动刷新等场景用 force 跳过缓存强拉上游。
+  if (!options.force) {
+    const cached = freshDiscoveredLlmModels(config.baseUrl);
+    if (cached.length) return cached;
+  }
   let response: Response;
   try {
     response = await fetchFn(`${config.baseUrl}/v1/models`, {
@@ -72,9 +78,15 @@ export async function getPublicLlmConfigWithDiscovery(
   if (!config.llm) return { enabled: false, availableModels: [], defaultModel: null };
   try {
     const models = await discoverLlmModels(config.llm, fetchFn);
-    return { enabled: true, availableModels: models, defaultModel: pickPreferredModel(models) };
+    // 默认模型保持 env 配置的主模型（生成/改写类任务的既定选择），
+    // 发现结果只扩充下拉列表的可选范围，不悄悄改默认值。
+    return {
+      enabled: true,
+      availableModels: models,
+      defaultModel: config.llm.model || pickPreferredModel(models)
+    };
   } catch {
-    const models = config.llm.availableModels;
-    return { enabled: true, availableModels: models, defaultModel: pickPreferredModel(models) ?? (config.llm.model || null) };
+    // 发现失败（超时/上游故障）时回落 env 配置的静态列表，页面照常可用。
+    return toPublicLlmConfig(config);
   }
 }

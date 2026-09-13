@@ -43,14 +43,26 @@ const envSchema = z.object({
 });
 
 let workspaceEnvLoaded = false;
-const discoveredLlmModels = new Map<string, string[]>();
+const discoveredLlmModels = new Map<string, { models: string[]; discoveredAt: number }>();
+/** 模型发现结果的有效期：有效期内复用缓存，避免每次页面渲染都请求上游 /v1/models。 */
+const DISCOVERY_TTL_MS = 10 * 60_000;
 
 function normalizeBaseUrl(baseUrl: string) {
   return baseUrl.replace(/\/$/, "");
 }
 
 export function rememberDiscoveredLlmModels(baseUrl: string, models: string[]) {
-  discoveredLlmModels.set(normalizeBaseUrl(baseUrl), Array.from(new Set(models.filter(Boolean))));
+  discoveredLlmModels.set(normalizeBaseUrl(baseUrl), {
+    models: Array.from(new Set(models.filter(Boolean))),
+    discoveredAt: Date.now()
+  });
+}
+
+/** TTL 内的模型发现结果；过期或不存在时返回空数组。 */
+export function freshDiscoveredLlmModels(baseUrl: string) {
+  const entry = discoveredLlmModels.get(normalizeBaseUrl(baseUrl));
+  if (!entry || Date.now() - entry.discoveredAt > DISCOVERY_TTL_MS) return [];
+  return [...entry.models];
 }
 
 function loadWorkspaceEnv() {
@@ -79,7 +91,7 @@ function llmProvider(
 
   const availableModels = Array.from(new Set([
     ...models.split(",").map((item) => item.trim()).filter(Boolean),
-    ...(discoveredLlmModels.get(config.baseUrl) ?? [])
+    ...freshDiscoveredLlmModels(config.baseUrl)
   ]));
   if (config.model.trim() && !availableModels.includes(config.model)) availableModels.push(config.model);
   return { ...config, availableModels, researchModel: researchModel.trim(), reviewModel: reviewModel.trim() };

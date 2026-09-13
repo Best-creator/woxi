@@ -9,7 +9,8 @@ export async function GET() {
     return Response.json({ models: [], defaultModel: null, enabled: false });
   }
   try {
-    const models = await discoverLlmModels(config.llm);
+    // 手动刷新语义：绕过 TTL 缓存直接拉上游最新列表。
+    const models = await discoverLlmModels(config.llm, fetch, { force: true });
     return Response.json({ models, defaultModel: pickPreferredModel(models), enabled: true });
   } catch (error) {
     const status = error instanceof Error && "code" in error && (error as { code?: string }).code === "authentication" ? 502 : 502;

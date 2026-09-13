@@ -6,7 +6,8 @@ import {
   getOutlineWorkflowRepository,
   getSourceRepository
 } from "@/server/services";
-import { getPublicLlmConfig, getServerConfig } from "@/server/config";
+import { getServerConfig } from "@/server/config";
+import { getPublicLlmConfigWithDiscovery } from "@/server/llm-models";
 import { ArticleWorkspace } from "./article-workspace";
 import { loadOutlineWorkspaceState } from "./outline-state";
 import { loadContentWorkspaceState } from "./content-state";
@@ -50,7 +51,7 @@ export default async function ArticlePage({
       initialContentReview={contentState.review}
       initialContentVersionReviews={contentState.versionReviews}
       initialStep={step ?? null}
-      llmConfig={getPublicLlmConfig()}
+      llmConfig={await getPublicLlmConfigWithDiscovery(getServerConfig())}
       imageGenerationEnabled={Boolean(getServerConfig().image)}
     />
   );
