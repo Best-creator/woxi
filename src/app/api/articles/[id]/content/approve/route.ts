@@ -34,7 +34,6 @@ export function createContentApproveRouteHandler(dependencies: ApproveContentDep
     if (result.kind === "conflict") return Response.json({ error: "文章已在其他位置更新，请刷新后重试" }, { status: 409 });
     if (result.kind === "not_ready") return Response.json({ error: "请先生成正文" }, { status: 400 });
     if (result.kind === "stale_outline") return Response.json({ error: "当前正文基于旧大纲，请先重新生成正文" }, { status: 400 });
-    if (result.kind === "review_required") return Response.json({ error: "请先审核正文" }, { status: 400 });
     if (result.kind === "blocked") return Response.json({ error: "审核被阻断，请修改后重新审核" }, { status: 400 });
     if (result.kind === "acknowledgement_required") return Response.json({ error: "请先确认已了解审核警告" }, { status: 400 });
     return Response.json({ article: result.article, revision: result.revision, review: result.review });

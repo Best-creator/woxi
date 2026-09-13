@@ -86,7 +86,7 @@ describe("approveContent", () => {
     expect(withAcknowledgement).toMatchObject({ kind: "approved", article: { status: "content_ready" } });
   });
 
-  it("requires a review before approving", async () => {
+  it("approves directly without a review and reports a null review", async () => {
     const fixture = await articleWithGeneratedContent();
 
     const result = await approveContent(
@@ -94,7 +94,12 @@ describe("approveContent", () => {
       { articles: fixture.articles, sources: fixture.sources, workflow: fixture.contentWorkflow }
     );
 
-    expect(result).toEqual({ kind: "review_required" });
+    expect(result).toMatchObject({
+      kind: "approved",
+      article: { status: "content_ready" },
+      review: null
+    });
+    expect((await fixture.articles.findById(fixture.article.id))?.status).toBe("content_ready");
   });
 
   it("refuses to approve content built on an outdated outline", async () => {
@@ -115,7 +120,7 @@ describe("approveContent", () => {
     expect(result).toEqual({ kind: "stale_outline" });
   });
 
-  it("invalidates the review once the body is edited again", async () => {
+  it("still approves an edited body without a review by checkpointing first", async () => {
     const fixture = await reviewedWith("passed");
     const edited = {
       ...fixture.article,
@@ -132,6 +137,8 @@ describe("approveContent", () => {
       { articles: fixture.articles, sources: fixture.sources, workflow: fixture.contentWorkflow }
     );
 
-    expect(result).toEqual({ kind: "review_required" });
+    // 编辑后旧审核失效，但正文可以直接确认（未审核路径），确认前自动补 checkpoint 修订。
+    expect(result).toMatchObject({ kind: "approved", article: { status: "content_ready" }, review: null });
+    expect(await fixture.contentWorkflow.listContentVersions(fixture.article.id)).toHaveLength(2);
   });
 });

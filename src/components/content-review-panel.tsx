@@ -56,13 +56,13 @@ export function ContentReviewPanel({
   const actionResult = action?.result;
   const requiresAcknowledgement = actionResult?.status === "needs_revision" && !isStale;
   const acknowledgeWarnings = !isStale && acknowledgedReviewId === action?.id;
+  // 审核可选：没有审核结果也允许直接确认（未审核路径），仅阻断、警告未知悉等情形禁用。
   const approvalBlocked =
     disabled ||
     isApproving ||
-    isStale ||
+    (actionResult ? isStale : false) ||
     staleOutline ||
-    !actionResult ||
-    actionResult.status === "blocked" ||
+    actionResult?.status === "blocked" ||
     (requiresAcknowledgement && !acknowledgeWarnings) ||
     approved;
 
@@ -80,7 +80,7 @@ export function ContentReviewPanel({
 
       {staleOutline ? <p className="review-stale" role="status">当前正文基于旧大纲</p> : null}
       {!staleOutline && isStale ? <p className="review-stale" role="status">审核已过期</p> : null}
-      {!result ? <p className="panel-empty">生成正文后可进行审核</p> : null}
+      {!result ? <p className="panel-empty">审核为可选步骤：可以直接确认内容，也可以先审核再确认</p> : null}
 
       {result ? (
         <div className="review-summary">
@@ -151,7 +151,7 @@ export function ContentReviewPanel({
           onClick={() => onApprove(acknowledgeWarnings)}
         >
           {approved ? <Check size={15} aria-hidden="true" /> : actionResult?.status === "blocked" ? <ShieldAlert size={15} aria-hidden="true" /> : <CircleAlert size={15} aria-hidden="true" />}
-          {approved ? "内容已确认" : "确认内容"}
+          {approved ? "内容已确认" : actionResult ? "确认内容" : "直接确认（未审核）"}
         </button>
       </div>
     </section>

@@ -231,7 +231,7 @@ export class SqliteContentWorkflowRepository implements ContentWorkflowRepositor
     });
   }
 
-  async findCurrentContentReview(input: {
+  async findCurrentContentRevision(input: {
     articleId: string;
     snapshot: ContentRevisionSnapshot;
   }) {
@@ -240,8 +240,15 @@ export class SqliteContentWorkflowRepository implements ContentWorkflowRepositor
        WHERE article_id = ? AND scope = 'content' AND content_hash = ?
        ORDER BY version_number DESC LIMIT 1`
     ).get(input.articleId, hashSnapshot(contentHashInput(input.snapshot))) as unknown as RevisionRow | undefined;
-    if (!row) return null;
-    const revision = parseRevisionRow<ContentRevisionSnapshot>(row);
+    return row ? parseRevisionRow<ContentRevisionSnapshot>(row) : null;
+  }
+
+  async findCurrentContentReview(input: {
+    articleId: string;
+    snapshot: ContentRevisionSnapshot;
+  }) {
+    const revision = await this.findCurrentContentRevision(input);
+    if (!revision) return null;
     const reviewRow = this.db.prepare(
       `SELECT * FROM article_reviews
        WHERE revision_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`
@@ -253,8 +260,8 @@ export class SqliteContentWorkflowRepository implements ContentWorkflowRepositor
     articleId: string;
     expectedUpdatedAt: string;
     revisionId: string;
-    reviewId: string;
-    reviewStatus: ContentReviewResult["status"];
+    reviewId?: string;
+    reviewStatus?: ContentReviewResult["status"];
   }): Promise<ContentWorkflowWriteResult> {
     return this.inTransaction(() => {
       const article = this.currentArticle(input.articleId, input.expectedUpdatedAt);
@@ -274,16 +281,20 @@ export class SqliteContentWorkflowRepository implements ContentWorkflowRepositor
       if (revisionRow.content_hash !== hashSnapshot(contentHashInput(snapshot))) {
         return { kind: "conflict" };
       }
-      const latestReviewRow = this.db.prepare(
-        `SELECT * FROM article_reviews WHERE revision_id = ?
-         ORDER BY created_at DESC, rowid DESC LIMIT 1`
-      ).get(revisionRow.id) as unknown as ReviewRow | undefined;
-      if (!latestReviewRow) return { kind: "conflict" };
-      const latestReview = parseReview(latestReviewRow);
-      if (latestReview.id !== input.reviewId || latestReview.result.status !== input.reviewStatus) {
-        return { kind: "conflict" };
+      // 审核可选：未提供 reviewId 时按「未审核直接确认」处理，跳过审核记录校验；
+      // 提供时审核记录必须与传入值一致，防止确认一个非最新审核的版本。
+      if (input.reviewId !== undefined) {
+        const latestReviewRow = this.db.prepare(
+          `SELECT * FROM article_reviews WHERE revision_id = ?
+           ORDER BY created_at DESC, rowid DESC LIMIT 1`
+        ).get(revisionRow.id) as unknown as ReviewRow | undefined;
+        if (!latestReviewRow) return { kind: "conflict" };
+        const latestReview = parseReview(latestReviewRow);
+        if (latestReview.id !== input.reviewId || latestReview.result.status !== input.reviewStatus) {
+          return { kind: "conflict" };
+        }
+        if (latestReview.result.status === "blocked") return { kind: "conflict" };
       }
-      if (latestReview.result.status === "blocked") return { kind: "conflict" };
       const revision = parseRevisionRow<ContentRevisionSnapshot>(revisionRow);
       const updated = this.writeArticle(article, input.expectedUpdatedAt, {
         status: "content_ready"

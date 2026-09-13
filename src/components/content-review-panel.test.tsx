@@ -107,6 +107,27 @@ describe("ContentReviewPanel", () => {
     expect(screen.getByRole("button", { name: "确认内容" })).toBeDisabled();
   });
 
+  it("allows confirming directly when the body has not been reviewed", async () => {
+    const onApprove = vi.fn();
+    render(
+      <ContentReviewPanel
+        review={null}
+        isStale={false}
+        canReview
+        onReview={vi.fn()}
+        onApprove={onApprove}
+      />
+    );
+
+    expect(screen.getByText("审核为可选步骤：可以直接确认内容，也可以先审核再确认")).toBeVisible();
+    const confirm = screen.getByRole("button", { name: "直接确认（未审核）" });
+    expect(confirm).toBeEnabled();
+
+    await userEvent.click(confirm);
+
+    expect(onApprove).toHaveBeenCalledWith(false);
+  });
+
   it("warns when the body is built on an outdated outline", () => {
     render(
       <ContentReviewPanel

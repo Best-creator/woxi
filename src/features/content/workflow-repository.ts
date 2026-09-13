@@ -47,12 +47,17 @@ export interface ContentWorkflowRepository {
     revision: ArticleRevision<ContentRevisionSnapshot>;
     review: ArticleReview<ContentReviewResult>;
   } | null>;
+  findCurrentContentRevision(input: {
+    articleId: string;
+    snapshot: ContentRevisionSnapshot;
+  }): Promise<ArticleRevision<ContentRevisionSnapshot> | null>;
   approveContent(input: {
     articleId: string;
     expectedUpdatedAt: string;
     revisionId: string;
-    reviewId: string;
-    reviewStatus: ContentReviewResult["status"];
+    /** 审核可选：缺省时按未审核直接确认，跳过审核记录校验。 */
+    reviewId?: string;
+    reviewStatus?: ContentReviewResult["status"];
   }): Promise<ContentWorkflowWriteResult>;
   saveManualContentVersion(input: {
     articleId: string;

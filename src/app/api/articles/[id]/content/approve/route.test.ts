@@ -10,7 +10,7 @@ import { createContentApproveRouteHandler } from "./route";
 describe("content approve route", () => {
   const context = (id: string) => ({ params: Promise.resolve({ id }) });
 
-  it("requires a review first, then marks the article as content_ready", async () => {
+  it("approves without a review, then keeps review metadata when reviewed", async () => {
     const fixture = await articleWithGeneratedContent();
     const handler = createContentApproveRouteHandler({
       articles: fixture.articles,
@@ -22,7 +22,20 @@ describe("content approve route", () => {
       context(fixture.article.id)
     );
 
-    expect(beforeReview.status).toBe(400);
+    // 审核可选：未审核直接确认返回 200 且不携带审核结论。
+    expect(beforeReview.status).toBe(200);
+    const unreviewed = await beforeReview.json();
+    expect(unreviewed.article.status).toBe("content_ready");
+    expect(unreviewed.review).toBeNull();
+  });
+
+  it("marks a reviewed article as content_ready with its review attached", async () => {
+    const fixture = await articleWithGeneratedContent();
+    const handler = createContentApproveRouteHandler({
+      articles: fixture.articles,
+      sources: fixture.sources,
+      workflow: fixture.contentWorkflow
+    });
 
     await reviewContent(
       { articleId: fixture.article.id, expectedUpdatedAt: fixture.article.updatedAt },
@@ -34,7 +47,9 @@ describe("content approve route", () => {
     );
 
     expect(approved.status).toBe(200);
-    expect((await approved.json()).article.status).toBe("content_ready");
+    const result = await approved.json();
+    expect(result.article.status).toBe("content_ready");
+    expect(result.review).not.toBeNull();
   });
 
   it("maps a version conflict to 409", async () => {

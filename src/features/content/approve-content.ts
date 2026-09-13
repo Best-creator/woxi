@@ -24,13 +24,13 @@ export type ApproveContentResult =
       kind: "approved";
       article: Article;
       revision: ArticleRevision<ContentRevisionSnapshot>;
-      review: ArticleReview<ContentReviewResult>;
+      /** 审核是可选步骤：未经审核直接确认时为 null。 */
+      review: ArticleReview<ContentReviewResult> | null;
     }
   | { kind: "not_found" }
   | { kind: "conflict" }
   | { kind: "not_ready" }
   | { kind: "stale_outline" }
-  | { kind: "review_required" }
   | { kind: "blocked" }
   | { kind: "acknowledgement_required" };
 
@@ -54,21 +54,42 @@ export async function approveContent(
     return { kind: "not_ready" };
   }
 
+  // 审核可选：当前快照有匹配审核时按审核结论放行（blocked 阻断、needs_revision 需知悉）；
+  // 没有审核记录时允许直接确认——确认的是内容本身，审核只是建议环节。
   const current = await dependencies.workflow.findCurrentContentReview({ articleId: article.id, snapshot });
-  if (!current) return { kind: "review_required" };
-  if (current.review.result.status === "blocked") return { kind: "blocked" };
-  if (current.review.result.status === "needs_revision" && !command.acknowledgeWarnings) {
+  if (current?.review.result.status === "blocked") return { kind: "blocked" };
+  if (
+    current?.review.result.status === "needs_revision" && !command.acknowledgeWarnings
+  ) {
     return { kind: "acknowledgement_required" };
+  }
+
+  let revision = current?.revision ?? null;
+  if (!revision) {
+    revision = await dependencies.workflow.findCurrentContentRevision({ articleId: article.id, snapshot });
+  }
+  if (!revision) {
+    // 手动编辑后的正文还没有对应版本：先落一条 checkpoint 修订再确认，
+    // 保持「确认的必须是已存档版本」的不变量（checkpoint 不改动 updatedAt，无并发冲突）。
+    const checkpointed = await dependencies.workflow.checkpointContent({
+      articleId: article.id,
+      expectedUpdatedAt: command.expectedUpdatedAt,
+      model: null,
+      snapshot
+    });
+    if (checkpointed.kind !== "checkpointed") {
+      return checkpointed.kind === "conflict" ? { kind: "conflict" } : { kind: "not_ready" };
+    }
+    revision = checkpointed.revision;
   }
 
   const saved = await dependencies.workflow.approveContent({
     articleId: article.id,
     expectedUpdatedAt: command.expectedUpdatedAt,
-    revisionId: current.revision.id,
-    reviewId: current.review.id,
-    reviewStatus: current.review.result.status
+    revisionId: revision.id,
+    ...(current ? { reviewId: current.review.id, reviewStatus: current.review.result.status } : {})
   });
   return saved.kind === "saved"
-    ? { kind: "approved", article: saved.article, revision: saved.revision, review: current.review }
+    ? { kind: "approved", article: saved.article, revision: saved.revision, review: current?.review ?? null }
     : saved;
 }

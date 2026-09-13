@@ -36,7 +36,7 @@ type ContentReviewMutationResult = {
   review: ArticleReview<ContentReviewResult>;
 };
 
-type ApproveResult = ContentMutationResult & { review: ArticleReview<ContentReviewResult> };
+type ApproveResult = ContentMutationResult & { review: ArticleReview<ContentReviewResult> | null };
 
 export type GenerateContent = (input: {
   expectedUpdatedAt: string;
@@ -275,7 +275,8 @@ export function ContentWorkspace({
       });
       onArticleChange(result.article);
       setVersions((items) => addVersion(items, result.revision));
-      setCurrentReview({ revision: result.revision, review: result.review });
+      // 未审核直接确认时 review 为 null：不显示审核结论，正文状态照常落库。
+      setCurrentReview(result.review ? { revision: result.revision, review: result.review } : null);
     }, "approving");
   }
 
