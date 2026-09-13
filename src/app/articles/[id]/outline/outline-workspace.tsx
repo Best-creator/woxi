@@ -172,7 +172,9 @@ export function OutlineWorkspace({
   const [previewVersionId, setPreviewVersionId] = useState<string | null>(null);
   const [availableModels, setAvailableModels] = useState(llmConfig.availableModels);
   const [isRefreshingModels, setIsRefreshingModels] = useState(false);
-  const [isReviewStale, setIsReviewStale] = useState(() => outlineReviewIsStale(initialArticle, initialSources, initialReview));
+  // 「按审核意见改大纲」后旧审核必然失效（新大纲没有对应审核记录），需要显式标记；
+  // 手动修改是否失效则实时比对当前草稿与审核快照——改回已审核的内容即自动恢复确认可用。
+  const [reviewApplied, setReviewApplied] = useState(false);
   const [model, setModel] = useState(
     llmConfig.enabled ? llmConfig.defaultModel ?? llmConfig.availableModels[0] ?? "" : ""
   );
@@ -183,7 +185,7 @@ export function OutlineWorkspace({
   const articleRef = useRef(article);
 
   const isBusy = operation !== "idle";
-  const reviewIsStale = isReviewStale || (isDirty && Boolean(currentReview));
+  const reviewIsStale = reviewApplied || (currentReview !== null && outlineReviewIsStale(article, sources, currentReview));
   const canReview = Boolean(article.brief && article.outline.length && article.planning.recommendedTotalWords !== null);
   const canSaveVersion = canReview;
   const previewVersion = versions.find((version) => version.id === previewVersionId) ?? null;
@@ -206,7 +208,6 @@ export function OutlineWorkspace({
     articleRef.current = nextArticle;
     setArticle(nextArticle);
     setIsDirty(true);
-    if (currentReview) setIsReviewStale(true);
     setMessage("");
     onArticleChange?.(nextArticle, true);
   }
@@ -253,7 +254,6 @@ export function OutlineWorkspace({
     articleRef.current = nextArticle;
     setArticle(nextArticle);
     setIsDirty(false);
-    if (currentReview) setIsReviewStale(true);
     onSourcesChange?.(nextSources, nextArticle);
     onArticleChange?.(nextArticle, false);
   }
@@ -287,7 +287,7 @@ export function OutlineWorkspace({
       setVersions((items) => addVersion(items, result.revision));
       setCurrentReview(null);
       setPreviewVersionId(null);
-      setIsReviewStale(false);
+      setReviewApplied(false);
     }, "generating");
   }
 
@@ -302,7 +302,7 @@ export function OutlineWorkspace({
       setCurrentReview(result);
       setVersions((items) => addVersion(items, result.revision));
       setVersionReviews((items) => ({ ...items, [result.revision.id]: result.review }));
-      setIsReviewStale(false);
+      setReviewApplied(false);
     }, "reviewing");
   }
 
@@ -321,7 +321,7 @@ export function OutlineWorkspace({
       setPreviewVersionId(null);
       // 审核意见已应用：旧审核不再对应当前大纲，置为 stale 引导用户重新审核，
       // 否则面板清空后确认按钮灰着且没有任何下一步提示。
-      setIsReviewStale(true);
+      setReviewApplied(true);
     }, "applying");
   }
 
@@ -335,7 +335,7 @@ export function OutlineWorkspace({
       });
       replaceArticle(result.article);
       setVersions((items) => addVersion(items, result.revision));
-      setIsReviewStale(false);
+      setReviewApplied(false);
       onOutlineConfirmed?.();
     }, "confirming");
   }
@@ -365,7 +365,7 @@ export function OutlineWorkspace({
       }
       setCurrentReview(null);
       setPreviewVersionId(null);
-      setIsReviewStale(false);
+      setReviewApplied(false);
     }, "restoring");
   }
 

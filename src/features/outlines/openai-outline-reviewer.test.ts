@@ -31,7 +31,7 @@ describe("OpenAiOutlineReviewer", () => {
     expect(result.status).toBe("passed");
     expect(result.sourceSupport).toBeNull();
     expect(complete).toHaveBeenCalledWith(expect.objectContaining({
-      timeoutMs: 600_000,
+      timeoutMs: 180_000,
       systemPrompt: expect.stringContaining("status")
     }));
   });

@@ -83,11 +83,32 @@ describe("OutlineWorkspace", () => {
     expect(screen.getByRole("button", { name: "确认大纲" })).toBeDisabled();
   });
 
+  it("re-enables confirmation when the draft matches the reviewed snapshot again", async () => {
+    const user = userEvent.setup();
+    render(<OutlineWorkspace initialArticle={generatedArticle} initialSources={[]} initialVersions={[revision]} initialReview={{ revision, review: passedReview }} llmConfig={llmConfig} />);
+
+    await user.click(screen.getByRole("button", { name: "编辑知识梳理" }));
+    const oneSentence = screen.getByLabelText("一句话解释");
+    await user.clear(oneSentence);
+    await user.type(oneSentence, "临时的说法");
+    expect(screen.getByText("大纲或资料已更新，请重新审核后再确认大纲")).toBeVisible();
+
+    await user.clear(oneSentence);
+    await user.type(oneSentence, "每个选择都有代价");
+    expect(screen.queryByText("大纲或资料已更新，请重新审核后再确认大纲")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "确认大纲" })).toBeEnabled();
+  });
+
   it("marks a passed review stale when an enabled source changes", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ source: { ...source, enabled: false } }), { status: 200 })
     );
-    render(<OutlineWorkspace initialArticle={generatedArticle} initialSources={[source]} initialVersions={[revision]} initialReview={{ revision, review: passedReview }} llmConfig={llmConfig} />);
+    // 审核快照必须与「审核时启用的资料」一致：禁用后资料上下文变化才触发 stale。
+    const revisionWithSource: ArticleRevision<OutlineRevisionSnapshot> = {
+      ...revision,
+      snapshot: { ...revision.snapshot, sourceContextSnapshot: `【${source.title}】\n${source.content}` }
+    };
+    render(<OutlineWorkspace initialArticle={generatedArticle} initialSources={[source]} initialVersions={[revisionWithSource]} initialReview={{ revision: revisionWithSource, review: passedReview }} llmConfig={llmConfig} />);
 
     await userEvent.click(screen.getByRole("checkbox", { name: "启用课堂笔记" }));
 

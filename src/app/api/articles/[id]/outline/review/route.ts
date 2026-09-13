@@ -3,7 +3,8 @@ import { reviewOutline, type ReviewOutlineDependencies } from "@/features/outlin
 import { getArticleRepository, getOutlineReviewDefaultModel, getOutlineReviewer, getOutlineWorkflowRepository, getSourceRepository } from "@/server/services";
 
 export const runtime = "nodejs";
-export const maxDuration = 600;
+// 与 openai-outline-reviewer 的 180s 超时对齐（留网络余量），失败快速可见。
+export const maxDuration = 200;
 
 interface RouteContext {
   params: Promise<{ id: string }>;

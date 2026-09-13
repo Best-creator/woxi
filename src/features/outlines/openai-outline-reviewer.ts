@@ -54,7 +54,9 @@ export class OpenAiOutlineReviewer implements OutlineReviewer {
         }))
       },
       schema: outlineReviewResultSchema,
-      timeoutMs: 600_000
+      // 审核是单次打分调用，实测 glm-5.3-flash ~10s、深度推理模型 ~100s；
+      // 180s 已有充足裕量，超时后失败快速可见而不是干等 10 分钟。
+      timeoutMs: 180_000
     });
     return validateOutlineReview(result, input);
   }
