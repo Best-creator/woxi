@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { reviewOutline, type ReviewOutlineDependencies } from "@/features/outlines/review-outline";
-import { getArticleRepository, getOutlineDefaultModel, getOutlineReviewer, getOutlineWorkflowRepository, getSourceRepository } from "@/server/services";
+import { getArticleRepository, getOutlineReviewDefaultModel, getOutlineReviewer, getOutlineWorkflowRepository, getSourceRepository } from "@/server/services";
 
 export const runtime = "nodejs";
 export const maxDuration = 600;
@@ -40,6 +40,6 @@ export function POST(request: Request, context: RouteContext) {
     sources: getSourceRepository(),
     reviewer: getOutlineReviewer(),
     workflow: getOutlineWorkflowRepository(),
-    defaultModel: getOutlineDefaultModel()
+    defaultModel: getOutlineReviewDefaultModel()
   })(request, context);
 }

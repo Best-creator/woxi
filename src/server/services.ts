@@ -93,8 +93,18 @@ export function getOutlineDefaultModel() {
   return getServerConfig().llm?.model ?? DEMO_OUTLINE_MODEL;
 }
 
+export function getOutlineReviewDefaultModel() {
+  const llm = getServerConfig().llm;
+  return llm?.reviewModel || llm?.model || DEMO_OUTLINE_MODEL;
+}
+
 export function getContentDefaultModel() {
   return getServerConfig().llm?.model ?? DEMO_CONTENT_MODEL;
+}
+
+export function getContentReviewDefaultModel() {
+  const llm = getServerConfig().llm;
+  return llm?.reviewModel || llm?.model || DEMO_CONTENT_MODEL;
 }
 
 export function getContentGenerator(): ContentGenerator {

@@ -25,7 +25,8 @@ describe("parseServerConfig", () => {
       apiKey: "secret",
       model: "gpt-5.6-terra",
       availableModels: ["gpt-5.6-terra", "gpt-5.6-sol"],
-      researchModel: ""
+      researchModel: "",
+      reviewModel: ""
     });
   });
 
@@ -37,6 +38,17 @@ describe("parseServerConfig", () => {
     }).llm).toMatchObject({
       model: "gpt-5.6-terra",
       researchModel: "grok-4.20-multi"
+    });
+  });
+
+  it("keeps a dedicated review model when configured", () => {
+    expect(parseServerConfig({
+      LLM_API_KEY: "secret",
+      LLM_MODEL: "gpt-5.6-terra",
+      LLM_REVIEW_MODEL: "glm-5.3-flash"
+    }).llm).toMatchObject({
+      model: "gpt-5.6-terra",
+      reviewModel: "glm-5.3-flash"
     });
   });
 

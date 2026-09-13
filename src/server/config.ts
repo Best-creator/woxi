@@ -13,6 +13,8 @@ export interface LlmProviderConfig extends ProviderConfig {
   availableModels: string[];
   /** 联网搜集资料等深度研究任务使用的模型；为空时回落到 model。 */
   researchModel: string;
+  /** 大纲/正文审核等打分类任务使用的模型；为空时回落到 model。审核不需要深度推理，可配轻量快模型。 */
+  reviewModel: string;
 }
 
 export interface ServerConfig {
@@ -34,6 +36,7 @@ const envSchema = z.object({
   LLM_MODEL: z.string().default(""),
   LLM_MODELS: z.string().default(""),
   LLM_RESEARCH_MODEL: z.string().default(""),
+  LLM_REVIEW_MODEL: z.string().default(""),
   IMAGE_BASE_URL: z.url().default("https://image2.xiaobupao.cn"),
   IMAGE_API_KEY: z.string().default(""),
   IMAGE_MODEL: z.string().default("gpt-image-2")
@@ -68,7 +71,8 @@ function llmProvider(
   apiKey: string,
   model: string,
   models: string,
-  researchModel: string
+  researchModel: string,
+  reviewModel: string
 ): LlmProviderConfig | null {
   const config = provider(baseUrl, apiKey, model, "LLM", false);
   if (!config) return null;
@@ -78,7 +82,7 @@ function llmProvider(
     ...(discoveredLlmModels.get(config.baseUrl) ?? [])
   ]));
   if (config.model.trim() && !availableModels.includes(config.model)) availableModels.push(config.model);
-  return { ...config, availableModels, researchModel: researchModel.trim() };
+  return { ...config, availableModels, researchModel: researchModel.trim(), reviewModel: reviewModel.trim() };
 }
 
 export function parseServerConfig(env: NodeJS.ProcessEnv): ServerConfig;
@@ -94,7 +98,8 @@ export function parseServerConfig(
       value.LLM_API_KEY,
       value.LLM_MODEL,
       value.LLM_MODELS,
-      value.LLM_RESEARCH_MODEL
+      value.LLM_RESEARCH_MODEL,
+      value.LLM_REVIEW_MODEL
     ),
     image: provider(value.IMAGE_BASE_URL, value.IMAGE_API_KEY, value.IMAGE_MODEL, "IMAGE")
   };

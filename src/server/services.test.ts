@@ -3,7 +3,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const configState = vi.hoisted(() => ({
-  llm: null as { baseUrl: string; apiKey: string; model: string; availableModels: string[] } | null
+  llm: null as { baseUrl: string; apiKey: string; model: string; availableModels: string[]; reviewModel?: string } | null
 }));
 
 vi.mock("./config", () => ({
@@ -136,5 +136,48 @@ describe("outline agents", () => {
     expect((generator as unknown as { client: unknown }).client).toBe(
       (reviewer as unknown as { client: unknown }).client
     );
+  });
+});
+
+describe("review default models", () => {
+  beforeEach(() => {
+    configState.llm = null;
+    vi.resetModules();
+  });
+
+  it("prefers the dedicated review model when configured", async () => {
+    configState.llm = {
+      baseUrl: "https://llm.example.test",
+      apiKey: "configured-key",
+      model: "grok-4.6",
+      availableModels: ["grok-4.6"],
+      reviewModel: "glm-5.3-flash"
+    };
+    const { getOutlineReviewDefaultModel, getContentReviewDefaultModel } = await import("./services");
+
+    expect(getOutlineReviewDefaultModel()).toBe("glm-5.3-flash");
+    expect(getContentReviewDefaultModel()).toBe("glm-5.3-flash");
+  });
+
+  it("falls back to the primary model when no review model is configured", async () => {
+    configState.llm = {
+      baseUrl: "https://llm.example.test",
+      apiKey: "configured-key",
+      model: "grok-4.6",
+      availableModels: ["grok-4.6"]
+    };
+    const { getOutlineReviewDefaultModel, getContentReviewDefaultModel } = await import("./services");
+
+    expect(getOutlineReviewDefaultModel()).toBe("grok-4.6");
+    expect(getContentReviewDefaultModel()).toBe("grok-4.6");
+  });
+
+  it("falls back to demo models without an LLM provider", async () => {
+    const { getOutlineReviewDefaultModel, getContentReviewDefaultModel } = await import("./services");
+    const { DEMO_OUTLINE_MODEL } = await import("@/features/outlines/model");
+    const { DEMO_CONTENT_MODEL } = await import("@/features/content/model");
+
+    expect(getOutlineReviewDefaultModel()).toBe(DEMO_OUTLINE_MODEL);
+    expect(getContentReviewDefaultModel()).toBe(DEMO_CONTENT_MODEL);
   });
 });

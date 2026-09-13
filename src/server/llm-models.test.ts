@@ -7,7 +7,8 @@ const config = {
   apiKey: "secret",
   model: "grok-4.6",
   availableModels: ["grok-4.6"],
-  researchModel: ""
+  researchModel: "",
+  reviewModel: ""
 };
 
 describe("LLM model discovery", () => {

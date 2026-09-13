@@ -2,7 +2,7 @@ import { z } from "zod";
 import { reviewContent, type ReviewContentDependencies } from "@/features/content/review-content";
 import {
   getArticleRepository,
-  getContentDefaultModel,
+  getContentReviewDefaultModel,
   getContentReviewer,
   getContentWorkflowRepository,
   getSourceRepository
@@ -48,6 +48,6 @@ export function POST(request: Request, context: RouteContext) {
     sources: getSourceRepository(),
     reviewer: getContentReviewer(),
     workflow: getContentWorkflowRepository(),
-    defaultModel: getContentDefaultModel()
+    defaultModel: getContentReviewDefaultModel()
   })(request, context);
 }

@@ -11,7 +11,8 @@ const config: LlmProviderConfig = {
   apiKey: "super-secret-key",
   model: "default-model",
   availableModels: ["default-model", "alternate-model"],
-  researchModel: ""
+  researchModel: "",
+  reviewModel: ""
 };
 
 const schema = z.object({ answer: z.string() });
