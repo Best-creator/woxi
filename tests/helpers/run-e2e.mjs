@@ -10,7 +10,10 @@ const env = {
   LLM_API_KEY: "",
   LLM_MODEL: "",
   LLM_MODELS: "",
-  IMAGE_API_KEY: ""
+  IMAGE_API_KEY: "",
+  // Zero external network: getWebSearch() returns NullWebSearch, so the
+  // research endpoint fails fast offline instead of hitting Sogou/Bing.
+  WO_XI_DISABLE_WEB_SEARCH: "1"
 };
 delete env.FORCE_COLOR;
 delete env.NO_COLOR;

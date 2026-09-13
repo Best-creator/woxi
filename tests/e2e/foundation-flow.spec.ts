@@ -7,6 +7,8 @@ test.describe("foundation content workflow", () => {
     await page.goto("/");
     await page.getByRole("link", { name: "新建文章" }).click();
     await page.getByRole("textbox", { name: "知识点", exact: true }).fill("什么是机会成本");
+    // E2E 不覆盖真实联网搜集（零外网请求）：默认勾选会让提交卡在 research 阶段。
+    await page.getByRole("checkbox", { name: "联网搜集资料" }).uncheck();
     await page.getByRole("button", { name: "创建文章" }).click();
 
     await expect(page).toHaveURL(/\/articles\/[0-9a-f-]+\?step=outline$/);
@@ -25,6 +27,20 @@ test.describe("foundation content workflow", () => {
     await expect(page).toHaveURL(/\?step=article$/);
     await expect(page.getByRole("region", { name: "正文工作台" })).toBeVisible();
     await expect(page.getByRole("button", { name: "生成完整正文" })).toBeVisible();
+  });
+
+  test("falls back to skipping web research when the offline search returns nothing", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop-chromium");
+
+    await page.goto("/articles/new");
+    await page.getByRole("textbox", { name: "知识点", exact: true }).fill("为什么天空是蓝色的");
+    // 保持默认勾选：E2E 环境禁用真实搜索（WO_XI_DISABLE_WEB_SEARCH=1），
+    // research 端点应快速失败并展示降级路径，而不是卡住或打外网。
+    await page.getByRole("button", { name: "创建文章" }).click();
+
+    await expect(page.getByText("联网搜集资料失败")).toBeVisible();
+    await page.getByRole("button", { name: "跳过资料直接进入" }).click();
+    await expect(page).toHaveURL(/\/articles\/[0-9a-f-]+\?step=outline$/);
   });
 
   test("keeps the mobile list within the viewport", async ({ page }, testInfo) => {

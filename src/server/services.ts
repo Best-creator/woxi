@@ -12,6 +12,7 @@ import { OpenAiOutlineGenerator } from "@/features/outlines/openai-outline-gener
 import { OpenAiOutlineReviewer } from "@/features/outlines/openai-outline-reviewer";
 import type { OutlineGenerator, OutlineReviewer } from "@/features/outlines/ports";
 import { BingWebSearch } from "@/features/research/bing-web-search";
+import { NullWebSearch, isWebSearchDisabled } from "@/features/research/null-web-search";
 import { ResilientWebSearch } from "@/features/research/resilient-web-search";
 import { SogouWebSearch } from "@/features/research/sogou-web-search";
 import type { WebSearchPort } from "@/features/research/types";
@@ -153,6 +154,8 @@ export function getOutlineReviewer(): OutlineReviewer {
 }
 
 export function getWebSearch(): WebSearchPort {
-  webSearch ??= new ResilientWebSearch(new SogouWebSearch(), new BingWebSearch());
+  webSearch ??= isWebSearchDisabled()
+    ? new NullWebSearch()
+    : new ResilientWebSearch(new SogouWebSearch(), new BingWebSearch());
   return webSearch;
 }

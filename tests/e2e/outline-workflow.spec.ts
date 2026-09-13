@@ -6,6 +6,8 @@ test.describe("outline workflow", () => {
 
     await page.goto("/articles/new");
     await page.getByLabel("知识点", { exact: true }).fill("什么是机会成本");
+    // E2E 不覆盖真实联网搜集（零外网请求）：默认勾选会让提交卡在 research 阶段。
+    await page.getByRole("checkbox", { name: "联网搜集资料" }).uncheck();
     await page.getByRole("button", { name: "创建文章" }).click();
 
     await expect(page).toHaveURL(/\/articles\/[0-9a-f-]+\?step=outline$/);
@@ -25,6 +27,8 @@ test.describe("outline workflow", () => {
 
     await page.goto("/articles/new");
     await page.getByLabel("知识点", { exact: true }).fill("什么是机会成本");
+    // E2E 不覆盖真实联网搜集（零外网请求）：默认勾选会让提交卡在 research 阶段。
+    await page.getByRole("checkbox", { name: "联网搜集资料" }).uncheck();
     await page.getByRole("button", { name: "创建文章" }).click();
     await expect(page).toHaveURL(/\/articles\/[0-9a-f-]+\?step=outline$/);
 

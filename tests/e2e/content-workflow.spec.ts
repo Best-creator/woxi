@@ -12,6 +12,8 @@ interface SetupOptions {
 async function setupArticle(page: Page, { topic, source }: SetupOptions) {
   await page.goto("/articles/new");
   await page.getByLabel("知识点", { exact: true }).fill(topic);
+  // E2E 不覆盖真实联网搜集（零外网请求）：默认勾选会让提交卡在 research 阶段。
+  await page.getByRole("checkbox", { name: "联网搜集资料" }).uncheck();
   await page.getByRole("button", { name: "创建文章" }).click();
 
   await expect(page).toHaveURL(/\/articles\/[0-9a-f-]+\?step=outline$/);
