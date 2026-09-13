@@ -69,6 +69,8 @@ export interface ContentWorkspaceProps {
   /** 先落盘当前未保存的编辑，再返回服务端最新文章。 */
   prepareArticle: () => Promise<Article>;
   onArticleChange: (article: Article) => void;
+  /** 正文确认成功后触发：工作台借此自动进入下一步（配图）。 */
+  onContentApproved?: () => void;
   onEditBlocks: (blocks: ContentBlock[]) => void;
   onHistoryChange?: (
     versions: ArticleRevision<ContentRevisionSnapshot>[],
@@ -135,6 +137,7 @@ export function ContentWorkspace({
   readOnly = false,
   prepareArticle,
   onArticleChange,
+  onContentApproved,
   onEditBlocks,
   onHistoryChange,
   generateContent,
@@ -277,6 +280,7 @@ export function ContentWorkspace({
       setVersions((items) => addVersion(items, result.revision));
       // 未审核直接确认时 review 为 null：不显示审核结论，正文状态照常落库。
       setCurrentReview(result.review ? { revision: result.revision, review: result.review } : null);
+      onContentApproved?.();
     }, "approving");
   }
 

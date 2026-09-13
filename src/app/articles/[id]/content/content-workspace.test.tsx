@@ -157,8 +157,9 @@ describe("ContentWorkspace", () => {
     expect(scrollIntoView).toHaveBeenCalled();
   });
 
-  it("approves the article once the review passes", async () => {
+  it("approves the article once the review passes and advances to the next step", async () => {
     const user = userEvent.setup();
+    const onContentApproved = vi.fn();
     const approveContent = vi.fn(async () => ({
       article: { ...generatedArticle, status: "content_ready" as const },
       revision: revision(),
@@ -170,6 +171,7 @@ describe("ContentWorkspace", () => {
         llmConfig={{ enabled: false, availableModels: [], defaultModel: null }}
         prepareArticle={async () => generatedArticle}
         onArticleChange={vi.fn()}
+        onContentApproved={onContentApproved}
         onEditBlocks={vi.fn()}
         initialVersions={[revision()]}
         initialReview={{ revision: revision(), review: reviewWith("passed") }}
@@ -182,6 +184,7 @@ describe("ContentWorkspace", () => {
     await waitFor(() => expect(approveContent).toHaveBeenCalledWith(expect.objectContaining({
       acknowledgeWarnings: false
     })));
+    await waitFor(() => expect(onContentApproved).toHaveBeenCalled());
   });
 
   it("renders the confirmed outline read-only beside the editor", () => {

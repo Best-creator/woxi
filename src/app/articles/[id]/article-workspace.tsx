@@ -469,6 +469,7 @@ export function ArticleWorkspace({
               readOnly={isNarrowViewport}
               prepareArticle={prepareArticle}
               onArticleChange={markPersisted}
+              onContentApproved={() => selectStep("images")}
               onEditBlocks={updateBlocks}
               onHistoryChange={handleContentHistoryChange}
               generateContent={generateContent}
