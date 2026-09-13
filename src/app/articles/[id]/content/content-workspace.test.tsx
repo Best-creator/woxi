@@ -131,9 +131,9 @@ describe("ContentWorkspace", () => {
     await user.click(screen.getByRole("button", { name: "审核正文" }));
 
     expect(prepareArticle).toHaveBeenCalledOnce();
-    expect(reviewContent).toHaveBeenCalledWith(expect.objectContaining({
+    expect(reviewContent).toHaveBeenCalledWith({
       expectedUpdatedAt: "2026-09-10T00:00:05.000Z"
-    }));
+    });
     expect(await screen.findByText("审核通过")).toBeVisible();
   });
 

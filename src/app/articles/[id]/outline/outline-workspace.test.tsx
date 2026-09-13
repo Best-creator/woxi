@@ -350,7 +350,7 @@ describe("OutlineWorkspace", () => {
     await user.click(screen.getByRole("button", { name: "查看大纲 v1" }));
     await user.click(screen.getByRole("button", { name: "审核大纲" }));
 
-    expect(reviewOutline).toHaveBeenCalledWith(expect.objectContaining({ expectedUpdatedAt: generatedArticle.updatedAt }));
+    expect(reviewOutline).toHaveBeenCalledWith({ expectedUpdatedAt: generatedArticle.updatedAt });
     expect(screen.queryByText("正在查看大纲 v1")).not.toBeInTheDocument();
     expect(screen.queryByText("旧版章节目标不够具体。")).not.toBeInTheDocument();
     expect(await screen.findByText("审核通过", { selector: ".review-status" })).toBeVisible();

@@ -254,9 +254,10 @@ export function ContentWorkspace({
     void run(async () => {
       setPreviewVersionId(null);
       const saved = await prepareArticle();
+      // 审核不透传模型选择器的值：审核走服务端默认的 LLM_REVIEW_MODEL（打分类轻量模型），
+      // 模型选择器面向正文生成等改写任务。
       const result = await (reviewContent ?? reviewContentRequest(saved.id))({
-        expectedUpdatedAt: saved.updatedAt,
-        ...(model ? { model } : {})
+        expectedUpdatedAt: saved.updatedAt
       });
       setCurrentReview(result);
       setVersions((items) => addVersion(items, result.revision));

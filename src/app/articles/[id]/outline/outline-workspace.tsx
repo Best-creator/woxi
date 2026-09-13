@@ -295,9 +295,10 @@ export function OutlineWorkspace({
     void run(async () => {
       setPreviewVersionId(null);
       const saved = await persistChanges();
+      // 审核不透传模型选择器的值：模型选择器面向生成等改写任务，
+      // 审核走服务端默认的 LLM_REVIEW_MODEL（打分类轻量模型），未配置时回落主模型。
       const result = await (reviewOutline ?? reviewOutlineRequest(saved.id))({
-        expectedUpdatedAt: saved.updatedAt,
-        ...(model ? { model } : {})
+        expectedUpdatedAt: saved.updatedAt
       });
       setCurrentReview(result);
       setVersions((items) => addVersion(items, result.revision));
