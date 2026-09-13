@@ -80,7 +80,8 @@ test.describe("content workflow", () => {
       page.getByRole("heading", { name: "用大白话讲清楚：什么是机会成本" })
     ).toBeVisible();
     await expect(page.getByRole("button", { name: "查看正文 v1" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "确认内容" })).toBeDisabled();
+    // 审核为可选步骤：未审核时确认按钮可用，文案为「直接确认（未审核）」。
+    await expect(page.getByRole("button", { name: "直接确认（未审核）" })).toBeEnabled();
 
     const reviewResponse = page.waitForResponse(
       (response) =>
@@ -98,7 +99,8 @@ test.describe("content workflow", () => {
     );
     await page.getByRole("button", { name: "确认内容" }).click();
     await expect((await approveResponse).ok()).toBe(true);
-    await expect(page.getByRole("button", { name: "内容已确认" })).toBeVisible();
+    // 确认成功后工作台自动进入配图步骤（ec590f5 起的动线）。
+    await expect(page.getByRole("heading", { name: "规划配图" })).toBeVisible();
 
     // 确认内容后配图步骤解锁，且正文状态落库为 content_ready。
     await expect(workflow.getByRole("button", { name: /配图/ })).toBeEnabled();
