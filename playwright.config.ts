@@ -10,6 +10,10 @@ export default defineConfig({
   // 这里放宽等待上限，断言本身没有放松。
   timeout: 90_000,
   expect: { timeout: 20_000 },
+  // 兜底：Playwright 停止 worker 时偶发不退出（本机已复现多次），它会静默等满 5 分钟
+  // 再强杀，导致汇总结果永远打不出来、整条命令看起来像卡死。加上全局上限后，这种情况
+  // 会退化成一次可见的失败而不是无限等待。正常一次全量约 3~4 分钟，这里留足余量。
+  globalTimeout: 6 * 60_000,
   use: {
     baseURL: "http://127.0.0.1:3000",
     trace: "retain-on-failure"
