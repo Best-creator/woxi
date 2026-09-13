@@ -351,6 +351,27 @@ h2 {
   padding-top: 16px;
 }
 
+.web-research-toggle {
+  align-items: flex-start;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  font-size: 13px;
+  gap: 8px;
+  line-height: 1.5;
+  margin-top: 16px;
+}
+
+.web-research-toggle input {
+  accent-color: var(--accent, #2563eb);
+  margin-top: 2px;
+}
+
+.web-research-toggle svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
 .form-field textarea:focus {
   border-color: var(--focus);
 }

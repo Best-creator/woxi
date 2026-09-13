@@ -6,7 +6,8 @@ const config = {
   baseUrl: "https://llm.example.test",
   apiKey: "secret",
   model: "grok-4.6",
-  availableModels: ["grok-4.6"]
+  availableModels: ["grok-4.6"],
+  researchModel: ""
 };
 
 describe("LLM model discovery", () => {

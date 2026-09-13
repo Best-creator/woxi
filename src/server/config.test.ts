@@ -24,7 +24,19 @@ describe("parseServerConfig", () => {
       baseUrl: "https://yelan.xiaobupao.cn",
       apiKey: "secret",
       model: "gpt-5.6-terra",
-      availableModels: ["gpt-5.6-terra", "gpt-5.6-sol"]
+      availableModels: ["gpt-5.6-terra", "gpt-5.6-sol"],
+      researchModel: ""
+    });
+  });
+
+  it("keeps a dedicated research model when configured", () => {
+    expect(parseServerConfig({
+      LLM_API_KEY: "secret",
+      LLM_MODEL: "gpt-5.6-terra",
+      LLM_RESEARCH_MODEL: "grok-4.20-multi"
+    }).llm).toMatchObject({
+      model: "gpt-5.6-terra",
+      researchModel: "grok-4.20-multi"
     });
   });
 

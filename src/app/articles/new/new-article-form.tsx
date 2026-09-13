@@ -1,20 +1,35 @@
 "use client";
 
-import { ArrowRight, BookOpen, Zap } from "lucide-react";
+import { ArrowRight, BookOpen, Globe, Zap } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
+
+type SubmitPhase = "idle" | "creating" | "researching";
 
 export function NewArticleForm() {
   const router = useRouter();
   const [topic, setTopic] = useState("");
   const [mode, setMode] = useState<"quick" | "source">("quick");
+  const [useWebResearch, setUseWebResearch] = useState(true);
   const [sourceTitle, setSourceTitle] = useState("");
   const [sourceContent, setSourceContent] = useState("");
   const [error, setError] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [phase, setPhase] = useState<SubmitPhase>("idle");
+  const [createdArticleId, setCreatedArticleId] = useState<string | null>(null);
+  const isSubmitting = phase !== "idle";
+
+  function goToOutline(articleId: string) {
+    router.push(`/articles/${articleId}?step=outline`);
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    // 联网资料失败后文章已创建：再次提交即跳过资料直接进入。
+    if (createdArticleId) {
+      goToOutline(createdArticleId);
+      return;
+    }
+
     const normalizedTopic = topic.trim();
     if (!normalizedTopic) {
       setError("请输入要讲解的知识点");
@@ -26,7 +41,7 @@ export function NewArticleForm() {
     }
 
     setError("");
-    setIsSubmitting(true);
+    setPhase("creating");
     try {
       const response = await fetch("/api/articles", {
         method: "POST",
@@ -34,7 +49,7 @@ export function NewArticleForm() {
         body: JSON.stringify({ topic: normalizedTopic })
       });
       const result = (await response.json()) as {
-        article?: { id: string };
+        article?: { id: string; updatedAt?: string };
         error?: string;
       };
       if (!response.ok || !result.article) {
@@ -58,14 +73,45 @@ export function NewArticleForm() {
           throw new Error(sourceResult.error ?? "资料保存失败");
         }
       }
-      router.push(`/articles/${result.article.id}?step=outline`);
+      if (mode === "quick" && useWebResearch) {
+        setPhase("researching");
+        const researchResponse = await fetch(
+          `/api/articles/${result.article.id}/research`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              expectedUpdatedAt: result.article.updatedAt
+            })
+          }
+        );
+        if (!researchResponse.ok) {
+          const researchResult = (await researchResponse.json()) as { error?: string };
+          setCreatedArticleId(result.article.id);
+          setError(
+            `联网搜集资料失败：${researchResult.error ?? "服务暂时不可用"}。文章已创建，可点击「跳过资料直接进入」。`
+          );
+          setPhase("idle");
+          return;
+        }
+      }
+      goToOutline(result.article.id);
     } catch (submissionError) {
       setError(
         submissionError instanceof Error ? submissionError.message : "创建文章失败"
       );
-      setIsSubmitting(false);
+      setPhase("idle");
     }
   }
+
+  const submitLabel =
+    phase === "creating"
+      ? "正在创建..."
+      : phase === "researching"
+        ? "正在联网搜集资料..."
+        : createdArticleId
+          ? "跳过资料直接进入"
+          : "创建文章";
 
   return (
     <form className="new-article-form" onSubmit={handleSubmit} noValidate>
@@ -104,6 +150,18 @@ export function NewArticleForm() {
         {error ? <p className="field-error" id="topic-error">{error}</p> : null}
       </div>
 
+      {mode === "quick" ? (
+        <label className="web-research-toggle">
+          <input
+            type="checkbox"
+            checked={useWebResearch}
+            onChange={(event) => setUseWebResearch(event.target.checked)}
+          />
+          <Globe size={16} aria-hidden="true" />
+          <span>创建后由 AI 联网搜集资料，生成的大纲会更贴合真实信息</span>
+        </label>
+      ) : null}
+
       {mode === "source" ? (
         <div className="source-input-fields">
           <div className="form-field">
@@ -119,7 +177,7 @@ export function NewArticleForm() {
 
       <div className="form-actions">
         <button className="button button-primary" type="submit" disabled={isSubmitting}>
-          {isSubmitting ? "正在创建..." : "创建文章"}
+          {submitLabel}
           <ArrowRight size={16} aria-hidden="true" />
         </button>
       </div>

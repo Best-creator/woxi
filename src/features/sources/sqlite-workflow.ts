@@ -31,7 +31,9 @@ export class SqliteSourceWorkflow {
   async create(articleId: string, expectedUpdatedAt: string, input: { title: string; type: SourceType; content: string }): Promise<SourceMutationResult> {
     return this.mutate(articleId, expectedUpdatedAt, () => {
       const at = timestamp(expectedUpdatedAt);
-      const created: SourceDocument = { id: randomUUID(), articleId, title: input.title, type: input.type, content: input.content, status: input.type === "text" || input.type === "markdown" ? "ready" : "unsupported", enabled: true, createdAt: at, updatedAt: at };
+      // text/markdown/web 的内容本身就是可读文本，直接可用；
+      // pdf/docx 需要先经解析流程，保持 unsupported。
+      const created: SourceDocument = { id: randomUUID(), articleId, title: input.title, type: input.type, content: input.content, status: input.type === "text" || input.type === "markdown" || input.type === "web" ? "ready" : "unsupported", enabled: true, createdAt: at, updatedAt: at };
       this.db.prepare("INSERT INTO source_documents (id, article_id, title, type, content, status, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(created.id, created.articleId, created.title, created.type, created.content, created.status, 1, at, at);
       return created;
     });

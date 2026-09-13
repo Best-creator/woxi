@@ -11,6 +11,10 @@ import { DemoOutlineGenerator, DemoOutlineReviewer } from "@/features/outlines/d
 import { OpenAiOutlineGenerator } from "@/features/outlines/openai-outline-generator";
 import { OpenAiOutlineReviewer } from "@/features/outlines/openai-outline-reviewer";
 import type { OutlineGenerator, OutlineReviewer } from "@/features/outlines/ports";
+import { BingWebSearch } from "@/features/research/bing-web-search";
+import { ResilientWebSearch } from "@/features/research/resilient-web-search";
+import { SogouWebSearch } from "@/features/research/sogou-web-search";
+import type { WebSearchPort } from "@/features/research/types";
 import { SqliteRevisionRepository } from "@/features/revisions/sqlite-repository";
 import { SqliteOutlineWorkflowRepository } from "@/features/outlines/sqlite-workflow-repository";
 import { SqliteContentWorkflowRepository } from "@/features/content/sqlite-workflow-repository";
@@ -21,6 +25,7 @@ import { SqliteSourceWorkflow } from "@/features/sources/sqlite-workflow";
 import { getServerConfig } from "./config";
 import { DEMO_OUTLINE_MODEL } from "@/features/outlines/model";
 import { DEMO_CONTENT_MODEL } from "@/features/content/model";
+import { DEMO_RESEARCH_MODEL } from "@/features/research/model";
 
 let articleRepository: SqliteArticleRepository | undefined;
 let sourceRepository: SqliteSourceRepository | undefined;
@@ -35,6 +40,7 @@ let visualPlanner: VisualPlanner | undefined;
 let outlineGenerator: OutlineGenerator | undefined;
 let outlineReviewer: OutlineReviewer | undefined;
 let openAiJsonClient: OpenAiJsonClient | undefined;
+let webSearch: WebSearchPort | undefined;
 let database: ReturnType<typeof openDatabase> | undefined;
 
 function getDatabase() {
@@ -120,6 +126,16 @@ function getOpenAiJsonClient() {
   return openAiJsonClient;
 }
 
+/** 供联网资料等功能使用的 JSON 客户端；未配置 LLM 时返回 null（调用方自行降级）。 */
+export function getLlmJsonClient() {
+  return getOpenAiJsonClient() ?? null;
+}
+
+export function getResearchDefaultModel() {
+  const llm = getServerConfig().llm;
+  return llm?.researchModel || llm?.model || DEMO_RESEARCH_MODEL;
+}
+
 export function getOutlineGenerator(): OutlineGenerator {
   if (!outlineGenerator) {
     const client = getOpenAiJsonClient();
@@ -134,4 +150,9 @@ export function getOutlineReviewer(): OutlineReviewer {
     outlineReviewer = client ? new OpenAiOutlineReviewer(client) : new DemoOutlineReviewer();
   }
   return outlineReviewer;
+}
+
+export function getWebSearch(): WebSearchPort {
+  webSearch ??= new ResilientWebSearch(new SogouWebSearch(), new BingWebSearch());
+  return webSearch;
 }

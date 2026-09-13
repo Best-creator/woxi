@@ -10,7 +10,8 @@ const config: LlmProviderConfig = {
   baseUrl: "https://llm.example.test/api",
   apiKey: "super-secret-key",
   model: "default-model",
-  availableModels: ["default-model", "alternate-model"]
+  availableModels: ["default-model", "alternate-model"],
+  researchModel: ""
 };
 
 const schema = z.object({ answer: z.string() });

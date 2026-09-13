@@ -30,9 +30,20 @@ pnpm dev
 LLM_API_KEY=
 LLM_MODEL=
 LLM_MODELS=model-a,model-b
+LLM_RESEARCH_MODEL=
 ```
 
-`LLM_MODELS` 是逗号分隔的可选模型白名单，默认 `LLM_MODEL` 会始终保留在可用列表中。真实 LLM 使用 OpenAI 兼容的 `{LLM_BASE_URL}/v1/chat/completions` endpoint。留空 `LLM_API_KEY` 时，大纲生成/审核、正文生成/审核和配图规划都使用不会发出外部请求的确定性 Demo 回退，适合本地开发和自动测试。图片 endpoint 已预留配置，但当前阶段不会调用真实图片生成服务。
+`LLM_MODELS` 是逗号分隔的可选模型白名单，默认 `LLM_MODEL` 会始终保留在可用列表中。`LLM_RESEARCH_MODEL` 是「AI 联网搜集资料」专用的深度研究模型（如多 agent 模型），留空时回落到 `LLM_MODEL`。真实 LLM 使用 OpenAI 兼容的 `{LLM_BASE_URL}/v1/chat/completions` endpoint。留空 `LLM_API_KEY` 时，大纲生成/审核、正文生成/审核和配图规划都使用不会发出外部请求的确定性 Demo 回退，适合本地开发和自动测试（联网搜集资料仍会真实访问搜索引擎）。图片 endpoint 已预留配置，但当前阶段不会调用真实图片生成服务。
+
+## AI 联网搜集资料
+
+新建文章页选择「快速生成」时默认勾选「创建后由 AI 联网搜集资料」。创建文章后系统会：
+
+1. 用 LLM 根据知识点生成 2-3 个搜索查询词（未配置 LLM 时直接使用知识点本身）；
+2. 通过服务端搜索引擎（搜狗为主、Bing RSS 兜底）获取真实网页结果；
+3. 由 `LLM_RESEARCH_MODEL` 将结果整理成结构化资料（概述 / 带编号来源的关键事实 / 常见疑问），存为文章的 `web` 类型资料。
+
+后续大纲与正文生成会自动引用这份资料。该功能通过 `POST /api/articles/{id}/research` 提供，走与其他写操作相同的乐观并发（`expectedUpdatedAt`）约束；搜集失败不会阻塞创建流程，页面会提示后允许直接进入工作台。
 
 没有资料时仍可生成大纲和正文，但系统会标记事实性表述需要人工核验；在发布前应补充可靠资料或完成人工核对。
 
