@@ -434,6 +434,19 @@ h2 {
   color: #b42318;
 }
 
+.publish-badge {
+  align-items: center;
+  background: #ecfdf3;
+  border: 1px solid #abefc6;
+  border-radius: 999px;
+  color: #067647;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 600;
+  gap: 6px;
+  padding: 4px 10px;
+}
+
 .icon-button {
   align-items: center;
   background: var(--surface);

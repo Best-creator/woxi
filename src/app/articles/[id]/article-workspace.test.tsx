@@ -785,4 +785,49 @@ describe("ArticleWorkspace", () => {
     expect(screen.getByRole("button", { name: "分析配图需求" })).toBeDisabled();
     expect(localStorage.getItem("article-draft:article-1")).toContain("失败本地正文");
   });
+
+  it("hides the publish action until the content is confirmed", () => {
+    render(<ArticleWorkspace initialArticle={currentArticleDraft()} />);
+
+    expect(screen.queryByRole("button", { name: "标记为待发布" })).not.toBeInTheDocument();
+    expect(screen.queryByText("待发布")).not.toBeInTheDocument();
+  });
+
+  it("marks a confirmed article as ready to publish", async () => {
+    const user = userEvent.setup();
+    const article = currentArticleDraft({ status: "content_ready" });
+    const saveArticle = vi.fn(async (saved: Article) => ({
+      kind: "saved" as const,
+      article: { ...saved, status: "ready_to_publish" as const }
+    }));
+    render(<ArticleWorkspace initialArticle={article} saveArticle={saveArticle} />);
+
+    await user.click(screen.getByRole("button", { name: "标记为待发布" }));
+
+    await waitFor(() => expect(saveArticle).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "ready_to_publish" }),
+      article.updatedAt
+    ));
+    expect(await screen.findByText("待发布")).toBeVisible();
+  });
+
+  it("reverts a ready-to-publish article back to confirmed content", async () => {
+    const user = userEvent.setup();
+    const article = currentArticleDraft({ status: "ready_to_publish" });
+    const saveArticle = vi.fn(async (saved: Article) => ({
+      kind: "saved" as const,
+      article: { ...saved, status: "content_ready" as const }
+    }));
+    render(<ArticleWorkspace initialArticle={article} saveArticle={saveArticle} />);
+
+    expect(screen.getByText("待发布")).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "撤回待发布" }));
+
+    await waitFor(() => expect(saveArticle).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "content_ready" }),
+      article.updatedAt
+    ));
+    await waitFor(() => expect(screen.queryByText("待发布")).not.toBeInTheDocument());
+  });
 });

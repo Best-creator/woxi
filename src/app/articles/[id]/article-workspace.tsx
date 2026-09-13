@@ -1,6 +1,6 @@
 "use client";
 
-import { Eye, Save } from "lucide-react";
+import { Eye, Save, Send, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BlockEditor } from "@/components/block-editor";
 import { GenerationPanel } from "@/components/generation-panel";
@@ -185,6 +185,7 @@ export function ArticleWorkspace({
   >("saved");
   const [message, setMessage] = useState("");
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [isSettingPublishStatus, setIsSettingPublishStatus] = useState(false);
   const [isNarrowViewport, setIsNarrowViewport] = useState(false);
   const [requestedStep, setRequestedStep] = useState(initialStep);
   const [outlineVersions, setOutlineVersions] = useState(initialVersions);
@@ -331,6 +332,26 @@ export function ArticleWorkspace({
     localStorage.removeItem(`article-draft:${nextArticle.id}`);
   }
 
+  /** 发布动线：正文确认后可标记待发布，误操作可撤回。 */
+  async function handleSetPublishStatus(status: "ready_to_publish" | "content_ready") {
+    setMessage("");
+    setIsSettingPublishStatus(true);
+    try {
+      const saved = await prepareArticle();
+      const result = await saveArticle({ ...saved, status }, saved.updatedAt);
+      if (result.kind === "conflict") {
+        setAutosaveBlocked(true);
+        setMessage("文章已在其他位置更新，请刷新页面后重试");
+        return;
+      }
+      markPersisted(result.article);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "发布状态更新失败，请稍后重试");
+    } finally {
+      setIsSettingPublishStatus(false);
+    }
+  }
+
   function adoptSourceMutation(nextSources: SourceDocument[], nextArticle: Article) {
     setSources(nextSources);
     markPersisted(nextArticle);
@@ -397,6 +418,34 @@ export function ArticleWorkspace({
             <Save size={14} aria-hidden="true" />
             {saveLabel}
           </span>
+          {article.status === "content_ready" ? (
+            <button
+              className="button button-secondary"
+              type="button"
+              disabled={isSettingPublishStatus}
+              onClick={() => void handleSetPublishStatus("ready_to_publish")}
+            >
+              <Send size={16} aria-hidden="true" />
+              {isSettingPublishStatus ? "标记中..." : "标记为待发布"}
+            </button>
+          ) : null}
+          {article.status === "ready_to_publish" ? (
+            <>
+              <span className="publish-badge" role="status">
+                <Send size={14} aria-hidden="true" />
+                待发布
+              </span>
+              <button
+                className="button button-secondary"
+                type="button"
+                disabled={isSettingPublishStatus}
+                onClick={() => void handleSetPublishStatus("content_ready")}
+              >
+                <Undo2 size={16} aria-hidden="true" />
+                撤回待发布
+              </button>
+            </>
+          ) : null}
           <button
             className="button button-secondary"
             type="button"
