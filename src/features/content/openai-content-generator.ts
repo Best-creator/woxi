@@ -51,7 +51,9 @@ export class OpenAiContentGenerator implements ContentGenerator {
         ...(input.sourceContext ? { sourceContext: input.sourceContext } : {})
       },
       schema: generatedContentSchema,
-      timeoutMs: 120_000
+      // 深度推理模型写整篇正文实测可达 2 分钟以上（验收实测 115s），
+      // 给足余量避免贴线超时导致用户重试。
+      timeoutMs: 300_000
     });
     return validateGeneratedContent(result, input);
   }
