@@ -201,4 +201,23 @@ describe("ContentWorkspace", () => {
     expect(screen.getByText("先说什么叫取舍")).toBeVisible();
     expect(screen.getByLabelText("正文块 1")).toHaveValue("第一段正文");
   });
+
+  it("shows an automatic word count summary with the recommended total", () => {
+    render(
+      <ContentWorkspace
+        article={generatedArticle}
+        llmConfig={{ enabled: false, availableModels: [], defaultModel: null }}
+        prepareArticle={async () => generatedArticle}
+        onArticleChange={vi.fn()}
+        onEditBlocks={vi.fn()}
+      />
+    );
+
+    const summary = screen.getByRole("status", { name: "正文字数统计" });
+    // twoBlocks() 两段各 5 个非空白字符，共 10 字、2 块；目标 1200 字，偏差 -99%。
+    expect(summary).toHaveTextContent("正文约 10 字");
+    expect(summary).toHaveTextContent("2 个内容块");
+    expect(summary).toHaveTextContent("目标约 1200 字");
+    expect(summary).toHaveTextContent("还差 99%");
+  });
 });

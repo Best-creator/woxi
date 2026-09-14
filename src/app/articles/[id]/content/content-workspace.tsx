@@ -188,6 +188,22 @@ export function ContentWorkspace({
     : currentReview?.review ?? null;
   const approved = article.status === "content_ready" || article.status === "ready_to_publish";
 
+  // 正文字数统计：剔除图片块与空白字符，跟随编辑与版本预览实时更新。
+  const wordStats = useMemo(() => {
+    let characters = 0;
+    let textBlockCount = 0;
+    for (const block of displayedBlocks) {
+      if (block.type === "image") continue;
+      characters += block.content.replace(/\s/g, "").length;
+      textBlockCount += 1;
+    }
+    return { characters, textBlockCount };
+  }, [displayedBlocks]);
+  const targetWords = article.planning.recommendedTotalWords;
+  const wordDeviation = targetWords && targetWords > 0
+    ? Math.round(((wordStats.characters - targetWords) / targetWords) * 100)
+    : null;
+
   useEffect(() => {
     onHistoryChange?.(versions, currentReview, versionReviews);
   }, [versions, currentReview, versionReviews, onHistoryChange]);
@@ -359,15 +375,27 @@ export function ContentWorkspace({
           ) : null}
 
           {displayedBlocks.length ? (
-            <div className="article-canvas">
-              <BlockEditor
-                blocks={isPreviewing ? displayedBlocks : article.blocks}
-                onChange={onEditBlocks}
-                readOnly={readOnly || isPreviewing}
-                imageAssets={imageAssets}
-                highlightedBlockIds={isPreviewing ? [] : highlightedBlockIds}
-              />
-            </div>
+            <>
+              <p className="content-word-count" role="status" aria-label="正文字数统计">
+                正文约 <strong>{wordStats.characters}</strong> 字 · {wordStats.textBlockCount} 个内容块
+                {targetWords ? <> · 目标约 {targetWords} 字</> : null}
+                {wordDeviation !== null && Math.abs(wordDeviation) > 15 ? (
+                  <span className={wordDeviation > 0 ? "word-count-over" : "word-count-under"}>
+                    （{wordDeviation > 0 ? "超出" : "还差"} {Math.abs(wordDeviation)}%）
+                  </span>
+                ) : null}
+                {isPreviewing ? " · 当前为历史版本" : null}
+              </p>
+              <div className="article-canvas">
+                <BlockEditor
+                  blocks={isPreviewing ? displayedBlocks : article.blocks}
+                  onChange={onEditBlocks}
+                  readOnly={readOnly || isPreviewing}
+                  imageAssets={imageAssets}
+                  highlightedBlockIds={isPreviewing ? [] : highlightedBlockIds}
+                />
+              </div>
+            </>
           ) : (
             <p className="panel-empty">还没有正文。确认大纲后点击「生成完整正文」。</p>
           )}
