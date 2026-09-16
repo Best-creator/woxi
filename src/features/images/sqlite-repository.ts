@@ -16,7 +16,8 @@ import type {
   ImageLibraryItem,
   ImagePlanSuggestion
 } from "./domain";
-import { imageContentUrl, mergeImageBlocks, restoreConsumedBlocks } from "./merge-image-blocks";
+import { imageContentUrl, mergeImageBlocks } from "./merge-image-blocks";
+import { restoreConsumedBlocks } from "./consumed-content";
 import { parseImageAssetRow as parseAsset, type ImageAssetRow } from "./asset-row";
 import type {
   CompleteGenerationInput,

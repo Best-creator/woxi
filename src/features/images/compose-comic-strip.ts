@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import type { Article, ContentBlock } from "@/features/articles/domain";
+import type { Article } from "@/features/articles/domain";
 import type { ArticleRepository } from "@/features/articles/repository";
 import { DEFAULT_COMIC_STRIP_METRICS, composeComicStrip, type ComicStripBlock, type ComicStripMetrics } from "./comic-strip";
+import { withStripsRestored } from "./consumed-content";
 import type { ComicStripMode, ImageAsset } from "./domain";
 import { removeGenerationFile } from "./generation-files";
-import { restoreConsumedBlocks } from "./merge-image-blocks";
 import {
   inspectComicStrip,
   layoutComicStrip,
@@ -41,21 +41,6 @@ function missingImageCount(group: ComicStripGroup): number {
   return group.panels.filter(
     (panel) => panel.asset.status !== "generated" || !panel.asset.filePath
   ).length;
-}
-
-/**
- * 把已经烘进长图、暂时不在正文里的那些块「虚拟地」放回来，只为识别分镜用。
- *
- * 为什么需要：用户想换一种排法时，正文里只剩一张长图，而被替换的图文都藏在那张图的快照里。
- * 不先还原就认不出分镜，改排法会被误判成「这篇没有分镜配图」。
- * 这里只算不写——正文要等旧长图真的撤掉才会变回原样。
- */
-function withStripsRestored(blocks: ContentBlock[], assets: readonly ImageAsset[]): ContentBlock[] {
-  return assets.reduce(
-    (current, asset) =>
-      asset.consumedContent ? restoreConsumedBlocks(current, asset.consumedContent) : current,
-    blocks
-  );
 }
 
 async function panelBinary(asset: ImageAsset): Promise<Buffer> {

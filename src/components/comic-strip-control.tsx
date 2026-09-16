@@ -10,6 +10,7 @@ import {
   type ImageAsset
 } from "@/features/images/domain";
 import { inspectComicStrip } from "@/features/images/plan-comic-strip";
+import { withStripsRestored } from "@/features/images/consumed-content";
 import type { ImageMutationPayload } from "./image-planning-panel";
 
 // 这里不引 merge-image-blocks 的 imageContentUrl：那个模块带 node:crypto，
@@ -53,8 +54,10 @@ export function ComicStripControl({
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
 
   // 和真正拼图共用同一套识别逻辑：按钮亮着就一定能拼成，不会点下去才说拼不了。
+  // 拼过长图之后正文里只剩那张长图，必须先把被它替换掉的图文「临时」放回来再判——
+  // 否则会以为这篇没有分镜，「按新模式重拼」明明该能点却一直置灰。
   const readiness = useMemo(
-    () => inspectComicStrip(article.blocks, assets),
+    () => inspectComicStrip(withStripsRestored(article.blocks, assets), assets),
     [article.blocks, assets]
   );
   const strip = useMemo(
