@@ -59,7 +59,11 @@ export function ArticleList({ articles }: { articles: Article[] }) {
                   {statusLabels[article.status]}
                 </span>
               </td>
-              <td className="article-time">{formatUpdatedAt(article.updatedAt)}</td>
+              {/* article-time 的样式含 display:block，必须落在 td 内层元素上；
+                  直接挂 td 会覆盖 display:table-cell，导致该格不撑满行高、行线错位。 */}
+              <td>
+                <span className="article-time">{formatUpdatedAt(article.updatedAt)}</span>
+              </td>
             </tr>
           ))}
         </tbody>
