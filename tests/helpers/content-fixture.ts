@@ -1,8 +1,10 @@
 import { SqliteArticleRepository } from "@/features/articles/sqlite-repository";
-import { DemoContentGenerator, DemoContentReviewer } from "@/features/content/demo-content-agents";
+import { DemoContentReviewer } from "@/features/content/demo-content-agents";
+import { DemoStoryboardDesigner } from "@/features/content/demo-storyboard-designer";
 import { generateContent } from "@/features/content/generate-content";
 import { SqliteContentWorkflowRepository } from "@/features/content/sqlite-workflow-repository";
 import { DEFAULT_STYLE_PROFILE, resolveStyleProfile } from "@/features/content/style-profile";
+import { SqliteImageAssetRepository } from "@/features/images/sqlite-repository";
 import { DemoOutlineGenerator, DemoOutlineReviewer } from "@/features/outlines/demo-outline-agents";
 import { confirmOutline } from "@/features/outlines/confirm-outline";
 import { generateOutline } from "@/features/outlines/generate-outline";
@@ -17,7 +19,8 @@ export function contentFixture() {
   const sources = new SqliteSourceRepository(db);
   const outlineWorkflow = new SqliteOutlineWorkflowRepository(db);
   const contentWorkflow = new SqliteContentWorkflowRepository(db);
-  return { db, articles, sources, outlineWorkflow, contentWorkflow };
+  const imageAssets = new SqliteImageAssetRepository(db);
+  return { db, articles, sources, outlineWorkflow, contentWorkflow, imageAssets };
 }
 
 /** 走完资料 → 大纲 → 审核 → 确认，得到可以生成正文的文章。 */
@@ -51,7 +54,7 @@ export async function articleWithConfirmedOutline() {
   return { ...fixture, article: confirmed.article, outlineRevision: confirmed.revision };
 }
 
-/** 在已确认大纲之上生成一版正文。 */
+/** 在已确认大纲之上设计一版分镜正文。 */
 export async function articleWithGeneratedContent() {
   const fixture = await articleWithConfirmedOutline();
   const generated = await generateContent(
@@ -63,8 +66,9 @@ export async function articleWithGeneratedContent() {
     {
       articles: fixture.articles,
       sources: fixture.sources,
-      generator: new DemoContentGenerator(),
-      workflow: fixture.contentWorkflow
+      designer: new DemoStoryboardDesigner(),
+      workflow: fixture.contentWorkflow,
+      images: fixture.imageAssets
     }
   );
   if (generated.kind !== "generated") throw new Error("fixture should generate content");
@@ -73,7 +77,7 @@ export async function articleWithGeneratedContent() {
     article: generated.article,
     contentRevision: generated.revision,
     reviewer: new DemoContentReviewer(),
-    generator: new DemoContentGenerator(),
+    designer: new DemoStoryboardDesigner(),
     styleProfile: DEFAULT_STYLE_PROFILE
   };
 }

@@ -53,7 +53,10 @@ export function createContentSnapshot(
     outlineRevisionId,
     styleProfile: article.styleProfile,
     recommendedTotalWords,
-    sourceContextSnapshot
+    sourceContextSnapshot,
+    ...(article.planning.storyboardSegments?.length
+      ? { storyboardSegments: article.planning.storyboardSegments }
+      : {})
   };
 }
 

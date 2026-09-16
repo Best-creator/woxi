@@ -1,4 +1,4 @@
-import type { Article } from "@/features/articles/domain";
+import type { Article, StoryboardRoute } from "@/features/articles/domain";
 import type { ComicStripModeDecision } from "./comic-strip-mode-router";
 import type {
   ComicStripMode,
@@ -16,6 +16,31 @@ export type ImagePlanMutationResult =
   | { kind: "conflict" }
   | { kind: "invalid_plan"; message: string }
   | { kind: "invalid_anchor"; anchorBlockId: string }
+  | { kind: "invalid_state"; message: string };
+
+/** 一帧分镜的设计输入：prompt 即引导生图模型的完整提示词。 */
+export interface StoryboardFramePlan {
+  prompt: string;
+  altText: string;
+  /** 缺省 landscape：段图竖向拼接，横幅帧是最常见形态。 */
+  aspectRatio?: ImageAspectRatio;
+}
+
+/** 一个分镜段的落库输入；id 由编排层生成，正文块的 segmentId 与之对应。 */
+export interface StoryboardSegmentPlan {
+  id: string;
+  sectionKey: string;
+  title: string;
+  route: StoryboardRoute;
+  /** 该段成稿文案所在的正文块 id（标题块 + 文案块），拼段图时按此取文案。 */
+  copyBlockIds: string[];
+  frames: StoryboardFramePlan[];
+}
+
+export type StoryboardPlanMutationResult =
+  | { kind: "saved"; article: Article; assets: ImageAsset[]; removedFilePaths: string[] }
+  | { kind: "not_found" }
+  | { kind: "conflict" }
   | { kind: "invalid_state"; message: string };
 
 /**
@@ -138,6 +163,22 @@ export interface ImageAssetRepository {
     generationId: string,
     expectedUpdatedAt: string
   ): Promise<ImageGenerationMutationResult>;
+  /**
+   * 落库一份分镜设计（第三步「设计正文分镜」的展开桥）：
+   * 为每段创建分镜帧资产（type=storyboard、status=placeholder），
+   * 把分镜段写进 planning.storyboardSegments，并清掉上一版设计的全部旧分镜帧。
+   *
+   * 分镜帧不挂正文锚点——它们归段落所有，靠 frameAssetIds 关联，
+   * 不参与 mergeImageBlocks 的锚点摆放；正文块保持纯文案，
+   * 段图拼接（comic_strip + consumedContent）负责最终的图文合一。
+   *
+   * 被删旧帧的生成文件路径通过 removedFilePaths 交回上层清理磁盘。
+   */
+  applyStoryboardPlan(
+    articleId: string,
+    expectedUpdatedAt: string,
+    segments: StoryboardSegmentPlan[]
+  ): Promise<StoryboardPlanMutationResult>;
   /**
    * 落库一张漫画长图。被它替换掉的正文块随之从正文里隐去；
    * 只新增不覆盖，替换旧长图由编排层先调用 removeComicStrip。

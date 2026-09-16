@@ -2,10 +2,11 @@ import { SqliteArticleRepository } from "@/features/articles/sqlite-repository";
 import { SqliteReferenceCharacterRepository } from "@/features/characters/sqlite-repository";
 import type { CharacterDescriber } from "@/features/characters/character-describer";
 import { OpenAiCharacterDescriber } from "@/features/characters/openai-character-describer";
-import { DemoContentGenerator, DemoContentReviewer } from "@/features/content/demo-content-agents";
-import { OpenAiContentGenerator } from "@/features/content/openai-content-generator";
+import { DemoContentReviewer } from "@/features/content/demo-content-agents";
+import { DemoStoryboardDesigner } from "@/features/content/demo-storyboard-designer";
+import { OpenAiStoryboardDesigner } from "@/features/content/openai-storyboard-designer";
 import { OpenAiContentReviewer } from "@/features/content/openai-content-reviewer";
-import type { ContentGenerator, ContentReviewer } from "@/features/content/ports";
+import type { ContentReviewer, StoryboardDesigner } from "@/features/content/ports";
 import { DemoVisualPlanner } from "@/features/images/demo-visual-planner";
 import { OpenAiVisualPlanner } from "@/features/images/openai-visual-planner";
 import {
@@ -52,8 +53,8 @@ let imageAssetRepository: SqliteImageAssetRepository | undefined;
 let revisionRepository: SqliteRevisionRepository | undefined;
 let outlineWorkflowRepository: SqliteOutlineWorkflowRepository | undefined;
 let contentWorkflowRepository: SqliteContentWorkflowRepository | undefined;
-let contentGenerator: ContentGenerator | undefined;
 let contentReviewer: ContentReviewer | undefined;
+let storyboardDesigner: StoryboardDesigner | undefined;
 let visualPlanner: VisualPlanner | undefined;
 let outlineGenerator: OutlineGenerator | undefined;
 let outlineReviewer: OutlineReviewer | undefined;
@@ -129,12 +130,12 @@ export function getContentReviewDefaultModel() {
   return llm?.reviewModel || llm?.model || DEMO_CONTENT_MODEL;
 }
 
-export function getContentGenerator(): ContentGenerator {
-  if (!contentGenerator) {
+export function getStoryboardDesigner(): StoryboardDesigner {
+  if (!storyboardDesigner) {
     const client = getOpenAiJsonClient();
-    contentGenerator = client ? new OpenAiContentGenerator(client) : new DemoContentGenerator();
+    storyboardDesigner = client ? new OpenAiStoryboardDesigner(client) : new DemoStoryboardDesigner();
   }
-  return contentGenerator;
+  return storyboardDesigner;
 }
 
 export function getContentReviewer(): ContentReviewer {

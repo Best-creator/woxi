@@ -189,7 +189,8 @@ test.describe("content workflow", () => {
     await imageSaveResponse;
     await expect(page.getByText("已保存", { exact: true })).toBeVisible();
 
-    await page.getByRole("button", { name: "预览" }).click();
+    // exact 匹配：避免子串命中配图面板的「预览配图 N」按钮（严格模式会报多元素冲突）。
+    await page.getByRole("button", { name: "预览", exact: true }).click();
     await expect(page.getByRole("dialog", { name: "公众号预览" })).toBeVisible();
     const preview = page.frameLocator("iframe[title='公众号文章预览']");
     await expect(preview.getByText("机会成本，是选择一种方案时放弃的最佳替代方案。")).toBeVisible();

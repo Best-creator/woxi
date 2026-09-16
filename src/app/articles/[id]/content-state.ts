@@ -46,6 +46,24 @@ export function reviewForContentVersion(
   return match ? versionReviews[match.id] : null;
 }
 
+/**
+ * 键序不敏感的结构化比较：快照里存的对象与文章重新解析出的对象
+ * 可能键序不同（如 parseStyleProfileJson 的展开顺序、Zod 的 shape 顺序），
+ * 直接 JSON.stringify 会把等价数据误判为不同。
+ */
+function stableStringify(value: unknown): string {
+  return JSON.stringify(value, (_key, val) => {
+    if (val !== null && typeof val === "object" && !Array.isArray(val)) {
+      return Object.fromEntries(
+        Object.keys(val as Record<string, unknown>)
+          .sort()
+          .map((key) => [key, (val as Record<string, unknown>)[key]])
+      );
+    }
+    return val;
+  });
+}
+
 /** 正文审核只对"当前草稿内容"有效；编辑正文、换风格或改资料都会让审核过期。 */
 export function contentReviewIsStale(
   article: Article,
@@ -58,8 +76,8 @@ export function contentReviewIsStale(
     snapshot.title !== article.title ||
     snapshot.outlineRevisionId !== article.planning.contentOutlineRevisionId ||
     snapshot.sourceContextSnapshot !== readySourceContext(sources) ||
-    JSON.stringify(snapshot.textBlocks) !== JSON.stringify(textBlocksOf(article.blocks)) ||
-    JSON.stringify(snapshot.styleProfile) !== JSON.stringify(article.styleProfile)
+    stableStringify(snapshot.textBlocks) !== stableStringify(textBlocksOf(article.blocks)) ||
+    stableStringify(snapshot.styleProfile) !== stableStringify(article.styleProfile)
   );
 }
 

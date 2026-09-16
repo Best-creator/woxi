@@ -6,7 +6,8 @@ import { generateContent, type GenerateContentDependencies } from "@/features/co
 import {
   getArticleRepository,
   getContentDefaultModel,
-  getContentGenerator,
+  getImageAssetRepository,
+  getStoryboardDesigner,
   getContentWorkflowRepository,
   getSourceRepository
 } from "@/server/services";
@@ -41,10 +42,19 @@ const styleProfileRequestSchema = z.preprocess((value) => {
   return resolveStyleProfile(preset.data, customInstructions, resolveAudience(input.audience));
 }, styleProfileSchema);
 
+/** 参考形象摘要：设计分镜时烘进每一帧 prompt，保证主角跨段一致。 */
+const characterSchema = z.object({
+  name: z.string().trim().min(1).max(60),
+  persona: z.string().trim().max(200),
+  description: z.string().trim().max(600)
+});
+
 const generateContentRequestSchema = z.object({
   expectedUpdatedAt: z.iso.datetime(),
   model: z.string().trim().min(1).optional(),
-  styleProfile: styleProfileRequestSchema
+  styleProfile: styleProfileRequestSchema,
+  drawingStyle: z.string().trim().min(1).max(600).optional(),
+  character: characterSchema.optional()
 });
 
 export function createContentGenerateRouteHandler(dependencies: GenerateContentDependencies) {
@@ -57,13 +67,13 @@ export function createContentGenerateRouteHandler(dependencies: GenerateContentD
       return Response.json({ error: "请求内容不是有效的 JSON" }, { status: 400 });
     }
     const parsed = generateContentRequestSchema.safeParse(body);
-    if (!parsed.success) return Response.json({ error: "正文生成请求无效" }, { status: 400 });
+    if (!parsed.success) return Response.json({ error: "正文分镜设计请求无效" }, { status: 400 });
 
     const result = await generateContent({ articleId: id, ...parsed.data }, dependencies);
     if (result.kind === "not_found") return Response.json({ error: "文章不存在" }, { status: 404 });
     if (result.kind === "conflict") return Response.json({ error: "文章已在其他位置更新，请刷新后重试" }, { status: 409 });
-    if (result.kind === "not_ready") return Response.json({ error: "请先确认大纲再生成正文" }, { status: 400 });
-    if (result.kind === "generator_error") return Response.json({ error: result.message }, { status: 502 });
+    if (result.kind === "not_ready") return Response.json({ error: "请先确认大纲再设计正文分镜" }, { status: 400 });
+    if (result.kind === "designer_error") return Response.json({ error: result.message }, { status: 502 });
     if (result.kind === "save_error") return Response.json({ error: result.message }, { status: 409 });
     return Response.json({ article: result.article, revision: result.revision });
   };
@@ -73,8 +83,9 @@ export function POST(request: Request, context: RouteContext) {
   return createContentGenerateRouteHandler({
     articles: getArticleRepository(),
     sources: getSourceRepository(),
-    generator: getContentGenerator(),
+    designer: getStoryboardDesigner(),
     workflow: getContentWorkflowRepository(),
+    images: getImageAssetRepository(),
     defaultModel: getContentDefaultModel()
   })(request, context);
 }

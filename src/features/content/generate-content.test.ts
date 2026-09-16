@@ -5,12 +5,12 @@ import { generateContent } from "./generate-content";
 import { describeAudience } from "./audience";
 import { DEMO_CONTENT_MODEL } from "./model";
 import { resolveStyleProfile } from "./style-profile";
-import type { ContentGenerator } from "./ports";
-import { DemoContentGenerator } from "./demo-content-agents";
+import type { StoryboardDesigner } from "./ports";
+import { DemoStoryboardDesigner } from "./demo-storyboard-designer";
 import { articleWithConfirmedOutline } from "../../../tests/helpers/content-fixture";
 
 describe("generateContent", () => {
-  it("generates a full article from the confirmed outline and records content v1", async () => {
+  it("designs storyboard segments from the confirmed outline and records content v1", async () => {
     const fixture = await articleWithConfirmedOutline();
     const result = await generateContent(
       {
@@ -22,8 +22,9 @@ describe("generateContent", () => {
       {
         articles: fixture.articles,
         sources: fixture.sources,
-        generator: new DemoContentGenerator(),
-        workflow: fixture.contentWorkflow
+        designer: new DemoStoryboardDesigner(),
+        workflow: fixture.contentWorkflow,
+        images: fixture.imageAssets
       }
     );
 
@@ -39,19 +40,43 @@ describe("generateContent", () => {
       revision: { scope: "content", version: 1, model: "writer-large", reason: "generated" }
     });
     if (result.kind !== "generated") throw new Error("expected generated");
-    expect(result.article.blocks.length).toBeGreaterThan(3);
+    // 每段 = 标题块 + 文案块；无图片块（分镜帧是独立资产，不进正文块）。
+    expect(result.article.blocks.length).toBe(fixture.article.outline.length * 2);
     expect(result.article.blocks.every((block) => block.type !== "image")).toBe(true);
     expect(result.article.blocks.map((block) => block.order)).toEqual(
       result.article.blocks.map((_, index) => index)
     );
+
+    // 分镜设计落库：段数对齐大纲，帧资产真实存在，文案块互相咬合。
+    const segments = result.article.planning.storyboardSegments ?? [];
+    expect(segments.map((segment) => segment.sectionKey)).toEqual(
+      fixture.article.outline.map((section) => section.id)
+    );
+    expect(segments.map((segment) => segment.order)).toEqual(
+      segments.map((_, index) => index)
+    );
+    for (const segment of segments) {
+      const copyBlocks = result.article.blocks.filter((block) =>
+        segment.copyBlockIds.includes(block.id)
+      );
+      expect(copyBlocks.map((block) => block.segmentId)).toEqual([segment.id, segment.id]);
+      for (const frameAssetId of segment.frameAssetIds) {
+        const asset = await fixture.imageAssets.findById(result.article.id, frameAssetId);
+        expect(asset).toMatchObject({ type: "storyboard", status: "placeholder" });
+      }
+    }
+    // 演示路由：首段 图+文，中段 图+文+图，末段 文+图（覆盖三种排法）。
+    expect(segments[0]?.route).toBe("image_text");
+    expect(segments[segments.length - 1]?.route).toBe("text_image");
+    expect(segments[1]?.route).toBe("image_text_image");
   });
 
-  it("adopts the title proposed by the generator", async () => {
+  it("adopts the title proposed by the designer", async () => {
     const fixture = await articleWithConfirmedOutline();
-    const titling: ContentGenerator = {
-      async generate(input) {
-        const content = await new DemoContentGenerator().generate(input);
-        return { ...content, title: "  《机会成本》其实很简单  " };
+    const titling: StoryboardDesigner = {
+      async design(input) {
+        const design = await new DemoStoryboardDesigner().design(input);
+        return { ...design, title: "  《机会成本》其实很简单  " };
       }
     };
 
@@ -64,8 +89,9 @@ describe("generateContent", () => {
       {
         articles: fixture.articles,
         sources: fixture.sources,
-        generator: titling,
-        workflow: fixture.contentWorkflow
+        designer: titling,
+        workflow: fixture.contentWorkflow,
+        images: fixture.imageAssets
       }
     );
 
@@ -74,12 +100,12 @@ describe("generateContent", () => {
     expect(result.revision.snapshot.title).toBe("《机会成本》其实很简单");
   });
 
-  it("keeps the current title when the generator returns a blank one", async () => {
+  it("keeps the current title when the designer returns a blank one", async () => {
     const fixture = await articleWithConfirmedOutline();
-    const untitled: ContentGenerator = {
-      async generate(input) {
-        const content = await new DemoContentGenerator().generate(input);
-        return { ...content, title: "   " };
+    const untitled: StoryboardDesigner = {
+      async design(input) {
+        const design = await new DemoStoryboardDesigner().design(input);
+        return { ...design, title: "   " };
       }
     };
 
@@ -92,8 +118,9 @@ describe("generateContent", () => {
       {
         articles: fixture.articles,
         sources: fixture.sources,
-        generator: untitled,
-        workflow: fixture.contentWorkflow
+        designer: untitled,
+        workflow: fixture.contentWorkflow,
+        images: fixture.imageAssets
       }
     );
 
@@ -101,13 +128,13 @@ describe("generateContent", () => {
     expect(result.article.title).toBe(fixture.article.title);
   });
 
-  it("hands every confirmed section to the generator in order", async () => {
+  it("hands every confirmed section to the designer in order", async () => {
     const fixture = await articleWithConfirmedOutline();
-    let received: Parameters<ContentGenerator["generate"]>[0] | undefined;
-    const generator: ContentGenerator = {
-      async generate(input) {
+    let received: Parameters<StoryboardDesigner["design"]>[0] | undefined;
+    const designer: StoryboardDesigner = {
+      async design(input) {
         received = input;
-        return new DemoContentGenerator().generate(input);
+        return new DemoStoryboardDesigner().design(input);
       }
     };
 
@@ -117,7 +144,7 @@ describe("generateContent", () => {
         expectedUpdatedAt: fixture.article.updatedAt,
         styleProfile: resolveStyleProfile("storyteller")
       },
-      { articles: fixture.articles, sources: fixture.sources, generator, workflow: fixture.contentWorkflow }
+      { articles: fixture.articles, sources: fixture.sources, designer, workflow: fixture.contentWorkflow, images: fixture.imageAssets }
     );
 
     expect(received?.outline.map((section) => section.title)).toEqual(
@@ -127,13 +154,39 @@ describe("generateContent", () => {
     expect(received?.styleProfile.preset).toBe("storyteller");
   });
 
+  it("forwards drawing style and character into the design input", async () => {
+    const fixture = await articleWithConfirmedOutline();
+    let received: Parameters<StoryboardDesigner["design"]>[0] | undefined;
+    const designer: StoryboardDesigner = {
+      async design(input) {
+        received = input;
+        return new DemoStoryboardDesigner().design(input);
+      }
+    };
+    const character = { name: "小知", persona: "科普讲解员", description: "圆框眼镜、蓝色马甲" };
+
+    await generateContent(
+      {
+        articleId: fixture.article.id,
+        expectedUpdatedAt: fixture.article.updatedAt,
+        styleProfile: resolveStyleProfile("popular_science_teacher"),
+        drawingStyle: "水墨漫画风",
+        character
+      },
+      { articles: fixture.articles, sources: fixture.sources, designer, workflow: fixture.contentWorkflow, images: fixture.imageAssets }
+    );
+
+    expect(received?.drawingStyle).toBe("水墨漫画风");
+    expect(received?.character).toEqual(character);
+  });
+
   it("passes the chosen audience through as targetAudience", async () => {
     const fixture = await articleWithConfirmedOutline();
-    let received: Parameters<ContentGenerator["generate"]>[0] | undefined;
-    const generator: ContentGenerator = {
-      async generate(input) {
+    let received: Parameters<StoryboardDesigner["design"]>[0] | undefined;
+    const designer: StoryboardDesigner = {
+      async design(input) {
         received = input;
-        return new DemoContentGenerator().generate(input);
+        return new DemoStoryboardDesigner().design(input);
       }
     };
 
@@ -143,7 +196,7 @@ describe("generateContent", () => {
         expectedUpdatedAt: fixture.article.updatedAt,
         styleProfile: resolveStyleProfile("popular_science_teacher", "", "office_desk")
       },
-      { articles: fixture.articles, sources: fixture.sources, generator, workflow: fixture.contentWorkflow }
+      { articles: fixture.articles, sources: fixture.sources, designer, workflow: fixture.contentWorkflow, images: fixture.imageAssets }
     );
 
     expect(received?.targetAudience).toBe(describeAudience("office_desk"));
@@ -158,13 +211,19 @@ describe("generateContent", () => {
         expectedUpdatedAt: fixture.article.updatedAt,
         styleProfile: resolveStyleProfile("popular_science_teacher")
       },
-      { articles: fixture.articles, sources: fixture.sources, generator: new DemoContentGenerator(), workflow: fixture.contentWorkflow }
+      {
+        articles: fixture.articles,
+        sources: fixture.sources,
+        designer: new DemoStoryboardDesigner(),
+        workflow: fixture.contentWorkflow,
+        images: fixture.imageAssets
+      }
     );
 
     expect(result).toMatchObject({ kind: "generated", revision: { model: DEMO_CONTENT_MODEL } });
   });
 
-  it("refuses to generate without a confirmed outline", async () => {
+  it("refuses to design without a confirmed outline", async () => {
     const fixture = await articleWithConfirmedOutline();
     const draft = await fixture.articles.create({ topic: "沉没成本" });
 
@@ -174,7 +233,13 @@ describe("generateContent", () => {
         expectedUpdatedAt: draft.updatedAt,
         styleProfile: resolveStyleProfile("popular_science_teacher")
       },
-      { articles: fixture.articles, sources: fixture.sources, generator: new DemoContentGenerator(), workflow: fixture.contentWorkflow }
+      {
+        articles: fixture.articles,
+        sources: fixture.sources,
+        designer: new DemoStoryboardDesigner(),
+        workflow: fixture.contentWorkflow,
+        images: fixture.imageAssets
+      }
     );
 
     expect(result).toEqual({ kind: "not_ready" });
@@ -182,35 +247,67 @@ describe("generateContent", () => {
       .toEqual({ count: 0 });
   });
 
-  it("does not write a revision when the generator fails or returns an unknown section", async () => {
+  it("does not write a revision when the designer fails", async () => {
     const fixture = await articleWithConfirmedOutline();
-    const failing: ContentGenerator = {
-      async generate() {
+    const failing: StoryboardDesigner = {
+      async design() {
         throw new Error("上游超时");
-      }
-    };
-    const unknownSection: ContentGenerator = {
-      async generate() {
-        return {
-          title: "标题",
-          blocks: [{ sectionKey: "section-missing", type: "paragraph", content: "内容" }]
-        };
       }
     };
 
     const failed = await generateContent(
       { articleId: fixture.article.id, expectedUpdatedAt: fixture.article.updatedAt, styleProfile: resolveStyleProfile("popular_science_teacher") },
-      { articles: fixture.articles, sources: fixture.sources, generator: failing, workflow: fixture.contentWorkflow }
-    );
-    const invalid = await generateContent(
-      { articleId: fixture.article.id, expectedUpdatedAt: fixture.article.updatedAt, styleProfile: resolveStyleProfile("popular_science_teacher") },
-      { articles: fixture.articles, sources: fixture.sources, generator: unknownSection, workflow: fixture.contentWorkflow }
+      { articles: fixture.articles, sources: fixture.sources, designer: failing, workflow: fixture.contentWorkflow, images: fixture.imageAssets }
     );
 
-    expect(failed).toMatchObject({ kind: "generator_error", message: "上游超时" });
-    expect(invalid).toMatchObject({ kind: "generator_error" });
+    expect(failed).toMatchObject({ kind: "designer_error", message: "上游超时" });
     expect(fixture.db.prepare("SELECT COUNT(*) AS count FROM article_revisions WHERE scope = 'content'").get())
       .toEqual({ count: 0 });
+  });
+
+  it("retires the previous design's frames when redesigning", async () => {
+    const fixture = await articleWithConfirmedOutline();
+    const first = await generateContent(
+      {
+        articleId: fixture.article.id,
+        expectedUpdatedAt: fixture.article.updatedAt,
+        styleProfile: resolveStyleProfile("popular_science_teacher")
+      },
+      {
+        articles: fixture.articles,
+        sources: fixture.sources,
+        designer: new DemoStoryboardDesigner(),
+        workflow: fixture.contentWorkflow,
+        images: fixture.imageAssets
+      }
+    );
+    if (first.kind !== "generated") throw new Error("expected first design");
+    const firstFrameIds = (first.article.planning.storyboardSegments ?? [])
+      .flatMap((segment) => segment.frameAssetIds);
+
+    const second = await generateContent(
+      {
+        articleId: fixture.article.id,
+        expectedUpdatedAt: first.article.updatedAt,
+        styleProfile: resolveStyleProfile("popular_science_teacher")
+      },
+      {
+        articles: fixture.articles,
+        sources: fixture.sources,
+        designer: new DemoStoryboardDesigner(),
+        workflow: fixture.contentWorkflow,
+        images: fixture.imageAssets
+      }
+    );
+    if (second.kind !== "generated") throw new Error("expected second design");
+
+    const secondFrameIds = (second.article.planning.storyboardSegments ?? [])
+      .flatMap((segment) => segment.frameAssetIds);
+    expect(secondFrameIds.length).toBeGreaterThan(0);
+    for (const frameId of firstFrameIds) {
+      expect(secondFrameIds).not.toContain(frameId);
+      expect(await fixture.imageAssets.findById(fixture.article.id, frameId)).toBeNull();
+    }
   });
 
   it("rejects stale writes without touching the current draft", async () => {
@@ -222,7 +319,13 @@ describe("generateContent", () => {
         expectedUpdatedAt: "2026-01-01T00:00:00.000Z",
         styleProfile: resolveStyleProfile("popular_science_teacher")
       },
-      { articles: fixture.articles, sources: fixture.sources, generator: new DemoContentGenerator(), workflow: fixture.contentWorkflow }
+      {
+        articles: fixture.articles,
+        sources: fixture.sources,
+        designer: new DemoStoryboardDesigner(),
+        workflow: fixture.contentWorkflow,
+        images: fixture.imageAssets
+      }
     );
 
     expect(result).toEqual({ kind: "conflict" });

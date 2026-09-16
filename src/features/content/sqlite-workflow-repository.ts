@@ -304,7 +304,12 @@ export class SqliteContentWorkflowRepository implements ContentWorkflowRepositor
         status: "editing",
         planning: {
           ...article.planning,
-          contentOutlineRevisionId: snapshot.outlineRevisionId
+          contentOutlineRevisionId: snapshot.outlineRevisionId,
+          // 分镜设计随快照还原：正文回到哪一版，分镜段就回到哪一版。
+          // 帧资产不跟着回滚（可能已被后续设计重建），缺失帧由设计视图提示重新生成。
+          ...(snapshot.storyboardSegments
+            ? { storyboardSegments: snapshot.storyboardSegments }
+            : {})
         }
       });
       if (!updated) throw new AbortMutation({ kind: "conflict" });

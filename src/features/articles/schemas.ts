@@ -25,7 +25,20 @@ export const contentBlockSchema = z.object({
   level: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
   altText: z.string().optional(),
   assetId: z.string().min(1).optional(),
+  // 正文分镜段标记：成稿文案块携带，用于分段拼接时找回所属段落。
+  segmentId: z.string().min(1).optional(),
   version: z.number().int().positive()
+});
+
+/** 正文分镜段（planning.storyboardSegments 的条目）；原样透传，消费端用 isStoryboardRoute 校验。 */
+export const storyboardSegmentSchema = z.object({
+  id: z.string().min(1),
+  sectionKey: z.string().min(1),
+  title: z.string().min(1).max(120),
+  route: z.enum(["image_text", "text_image", "image_text_image"]),
+  copyBlockIds: z.array(z.string().min(1)),
+  frameAssetIds: z.array(z.string().min(1)),
+  order: z.number().int().nonnegative()
 });
 
 export const outlineSectionSchema = z.object({
@@ -43,7 +56,9 @@ export const articlePlanningSchema = z.object({
   contentOutlineRevisionId: z.string().min(1).nullable(),
   // 漫画长图排法决策（视觉规划器写入）：原样透传，消费端用 isComicStripMode 校验。
   comicStripMode: z.string().nullable().optional(),
-  comicStripReason: z.string().nullable().optional()
+  comicStripReason: z.string().nullable().optional(),
+  // 正文分镜设计（第三步写入）：原样透传，拼接阶段按段路由消费。
+  storyboardSegments: z.array(storyboardSegmentSchema).nullable().optional()
 });
 
 export const knowledgeBriefSchema = z.object({

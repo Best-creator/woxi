@@ -1,7 +1,8 @@
 // @vitest-environment node
 
 import { describe, expect, it } from "vitest";
-import { DemoContentGenerator, DemoContentReviewer } from "./demo-content-agents";
+import { DemoContentReviewer } from "./demo-content-agents";
+import { DemoStoryboardDesigner } from "./demo-storyboard-designer";
 import { generateContent } from "./generate-content";
 import { reviewContent } from "./review-content";
 import { resolveStyleProfile } from "./style-profile";
@@ -124,7 +125,7 @@ describe("reviewContent", () => {
     const styleProfile = resolveStyleProfile("knowledge_cards", "一句一条");
     await generateContent(
       { articleId: fixture.article.id, expectedUpdatedAt: fixture.article.updatedAt, styleProfile },
-      { articles: fixture.articles, sources: fixture.sources, generator: new DemoContentGenerator(), workflow: fixture.contentWorkflow }
+      { articles: fixture.articles, sources: fixture.sources, designer: new DemoStoryboardDesigner(), workflow: fixture.contentWorkflow, images: fixture.imageAssets }
     );
     const saved = await fixture.articles.findById(fixture.article.id);
     if (!saved) throw new Error("fixture should persist");

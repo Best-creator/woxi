@@ -53,14 +53,16 @@ describe("content agents", () => {
 
   it("uses deterministic content agents when no LLM provider is configured", async () => {
     const [
-      { getContentGenerator, getContentReviewer },
-      { DemoContentGenerator, DemoContentReviewer }
+      { getStoryboardDesigner, getContentReviewer },
+      { DemoStoryboardDesigner },
+      { DemoContentReviewer }
     ] = await Promise.all([
       import("./services"),
+      import("@/features/content/demo-storyboard-designer"),
       import("@/features/content/demo-content-agents")
     ]);
 
-    expect(getContentGenerator()).toBeInstanceOf(DemoContentGenerator);
+    expect(getStoryboardDesigner()).toBeInstanceOf(DemoStoryboardDesigner);
     expect(getContentReviewer()).toBeInstanceOf(DemoContentReviewer);
   });
 
@@ -72,21 +74,21 @@ describe("content agents", () => {
       availableModels: ["configured-model"]
     };
     const [
-      { getContentGenerator, getContentReviewer },
-      { OpenAiContentGenerator },
+      { getStoryboardDesigner, getContentReviewer },
+      { OpenAiStoryboardDesigner },
       { OpenAiContentReviewer }
     ] = await Promise.all([
       import("./services"),
-      import("@/features/content/openai-content-generator"),
+      import("@/features/content/openai-storyboard-designer"),
       import("@/features/content/openai-content-reviewer")
     ]);
 
-    const generator = getContentGenerator();
+    const designer = getStoryboardDesigner();
     const reviewer = getContentReviewer();
 
-    expect(generator).toBeInstanceOf(OpenAiContentGenerator);
+    expect(designer).toBeInstanceOf(OpenAiStoryboardDesigner);
     expect(reviewer).toBeInstanceOf(OpenAiContentReviewer);
-    expect((generator as unknown as { client: unknown }).client).toBe(
+    expect((designer as unknown as { client: unknown }).client).toBe(
       (reviewer as unknown as { client: unknown }).client
     );
   });

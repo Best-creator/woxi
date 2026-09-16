@@ -14,7 +14,7 @@ export default defineConfig([
     "test-results.stale-*/**",
     "node_modules.broken/**",
     ".data/**",
-    "work/ms-playwright/**",
+    "work/**",
     "next-env.d.ts"
   ])
 ]);

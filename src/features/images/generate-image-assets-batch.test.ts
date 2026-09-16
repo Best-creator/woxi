@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { SqliteArticleRepository } from "@/features/articles/sqlite-repository";
 import type { ImagePlanSuggestion } from "./domain";
 import { generateImageAssetsBatch } from "./generate-image-assets-batch";
-import type { GeneratedImagePayload, ImageGenerator } from "./image-generator";
+import type { GeneratedImagePayload } from "./image-generator";
 import type { ImageAssetRepository } from "./repository";
 import { SqliteImageAssetRepository } from "./sqlite-repository";
 import { createTestDatabase } from "../../../tests/helpers/test-db";

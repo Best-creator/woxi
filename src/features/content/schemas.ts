@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ContentReviewResult, GeneratedContent } from "./ports";
+import type { ContentReviewResult } from "./ports";
 import {
   MAX_AVOID_ITEM_LENGTH,
   MAX_AVOID_ITEMS,
@@ -34,18 +34,27 @@ export const styleProfileSchema = z.object({
   avoid: z.array(z.string().trim().min(1).max(MAX_AVOID_ITEM_LENGTH)).max(MAX_AVOID_ITEMS)
 }) satisfies z.ZodType<StyleProfile>;
 
-export const generatedContentBlockSchema = z.object({
-  sectionKey: z.string().trim().min(1).max(64),
-  // callout（提示）不再生成：历史文章仍可编辑保存，但新正文一律不产出。
-  type: z.enum(["heading", "paragraph", "quote", "knowledge_card"]),
-  content: z.string().trim().min(1).max(5_000),
-  level: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional()
+/** 分镜段的呈现路由；取值与 articles/domain 的 StoryboardRoute 一致。 */
+export const storyboardRouteSchema = z.enum(["image_text", "text_image", "image_text_image"]);
+
+export const storyboardDesignFrameSchema = z.object({
+  // 完整生图提示词：角色动作、场景道具、情绪氛围、镜头景别 + 画面文字。
+  prompt: z.string().trim().min(1).max(2_000),
+  altText: z.string().trim().min(1).max(120)
 });
 
-export const generatedContentSchema = z.object({
+export const storyboardDesignSegmentSchema = z.object({
+  sectionKey: z.string().trim().min(1).max(64),
+  title: z.string().trim().min(1).max(60),
+  route: storyboardRouteSchema,
+  copy: z.string().trim().min(1).max(2_000),
+  frames: z.array(storyboardDesignFrameSchema).min(1).max(2)
+});
+
+export const storyboardDesignSchema = z.object({
   title: z.string().trim().min(1).max(120),
-  blocks: z.array(generatedContentBlockSchema).min(4).max(80)
-}) satisfies z.ZodType<GeneratedContent>;
+  segments: z.array(storyboardDesignSegmentSchema).min(1).max(16)
+});
 
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)

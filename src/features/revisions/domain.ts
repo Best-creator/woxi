@@ -2,7 +2,8 @@ import type {
   ContentBlock,
   KnowledgeBrief,
   LengthPreset,
-  OutlineSection
+  OutlineSection,
+  StoryboardSegment
 } from "@/features/articles/domain";
 import type { StyleProfile } from "@/features/content/style-profile";
 
@@ -33,6 +34,11 @@ export interface ContentRevisionSnapshot {
   styleProfile: StyleProfile;
   recommendedTotalWords: number;
   sourceContextSnapshot: string;
+  /**
+   * 正文分镜设计（与 textBlocks 同代的结构）。
+   * 不参与内容哈希——分镜结构变化不算正文内容变化；恢复旧版本时随快照还原。
+   */
+  storyboardSegments?: StoryboardSegment[];
 }
 
 export interface CreateRevisionInput<TSnapshot> {
