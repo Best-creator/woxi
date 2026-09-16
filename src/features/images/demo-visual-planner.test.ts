@@ -50,28 +50,37 @@ describe("DemoVisualPlanner", () => {
     const second = await planner.plan(input);
 
     expect(second).toEqual(first);
-    expect(first).toHaveLength(3);
-    expect(first[0]).toMatchObject({ type: "cover", anchorBlockId: null, aspectRatio: "cover" });
+    expect(first.suggestions).toHaveLength(3);
+    expect(first.suggestions[0]).toMatchObject({ type: "cover", anchorBlockId: null, aspectRatio: "cover" });
     // 分镜按正文顺序编号，景别与序号编进 purpose/prompt。
-    expect(first[1]).toMatchObject({
+    expect(first.suggestions[1]).toMatchObject({
       type: "storyboard",
       anchorBlockId: "process-block",
       aspectRatio: "landscape"
     });
-    expect(first[1].purpose).toContain("分镜 1");
-    expect(first[1].prompt).toContain("第 1 格");
-    expect(first[2]).toMatchObject({
+    expect(first.suggestions[1].purpose).toContain("分镜 1");
+    expect(first.suggestions[1].prompt).toContain("第 1 格");
+    expect(first.suggestions[2]).toMatchObject({
       type: "storyboard",
       anchorBlockId: "comparison-block",
       aspectRatio: "portrait"
     });
-    expect(first[2].purpose).toContain("分镜 2");
-    expect(first.some((suggestion) => suggestion.anchorBlockId === "image-block")).toBe(false);
-    expect(first.some((suggestion) => suggestion.anchorBlockId === "short-block")).toBe(false);
+    expect(first.suggestions[2].purpose).toContain("分镜 2");
+    expect(first.suggestions.some((suggestion) => suggestion.anchorBlockId === "image-block")).toBe(false);
+    expect(first.suggestions.some((suggestion) => suggestion.anchorBlockId === "short-block")).toBe(false);
+  });
+
+  it("derives a strip mode decision from the same rules the composer falls back to", async () => {
+    const plan = await new DemoVisualPlanner().plan(input);
+
+    // 夹具两格文案各 99 字，落在规则中间态：图上文下。
+    expect(plan.stripDecision).not.toBeNull();
+    expect(plan.stripDecision?.mode).toBe("image_text");
+    expect(plan.stripDecision?.reason).toContain("图上文下");
   });
 
   it("skips short paragraphs that do not need a visual explanation", async () => {
-    const suggestions = await new DemoVisualPlanner().plan({
+    const plan = await new DemoVisualPlanner().plan({
       title: "全短句",
       topic: "全短句",
       blocks: [
@@ -80,11 +89,13 @@ describe("DemoVisualPlanner", () => {
       ]
     });
 
-    expect(suggestions.map(({ type }) => type)).toEqual(["cover"]);
+    expect(plan.suggestions.map(({ type }) => type)).toEqual(["cover"]);
+    // 没有分镜就没有长图，自然也不需要排法决策。
+    expect(plan.stripDecision).toBeNull();
   });
 
   it("keeps only the first frame when explainable paragraphs are adjacent", async () => {
-    const suggestions = await new DemoVisualPlanner().plan({
+    const plan = await new DemoVisualPlanner().plan({
       title: "相邻段落",
       topic: "相邻段落",
       blocks: [
@@ -105,7 +116,7 @@ describe("DemoVisualPlanner", () => {
       ]
     });
 
-    expect(suggestions.map(({ type, anchorBlockId }) => ({ type, anchorBlockId }))).toEqual([
+    expect(plan.suggestions.map(({ type, anchorBlockId }) => ({ type, anchorBlockId }))).toEqual([
       { type: "cover", anchorBlockId: null },
       { type: "storyboard", anchorBlockId: "first" }
     ]);

@@ -21,6 +21,13 @@ export interface ArticlePlanning {
   recommendedTotalWords: number | null;
   confirmedOutlineRevisionId: string | null;
   contentOutlineRevisionId: string | null;
+  /**
+   * 漫画长图排法决策：视觉规划器规划分镜时一并给出（深结合），
+   * 拼长图 auto 模式直接消费。存原始字符串，消费端用 isComicStripMode 校验，
+   * 无效值自动回落到拼图阶段的规则路由。
+   */
+  comicStripMode?: string | null;
+  comicStripReason?: string | null;
 }
 
 export const DEFAULT_ARTICLE_PLANNING: ArticlePlanning = {

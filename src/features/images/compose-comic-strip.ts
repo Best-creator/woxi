@@ -10,7 +10,7 @@ import {
   type ComicStripModeRouter
 } from "./comic-strip-mode-router";
 import { withStripsRestored } from "./consumed-content";
-import type { ComicStripMode, ComicStripModeChoice, ImageAsset } from "./domain";
+import { isComicStripMode, type ComicStripMode, type ComicStripModeChoice, type ImageAsset } from "./domain";
 import { removeGenerationFile } from "./generation-files";
 import {
   inspectComicStrip,
@@ -63,17 +63,32 @@ function textExcerptOf(article: Article, limit = 600): string {
 
 const fallbackRouter = new HeuristicComicStripModeRouter();
 
+/** 读文章 planning 里的规划期排法决策：规划器设计分镜时一并给出，拼图阶段直接消费。 */
+function plannedStripDecision(planning: Article["planning"]): ComicStripModeDecision | null {
+  const mode = planning.comicStripMode;
+  const reason = planning.comicStripReason;
+  if (!isComicStripMode(mode)) return null;
+  return {
+    mode,
+    reason: reason?.trim() ? reason.trim() : "规划分镜时确定"
+  };
+}
+
 /**
- * 决定这一组分镜的排法：手动指定直接用；auto 问路由，路由出错回落确定性规则——
- * 排法选得不完美只影响观感，不该让整个拼图失败。
+ * 决定这一组分镜的排法。优先级：手动指定 > 规划期决策（深结合）> 模型路由 > 确定性规则。
+ * 排法选得不完美只影响观感，任何一层失败都不该让拼图挂掉。
  */
 async function decideGroupMode(
   group: ComicStripGroup,
   mode: ComicStripModeChoice,
+  planned: ComicStripModeDecision | null,
   excerpt: string,
   router: ComicStripModeRouter | undefined
 ): Promise<ComicStripModeDecision> {
   if (mode !== "auto") return { mode, reason: "手动指定" };
+  if (planned) {
+    return { ...planned, reason: `${planned.reason}（规划分镜时确定）` };
+  }
 
   const input = {
     panels: group.panels.map((panel) => ({
@@ -170,11 +185,18 @@ export async function composeComicStrips(
     dependencies.storageDir ?? resolve(process.cwd(), ".data", "generated-images");
   const metrics = dependencies.metrics ?? DEFAULT_COMIC_STRIP_METRICS;
   const excerpt = textExcerptOf(currentArticle);
+  const planned = plannedStripDecision(article.planning);
   const strips: ComicStripOutcome[] = [];
 
   try {
     for (const group of readiness.groups) {
-      const decision = await decideGroupMode(group, input.mode, excerpt, dependencies.modeRouter);
+      const decision = await decideGroupMode(
+        group,
+        input.mode,
+        planned,
+        excerpt,
+        dependencies.modeRouter
+      );
       const binaries = new Map<string, Buffer>();
       for (const panel of group.panels) {
         binaries.set(panel.asset.id, await panelBinary(panel.asset));

@@ -1,4 +1,5 @@
 import type { Article } from "@/features/articles/domain";
+import type { ComicStripModeDecision } from "./comic-strip-mode-router";
 import type {
   ComicStripMode,
   ConsumedContent,
@@ -73,7 +74,9 @@ export interface ImageAssetRepository {
   applyPlan(
     articleId: string,
     expectedUpdatedAt: string,
-    suggestions: ImagePlanSuggestion[]
+    suggestions: ImagePlanSuggestion[],
+    /** 规划器产出的长图排法决策；非空时写进 article.planning，拼图 auto 阶段直接消费。 */
+    stripDecision?: ComicStripModeDecision | null
   ): Promise<ImagePlanMutationResult>;
   update(
     articleId: string,

@@ -29,5 +29,8 @@ export const imagePlanSuggestionSchema = z.discriminatedUnion("type", [
 ]);
 
 export const imagePlanResponseSchema = z.object({
-  images: z.array(imagePlanSuggestionSchema).max(12)
+  images: z.array(imagePlanSuggestionSchema).max(12),
+  // 拼长图排法决策：规划器通读正文时一并给出（深结合），拼图阶段不再二次询问。
+  stripMode: z.enum(["image_text", "text_image", "image_text_image"]).optional(),
+  stripReason: z.string().trim().min(1).max(300).optional()
 });

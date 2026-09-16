@@ -77,7 +77,9 @@ describe("OpenAiVisualPlanner", () => {
 
     const result = await new OpenAiVisualPlanner(config, fetchFn).plan(input);
 
-    expect(result).toEqual(validPlan.images);
+    // 无 stripMode/stripReason 时决策为 null；建议列表原样返回。
+    expect(result.suggestions).toEqual(validPlan.images);
+    expect(result.stripDecision).toBeNull();
     expect(request.url).toBe("https://llm.example.test/api/v1/chat/completions");
     expect(request.init?.headers).toMatchObject({ Authorization: "Bearer super-secret-key" });
     expect(JSON.parse(String(request.init?.body))).toMatchObject({
@@ -106,9 +108,9 @@ describe("OpenAiVisualPlanner", () => {
 
     const result = await new OpenAiVisualPlanner(config, fetchFn).plan(input);
 
-    expect(result).toHaveLength(1);
+    expect(result.suggestions).toHaveLength(1);
     // 存储层形状：无 sceneNumber/shot 字段，序号与景别编进 purpose/prompt。
-    expect(result[0]).toEqual({
+    expect(result.suggestions[0]).toEqual({
       type: "storyboard",
       anchorBlockId: "anchor-1",
       purpose: "分镜 2｜特写：解释机会成本的取舍",
@@ -116,6 +118,33 @@ describe("OpenAiVisualPlanner", () => {
       altText: "机会成本取舍分镜",
       aspectRatio: "portrait"
     });
+  });
+
+  it("carries the strip mode decision made during planning", async () => {
+    const planWithDecision = {
+      ...validPlan,
+      stripMode: "image_text_image",
+      stripReason: "每格文案短且格数为偶数，适合连环画节奏"
+    };
+    const result = await new OpenAiVisualPlanner(
+      config,
+      fetchResponse(completion(JSON.stringify(planWithDecision)))
+    ).plan(input);
+
+    expect(result.stripDecision).toEqual({
+      mode: "image_text_image",
+      reason: "每格文案短且格数为偶数，适合连环画节奏"
+    });
+  });
+
+  it("treats an incomplete strip decision as absent instead of failing the plan", async () => {
+    const halfDecision = { ...validPlan, stripMode: "text_image" };
+    const result = await new OpenAiVisualPlanner(
+      config,
+      fetchResponse(completion(JSON.stringify(halfDecision)))
+    ).plan(input);
+
+    expect(result.stripDecision).toBeNull();
   });
 
   it("raises a controlled upstream error for a non-success response without exposing the key", async () => {

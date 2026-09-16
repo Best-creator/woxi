@@ -43,9 +43,9 @@ export async function planImages(
   const blocks = article.blocks.filter((block) => block.type !== "image");
   if (blocks.length === 0) return { kind: "no_content" };
 
-  let suggestions;
+  let plan;
   try {
-    suggestions = await planner.plan({
+    plan = await planner.plan({
       title: article.title,
       topic: article.topic,
       blocks,
@@ -57,7 +57,7 @@ export async function planImages(
     return { kind: "planner_error", message: plannerErrorMessage(error) };
   }
 
-  const result = await images.applyPlan(articleId, expectedUpdatedAt, suggestions);
+  const result = await images.applyPlan(articleId, expectedUpdatedAt, plan.suggestions, plan.stripDecision);
   if (result.kind === "saved") {
     return { kind: "planned", article: result.article, assets: result.assets };
   }

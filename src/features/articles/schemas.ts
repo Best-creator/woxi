@@ -40,7 +40,10 @@ export const articlePlanningSchema = z.object({
   lengthPreset: z.enum(["short", "standard", "deep"]),
   recommendedTotalWords: z.number().int().min(800).max(2000).nullable(),
   confirmedOutlineRevisionId: z.string().min(1).nullable(),
-  contentOutlineRevisionId: z.string().min(1).nullable()
+  contentOutlineRevisionId: z.string().min(1).nullable(),
+  // 漫画长图排法决策（视觉规划器写入）：原样透传，消费端用 isComicStripMode 校验。
+  comicStripMode: z.string().nullable().optional(),
+  comicStripReason: z.string().nullable().optional()
 });
 
 export const knowledgeBriefSchema = z.object({

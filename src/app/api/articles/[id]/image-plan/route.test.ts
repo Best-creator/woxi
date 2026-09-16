@@ -37,7 +37,7 @@ const PROFILE: StyleProfile = {
 };
 
 function planner(run: () => Promise<ImagePlanSuggestion[]> = async () => [suggestion]): VisualPlanner {
-  return { plan: async () => run() };
+  return { plan: async () => ({ suggestions: await run(), stripDecision: null }) };
 }
 
 async function setup(withContent = true) {
@@ -156,7 +156,7 @@ describe("image plan route", () => {
     const capturingPlanner: VisualPlanner = {
       plan: async (input) => {
         received = input;
-        return [suggestion];
+        return { suggestions: [suggestion], stripDecision: null };
       }
     };
     const capturing = createImagePlanRouteHandler(articles, images, capturingPlanner, characters);
@@ -201,7 +201,7 @@ describe("image plan route", () => {
     const capturingPlanner: VisualPlanner = {
       plan: async (input) => {
         received = input;
-        return [suggestion];
+        return { suggestions: [suggestion], stripDecision: null };
       }
     };
     const POST = createImagePlanRouteHandler(articles, images, capturingPlanner, null, styleLibrary);

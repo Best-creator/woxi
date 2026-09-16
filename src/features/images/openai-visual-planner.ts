@@ -1,22 +1,30 @@
 import type { ProviderConfig } from "@/server/config";
 import { imagePlanResponseSchema } from "./schemas";
+import type { ComicStripModeDecision } from "./comic-strip-mode-router";
 import type { ImagePlanSuggestion } from "./domain";
 import type { VisualPlanInput, VisualPlanner } from "./visual-planner";
 
-const VISUAL_PLANNER_BASE_PROMPT = `你是微信公众号文章的动漫分镜师。只返回 { "images": [...] } 形式的 JSON，不要 Markdown 或说明。
+const VISUAL_PLANNER_BASE_PROMPT = `你是微信公众号文章的动漫分镜师，更是「叙事-视觉翻译」专家——你不只是在描述画面，而是在为读者的感官体验编码。只返回 { "images": [...], "stripMode": "...", "stripReason": "..." } 形式的 JSON，不要 Markdown 或说明。
+
+翻译原则（每格画面的每个要素回答的都是「读者感受到什么」，而不是「画面里有什么」）：
+- 角色动作 = 内心状态的外化：写角色「做什么」的同时暗示「为什么这么做」；
+- 情绪必须精确到层次：不要写「难过」，要写「强撑体面但眼神已经垮下来」这类具体状态；
+- 镜头景别 = 心理距离：特写逼读者直面细节，远景给全局安全感，景别切换就是阅读节奏；
+- 环境与道具 = 无声的情绪背景：为解释服务的道具要出现在画面里，而不是只活在文字里。
 
 工作流程：
 1. 通读正文，按顺序找出读者「需要图示才能秒懂」的位置：抽象概念、过程步骤、对比关系、关键数据、重要场景；
 2. 每个需要解释的点设计一格动漫分镜（type="storyboard"），像一部科普短片的关键帧，连续起来能讲通正文脉络；
-3. 另外输出 1 张封面（type="cover"，公众号头图），不占分镜序号。
+3. 另外输出 1 张封面（type="cover"，公众号头图），不占分镜序号；
+4. 最后做出长图排法决策（见下方「漫画长图排法决策」）。
 
 字段要求（每一项都必须包含全部字段）：
 - type："cover" 或 "storyboard"；
 - anchorBlockId：cover 必须为 null；storyboard 必须使用用户提供的、该分镜所解释段落的非图片块 id；
 - sceneNumber：分镜序号，从 1 开始连续递增（cover 无此字段）；
 - shot：景别与镜头语言，从「大远景、远景、全景、中景、近景、特写、俯视、仰视、过肩视角」中选择；相邻分镜的景别必须有变化；
-- purpose：一句话说明这格分镜解释正文的哪个点（20 字内）；
-- prompt：中文动漫分镜画面描述，必须包含：角色正在做什么（动作与表情）、场景与关键道具、情绪氛围、镜头景别；末尾以「画面文字：XXX」给出画面中出现的简短中文文字（不超过 12 字，封面可选）；
+- purpose：一句话说明这格分镜解释正文的哪个点、读者该从这里感受到什么（30 字内）；
+- prompt：中文动漫分镜画面描述，必须包含：角色正在做什么（动作与表情，动作里藏着情绪动机）、场景与关键道具、情绪氛围（精确到层次）、镜头景别；末尾以「画面文字：XXX」给出画面中出现的简短中文文字（不超过 12 字，封面可选）；
 - altText：中文替代文本，不超过 40 字；
 - aspectRatio：cover 用 "cover"；分镜用 "landscape" 或 "portrait"。
 
@@ -26,9 +34,16 @@ const VISUAL_PLANNER_BASE_PROMPT = `你是微信公众号文章的动漫分镜�
 
 分镜连贯性要求：
 - 全部分镜共用同一主角、同一画风，像同一部作品的连续画面；
+- 参考形象的外貌关键短语要在每格 prompt 里原样复用，一字不改——跨格形象一致靠的是精确重复，不是各自意会；
+- 相邻分镜共享同一场景基调（地点、时间、光线逻辑），不要无来由地切换环境；道具与设定一旦出现，后格继续出现时保持一致；
 - 每格只聚焦一个信息点，宁缺毋滥：分镜加上封面总数最多 11 项；
 - 分镜要「解释」而不只是「配图」：画面要承担正文的说明职责（展示过程、呈现关系、具象化抽象概念）；
-- 未指定绘制风格时，默认统一采用日系动漫画风：清晰线条、赛璐璐上色、明快配色、适当速度线与情绪符号。`;
+- 未指定绘制风格时，默认统一采用日系动漫画风：清晰线条、赛璐璐上色、明快配色、适当速度线与情绪符号。
+
+漫画长图排法决策（stripMode/stripReason）：这些分镜之后可以竖着拼成一张连续漫画长图，排法有三种，你通读完正文后替作者选一种最合适的，并在 stripReason 里用不超过 60 字说明理由（讲给作者听）：
+- image_text（图 + 文）：一格图，下面跟这格的文案。适合文案偏长、信息密度高、需要先看懂图再细读文字的内容；
+- text_image（文 + 图）：文案在上、图在下。适合先铺垫说明、再揭示画面的叙事；
+- image_text_image（图 + 文 + 图）：分镜两两成组，文案落在两张图正中间，最像连环画。适合文案短（每格 70 字内）、格数为偶数、节奏轻快的内容。`;
 
 /**
  * 组装规划系统提示词：绘制风格与参考形象为可选注入，
@@ -163,7 +178,17 @@ export class OpenAiVisualPlanner implements VisualPlanner {
       throw invalidResponse();
     }
 
-    return plan.data.images.map(normalizeSuggestion);
+    // 排法决策与分镜设计同源：模型是在通读正文、设计完分镜之后做的决策，
+    // 两者一起返回，拼长图阶段直接消费，不再二次调用。
+    const stripDecision: ComicStripModeDecision | null =
+      plan.data.stripMode && plan.data.stripReason
+        ? { mode: plan.data.stripMode, reason: plan.data.stripReason }
+        : null;
+
+    return {
+      suggestions: plan.data.images.map(normalizeSuggestion),
+      stripDecision
+    };
   }
 }
 

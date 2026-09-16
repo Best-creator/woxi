@@ -6,6 +6,7 @@ import { SqliteImageAssetRepository } from "@/features/images/sqlite-repository"
 import type { ImagePlanSuggestion } from "@/features/images/domain";
 import { VisualPlannerError } from "@/features/images/openai-visual-planner";
 import type { VisualPlanner } from "@/features/images/visual-planner";
+import type { ComicStripModeDecision } from "./comic-strip-mode-router";
 import { createTestDatabase } from "../../../tests/helpers/test-db";
 import { planImages } from "./plan-images";
 
@@ -22,12 +23,13 @@ class Planner implements VisualPlanner {
   calls = 0;
 
   constructor(
-    private readonly run: () => Promise<ImagePlanSuggestion[]> = async () => [suggestion]
+    private readonly run: () => Promise<ImagePlanSuggestion[]> = async () => [suggestion],
+    private readonly stripDecision: ComicStripModeDecision | null = null
   ) {}
 
   async plan() {
     this.calls += 1;
-    return this.run();
+    return { suggestions: await this.run(), stripDecision: this.stripDecision };
   }
 }
 
@@ -92,6 +94,27 @@ describe("planImages", () => {
     if (result.kind === "planned") {
       expect(result.assets).toHaveLength(1);
       expect(result.assets[0]).toMatchObject({ altText: "复利概念封面", status: "placeholder" });
+      // 无决策时 planning 不新增排法字段。
+      expect(result.article.planning.comicStripMode).toBeUndefined();
+    }
+  });
+
+  it("persists the strip mode decision into article planning for the composer to consume", async () => {
+    const { articles, images, article } = await createArticleWithContent();
+    const planner = new Planner(async () => [suggestion], {
+      mode: "image_text_image",
+      reason: "每格文案短且格数为偶数，适合连环画节奏"
+    });
+
+    const result = await planImages(article.id, article.updatedAt, articles, images, planner);
+
+    expect(result.kind).toBe("planned");
+    if (result.kind === "planned") {
+      expect(result.article.planning.comicStripMode).toBe("image_text_image");
+      expect(result.article.planning.comicStripReason).toBe("每格文案短且格数为偶数，适合连环画节奏");
+      // 从库里重新读出来也在（持久化，不只改了返回值）。
+      const reread = await articles.findById(article.id);
+      expect(reread?.planning.comicStripMode).toBe("image_text_image");
     }
   });
 

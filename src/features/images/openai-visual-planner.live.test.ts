@@ -57,7 +57,7 @@ describe.skipIf(!LIVE || !llm)("live visual prompt", () => {
       model
     });
 
-    const suggestions = await planner.plan({
+    const plan = await planner.plan({
       title: "眼睛为什么会酸",
       topic: "护眼",
       blocks: BLOCKS,
@@ -69,8 +69,9 @@ describe.skipIf(!LIVE || !llm)("live visual prompt", () => {
       JSON.stringify(
         {
           model,
-          count: suggestions.length,
-          panels: suggestions.map((suggestion) => ({
+          count: plan.suggestions.length,
+          stripDecision: plan.stripDecision,
+          panels: plan.suggestions.map((suggestion) => ({
             type: suggestion.type,
             purpose: suggestion.purpose,
             mentionsWhiteBackground: WHITE_BACKGROUND.test(suggestion.prompt),
@@ -82,7 +83,7 @@ describe.skipIf(!LIVE || !llm)("live visual prompt", () => {
       )
     );
 
-    const storyboards = suggestions.filter((suggestion) => suggestion.type === "storyboard");
+    const storyboards = plan.suggestions.filter((suggestion) => suggestion.type === "storyboard");
     expect(storyboards.length).toBeGreaterThan(0);
     // 白底必须落在每一格的 prompt 里：一格不白，拼出来的长图就会露出一块别的颜色。
     const missing = storyboards.filter((panel) => !WHITE_BACKGROUND.test(panel.prompt));

@@ -1,5 +1,6 @@
-import type { ImageAspectRatio, ImagePlanSuggestion } from "./domain";
-import type { VisualPlanInput, VisualPlanner } from "./visual-planner";
+import type { ImageAspectRatio } from "./domain";
+import { heuristicComicStripMode } from "./comic-strip-mode-router";
+import type { VisualPlan, VisualPlanInput, VisualPlanner } from "./visual-planner";
 
 /** Demo 分镜的景别轮换：保证相邻分镜景别有变化，接近真实规划器的镜头语言。 */
 const shotCycle = ["全景", "中景", "特写", "俯视", "近景", "仰视"] as const;
@@ -17,7 +18,7 @@ function storyboardPrompt(topic: string, summary: string, scene: number, shot: s
 }
 
 export class DemoVisualPlanner implements VisualPlanner {
-  async plan(input: VisualPlanInput): Promise<ImagePlanSuggestion[]> {
+  async plan(input: VisualPlanInput): Promise<VisualPlan> {
     // Demo 规则：跳过与相邻块的距离过近者，按正文顺序取最多 4 个需要图示解释的段落。
     const explainable = input.blocks
       .filter((block) => block.type !== "image" && block.content.trim().length >= 30)
@@ -27,27 +28,46 @@ export class DemoVisualPlanner implements VisualPlanner {
       )
       .slice(0, 4);
 
-    return [
-      {
-        type: "cover",
-        anchorBlockId: null,
-        purpose: `概览${input.topic}`,
-        prompt: `${input.topic}：围绕「${input.title || input.topic}」绘制日系动漫画风公众号封面，清晰线条、赛璐璐上色，无水印。`,
-        altText: `${input.topic}封面图`,
-        aspectRatio: "cover"
-      },
-      ...explainable.map((block, index) => {
-        const shot = shotCycle[index % shotCycle.length];
-        const scene = index + 1;
-        return {
-          type: "storyboard" as const,
-          anchorBlockId: block.id,
-          purpose: `分镜 ${scene}｜${shot}：解释${summarize(block.content)}`,
-          prompt: storyboardPrompt(input.topic, summarize(block.content), scene, shot),
-          altText: `${input.topic}分镜${scene}`,
-          aspectRatio: (index % 2 === 0 ? "landscape" : "portrait") as ImageAspectRatio
-        };
-      })
-    ];
+    // 排法决策与分镜设计同源：Demo 也按同一套确定性规则给出（E2E 全链路无 LLM 可跑）。
+    const stripDecision = explainable.length
+      ? heuristicComicStripMode({
+          panels: explainable.map((block) => ({
+            title: null,
+            caption: block.content,
+            chars: block.content.replace(/\s/g, "").length
+          })),
+          excerpt: input.blocks
+            .slice(0, 3)
+            .map((block) => block.content)
+            .join("\n")
+            .slice(0, 300)
+        })
+      : null;
+
+    return {
+      suggestions: [
+        {
+          type: "cover",
+          anchorBlockId: null,
+          purpose: `概览${input.topic}`,
+          prompt: `${input.topic}：围绕「${input.title || input.topic}」绘制日系动漫画风公众号封面，清晰线条、赛璐璐上色，无水印。`,
+          altText: `${input.topic}封面图`,
+          aspectRatio: "cover"
+        },
+        ...explainable.map((block, index) => {
+          const shot = shotCycle[index % shotCycle.length];
+          const scene = index + 1;
+          return {
+            type: "storyboard" as const,
+            anchorBlockId: block.id,
+            purpose: `分镜 ${scene}｜${shot}：解释${summarize(block.content)}`,
+            prompt: storyboardPrompt(input.topic, summarize(block.content), scene, shot),
+            altText: `${input.topic}分镜${scene}`,
+            aspectRatio: (index % 2 === 0 ? "landscape" : "portrait") as ImageAspectRatio
+          };
+        })
+      ],
+      stripDecision
+    };
   }
 }

@@ -1,4 +1,5 @@
 import type { ContentBlock } from "@/features/articles/domain";
+import type { ComicStripModeDecision } from "./comic-strip-mode-router";
 import type { ImagePlanSuggestion } from "./domain";
 
 /** 参考形象摘要：注入规划提示词，让所有配图共用同一主角。 */
@@ -20,6 +21,15 @@ export interface VisualPlanInput {
   model?: string;
 }
 
+export interface VisualPlan {
+  suggestions: ImagePlanSuggestion[];
+  /**
+   * 漫画长图排法决策：规划器通读正文时一并决定（深结合）。
+   * 之后拼长图 auto 模式直接用它，不再二次询问模型。
+   */
+  stripDecision: ComicStripModeDecision | null;
+}
+
 export interface VisualPlanner {
-  plan(input: VisualPlanInput): Promise<ImagePlanSuggestion[]>;
+  plan(input: VisualPlanInput): Promise<VisualPlan>;
 }

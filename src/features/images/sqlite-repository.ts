@@ -18,6 +18,7 @@ import type {
 } from "./domain";
 import { imageContentUrl, mergeImageBlocks } from "./merge-image-blocks";
 import { restoreConsumedBlocks } from "./consumed-content";
+import type { ComicStripModeDecision } from "./comic-strip-mode-router";
 import { parseImageAssetRow as parseAsset, type ImageAssetRow } from "./asset-row";
 import type {
   CompleteGenerationInput,
@@ -172,7 +173,8 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
   async applyPlan(
     articleId: string,
     expectedUpdatedAt: string,
-    suggestions: ImagePlanSuggestion[]
+    suggestions: ImagePlanSuggestion[],
+    stripDecision?: ComicStripModeDecision | null
   ): Promise<ImagePlanMutationResult> {
     return this.inTransaction(() => {
       const article = this.currentArticle(articleId, expectedUpdatedAt);
@@ -191,6 +193,21 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
         if (suggestion.type !== "cover" && !anchors.has(suggestion.anchorBlockId ?? "")) {
           return { kind: "invalid_anchor", anchorBlockId: suggestion.anchorBlockId ?? "" };
         }
+      }
+
+      // 排法决策随规划落库（saveAggregate 只写 blocks_json，planning 单独写）。
+      // 返回的 article 也带上新 planning，让界面与拼图阶段立即可见。
+      let articleForSave = article;
+      if (stripDecision) {
+        const planning = {
+          ...article.planning,
+          comicStripMode: stripDecision.mode,
+          comicStripReason: stripDecision.reason
+        };
+        articleForSave = { ...article, planning };
+        this.db
+          .prepare("UPDATE articles SET planning_json = ? WHERE id = ?")
+          .run(JSON.stringify(planning), articleId);
       }
 
       const existing = this.listSync(articleId);
@@ -227,7 +244,7 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
 
       const assets = this.listSync(articleId);
       return this.saveAggregate(
-        article,
+        articleForSave,
         expectedUpdatedAt,
         assets,
         disposable.map((asset) => asset.id)
