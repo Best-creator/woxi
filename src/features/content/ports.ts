@@ -38,8 +38,6 @@ export interface GenerateContentInput {
   outline: GenerateContentOutlineSection[];
   recommendedTotalWords: number;
   styleProfile: StyleProfile;
-  /** 漫画脚本专用：全篇分镜数上限。其他风格不传，提示词里也不会出现分镜约束。 */
-  panelLimit?: number;
   sourceContext?: string;
   model?: string;
 }

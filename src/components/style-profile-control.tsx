@@ -22,7 +22,6 @@ const presetOrder: StylePreset[] = [
   "friend_chat",
   "storyteller",
   "knowledge_cards",
-  "science_comic_script",
   "custom"
 ];
 

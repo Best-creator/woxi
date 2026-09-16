@@ -6,7 +6,6 @@ export type StylePreset =
   | "friend_chat"
   | "storyteller"
   | "knowledge_cards"
-  | "science_comic_script"
   | "custom";
 
 export type HumorLevel = "none" | "light" | "moderate";
@@ -45,11 +44,8 @@ export const STYLE_PRESET_LABELS: Record<StylePreset, string> = {
   friend_chat: "朋友聊天式",
   storyteller: "故事讲述者",
   knowledge_cards: "简洁知识卡片",
-  science_comic_script: "科普漫画脚本",
   custom: "自定义"
 };
-
-export const SCIENCE_COMIC_SCRIPT_PRESET: StylePreset = "science_comic_script";
 
 export const STYLE_PRESETS: Record<Exclude<StylePreset, "custom">, StylePresetShape> = {
   popular_science_teacher: {
@@ -116,26 +112,6 @@ export const STYLE_PRESETS: Record<Exclude<StylePreset, "custom">, StylePresetSh
     contentDensity: "high",
     customInstructions: "",
     avoid: ["冗长铺垫", "重复同一观点", "模糊表述", "口语废话"]
-  },
-  science_comic_script: {
-    preset: "science_comic_script",
-    persona: "把知识点画成一组漫画分镜的脚本作者",
-    tone: "轻松、有画面感、不端着",
-    readerAddress: "你",
-    sentenceStyle: "短句，一句一个镜头；对白口语化，不用书面腔",
-    // 块角色约定写在这里而不是系统提示词里：只有选了这个预设才会生效，
-    // 不会把漫画的分镜概念泄漏给其他风格。
-    // 每格压到「标题 + 一句文案」两块，是因为这一格的画面交给配图承担——
-    // 文案再拆成对白/旁白/卡片，拼成长图后一格里就全是字，反而没人看。
-    explanationStyle:
-      "先用一个具体生活场景抛出反差问题，再逐格拆开背后的机制，最后用一张干货卡给出能立刻执行的结论。" +
-      "每格固定两块：分镜标题用 heading，这一格的文案用 paragraph，对白和反转提问都并进这句文案里；" +
-      "只有全篇最后一格的行动清单用 knowledge_card。",
-    humorLevel: "light",
-    questionFrequency: "moderate",
-    contentDensity: "medium",
-    customInstructions: "",
-    avoid: ["悬念式标题", "夸张煽动", "过度商业化表达", "说教口吻", "只有情节没有知识", "术语堆砌"]
   }
 };
 
@@ -150,7 +126,10 @@ export function parseStyleProfileJson(styleJson: string | null | undefined): Sty
   try {
     const parsed = { ...DEFAULT_STYLE_PROFILE, ...(JSON.parse(styleJson) as Partial<StyleProfile>) };
     // 兼容本次改动之前写入的行：它们没有 audience 字段，或存了已废弃的取值。
-    return { ...parsed, audience: resolveAudience(parsed.audience) };
+    // preset 也可能存有后来移除的预设（如 science_comic_script）——回落成 custom，
+    // 保留行内其余风格字段，旧文章打开后仍可编辑保存，不会在校验层被拒。
+    const preset = isStylePreset(parsed.preset) ? parsed.preset : "custom";
+    return { ...parsed, preset, audience: resolveAudience(parsed.audience) };
   } catch {
     return { ...DEFAULT_STYLE_PROFILE };
   }
@@ -183,7 +162,6 @@ const STYLE_PRESET_VALUES = [
   "friend_chat",
   "storyteller",
   "knowledge_cards",
-  "science_comic_script",
   "custom"
 ] as const;
 

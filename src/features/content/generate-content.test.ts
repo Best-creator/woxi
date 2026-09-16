@@ -3,7 +3,6 @@
 import { describe, expect, it } from "vitest";
 import { generateContent } from "./generate-content";
 import { describeAudience } from "./audience";
-import { COMIC_PANEL_LIMITS } from "./comic-script";
 import { DEMO_CONTENT_MODEL } from "./model";
 import { resolveStyleProfile } from "./style-profile";
 import type { ContentGenerator } from "./ports";
@@ -149,34 +148,6 @@ describe("generateContent", () => {
 
     expect(received?.targetAudience).toBe(describeAudience("office_desk"));
     expect(received?.targetAudience).toContain("久坐");
-  });
-
-  it("only sends a panel limit when the comic script style is selected", async () => {
-    const fixture = await articleWithConfirmedOutline();
-    let received: Parameters<ContentGenerator["generate"]>[0] | undefined;
-    const generator: ContentGenerator = {
-      async generate(input) {
-        received = input;
-        return new DemoContentGenerator().generate(input);
-      }
-    };
-    const run = (preset: Parameters<typeof resolveStyleProfile>[0], expectedUpdatedAt: string) =>
-      generateContent(
-        {
-          articleId: fixture.article.id,
-          expectedUpdatedAt,
-          styleProfile: resolveStyleProfile(preset, "", "senior_reader")
-        },
-        { articles: fixture.articles, sources: fixture.sources, generator, workflow: fixture.contentWorkflow }
-      );
-
-    await run("science_comic_script", fixture.article.updatedAt);
-    expect(received?.panelLimit).toBe(COMIC_PANEL_LIMITS[fixture.article.planning.lengthPreset]);
-
-    // 每次生成都会推进 updatedAt，第二次必须取最新值，否则会撞乐观并发。
-    const latest = await fixture.articles.findById(fixture.article.id);
-    await run("popular_science_teacher", latest!.updatedAt);
-    expect(received?.panelLimit).toBeUndefined();
   });
 
   it("falls back to the demo model when no model is selected", async () => {

@@ -5,7 +5,6 @@ import type { SourceRepository } from "@/features/sources/repository";
 import { readySourceContext } from "@/features/outlines/generate-outline";
 import type { ArticleRevision, ContentRevisionSnapshot } from "@/features/revisions/domain";
 import { describeAudience } from "./audience";
-import { comicPanelLimit } from "./comic-script";
 import type { ContentGenerator } from "./ports";
 import { resolveContentModel } from "./model";
 import type { StyleProfile } from "./style-profile";
@@ -90,11 +89,10 @@ export async function generateContent(
 
   const sourceContext = readySourceContext(await dependencies.sources.list(article.id));
   const model = resolveContentModel(command.model, dependencies.defaultModel);
-  // 受众跟着提交上来的风格走（用户可能刚在界面上改过），不是文章里存的旧值。
-  const panelLimit = comicPanelLimit(command.styleProfile.preset, article.planning.lengthPreset);
   let textBlocks: ContentBlock[];
   let title: string;
   try {
+    // 受众跟着提交上来的风格走（用户可能刚在界面上改过），不是文章里存的旧值。
     const generated = await dependencies.generator.generate({
       topic: article.topic,
       targetAudience: describeAudience(command.styleProfile.audience),
@@ -109,7 +107,6 @@ export async function generateContent(
       recommendedTotalWords: article.planning.recommendedTotalWords as number,
       styleProfile: command.styleProfile,
       ...(sourceContext ? { sourceContext } : {}),
-      ...(panelLimit ? { panelLimit } : {}),
       model
     });
     textBlocks = toContentBlocks(generated.blocks, new Set(article.outline.map((section) => section.id)));

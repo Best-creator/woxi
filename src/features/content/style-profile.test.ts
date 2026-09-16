@@ -17,7 +17,6 @@ const ALL_PRESETS: StylePreset[] = [
   "friend_chat",
   "storyteller",
   "knowledge_cards",
-  "science_comic_script",
   "custom"
 ];
 
@@ -45,34 +44,6 @@ describe("style presets", () => {
     for (const profile of Object.values(STYLE_PRESETS)) {
       expect(profile).not.toHaveProperty("audience");
     }
-  });
-});
-
-describe("science comic script preset", () => {
-  it("maps comic narration onto the block types the schema already allows", () => {
-    const comic = STYLE_PRESETS.science_comic_script;
-
-    // 分镜标题 / 这一格的文案 / 收尾的行动清单，全部复用现有块类型，不需要新 schema。
-    for (const blockType of ["heading", "paragraph", "knowledge_card"]) {
-      expect(comic.explanationStyle).toContain(blockType);
-    }
-  });
-
-  it("keeps a panel to a title plus one caption so nothing competes with the picture", () => {
-    const comic = STYLE_PRESETS.science_comic_script;
-
-    // 对白、旁白如果各自成块，拼成长图后一格里全是字，画面反而没人看——
-    // 它们必须并进那一句文案里。这条契约由拼图能力直接依赖，不能悄悄回退。
-    expect(comic.explanationStyle).toContain("每格固定两块");
-    expect(comic.explanationStyle).toContain("并进这句文案里");
-  });
-
-  it("bans the clickbait wording the account wants to avoid", () => {
-    const comic = STYLE_PRESETS.science_comic_script;
-
-    expect(comic.avoid).toContain("悬念式标题");
-    expect(comic.avoid).toContain("夸张煽动");
-    expect(comic.avoid).toContain("过度商业化表达");
   });
 });
 
@@ -110,9 +81,9 @@ describe("resolveStyleProfile", () => {
   });
 
   it("carries the chosen audience across a preset switch", () => {
-    const switched = resolveStyleProfile("science_comic_script", "", "senior_reader");
+    const switched = resolveStyleProfile("storyteller", "", "senior_reader");
 
-    expect(switched.preset).toBe("science_comic_script");
+    expect(switched.preset).toBe("storyteller");
     expect(switched.audience).toBe("senior_reader");
   });
 });
@@ -174,5 +145,15 @@ describe("parseStyleProfileJson", () => {
     expect(
       parseStyleProfileJson(JSON.stringify({ preset: "friend_chat", audience: "office-slacker" })).audience
     ).toBe("general_beginner");
+  });
+
+  it("falls back to custom for rows written with a since-removed preset", () => {
+    // 旧版曾提供「科普漫画脚本」预设；移除后历史行不能在校验层被拒，风格字段原样保留。
+    const parsed = parseStyleProfileJson(
+      JSON.stringify({ preset: "science_comic_script", persona: "漫画脚本作者" })
+    );
+
+    expect(parsed.preset).toBe("custom");
+    expect(parsed.persona).toBe("漫画脚本作者");
   });
 });

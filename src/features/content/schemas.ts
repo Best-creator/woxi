@@ -13,7 +13,6 @@ export const stylePresetSchema = z.enum([
   "friend_chat",
   "storyteller",
   "knowledge_cards",
-  "science_comic_script",
   "custom"
 ]);
 
