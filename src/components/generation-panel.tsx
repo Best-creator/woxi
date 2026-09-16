@@ -23,6 +23,8 @@ export interface GenerationPanelProps {
   deleteImageAsset: (assetId: string, expectedUpdatedAt: string) => Promise<ImageMutationPayload>;
   refreshPlaceholder: (assetId: string, expectedUpdatedAt: string) => Promise<ImageMutationPayload>;
   generateImage?: (assetId: string, expectedUpdatedAt: string) => Promise<ImageMutationPayload>;
+  /** 批量并行生成（服务端一次请求）；未提供时不显示「一键生成」入口。 */
+  generateBatch?: (input: { expectedUpdatedAt: string; model?: string }) => Promise<ImageMutationPayload>;
   selectGeneration?: (
     assetId: string,
     generationId: string,
@@ -45,6 +47,7 @@ export function GenerationPanel({
   deleteImageAsset,
   refreshPlaceholder,
   generateImage,
+  generateBatch,
   selectGeneration,
   deleteGeneration,
   llmEnabled = false,
@@ -67,6 +70,7 @@ export function GenerationPanel({
         deleteAsset={deleteImageAsset}
         refreshPlaceholder={refreshPlaceholder}
         generateImage={generateImage}
+        generateBatch={generateBatch}
         selectGeneration={selectGeneration}
         deleteGeneration={deleteGeneration}
         llmEnabled={llmEnabled}

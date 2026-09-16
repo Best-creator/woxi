@@ -301,23 +301,24 @@ describe("ImagePlanningPanel", () => {
     expect(screen.getByText("已生成")).toBeVisible();
   });
 
-  it("generates all pending images sequentially in one click during the initial stage", async () => {
+  it("sends one batch request for every pending image during the initial stage", async () => {
     const user = userEvent.setup();
     const article = articleFixture({ blocks: [paragraphBlock()] });
     const initialAssets = [imageAsset({ id: "asset-1" }), imageAsset({ id: "asset-2" })];
-    let calls = 0;
-    const generateImage = vi.fn(async () => {
-      calls += 1;
-      // 真实后端每次返回全量最新状态：已完成的保持 generated。
-      const generatedIds = calls === 1 ? ["asset-1"] : ["asset-1", "asset-2"];
-      return {
-        article: { ...article, updatedAt: `2026-09-09T00:00:0${calls + 3}.000Z` },
-        assets: initialAssets.map((asset) =>
-          generatedIds.includes(asset.id) ? { ...asset, status: "generated" as const } : asset
-        )
-      };
-    });
-    const onResult = vi.fn();
+    const generateBatch = vi.fn(async () => ({
+      article: { ...article, updatedAt: "2026-09-09T00:00:05.000Z" },
+      assets: initialAssets.map((asset) => ({ ...asset, status: "generated" as const })),
+      batch: {
+        results: [
+          { assetId: "asset-1", ok: true },
+          { assetId: "asset-2", ok: true }
+        ],
+        succeeded: 2,
+        failed: 0
+      }
+    }));
+    // 单张重生成按钮依赖 generateImage prop；批量测试里它不该被调用。
+    const generateImage = vi.fn();
 
     function TestPanel() {
       const [currentArticle, setCurrentArticle] = useState(article);
@@ -327,10 +328,10 @@ describe("ImagePlanningPanel", () => {
           article={currentArticle}
           assets={assets}
           generateImage={generateImage}
+          generateBatch={generateBatch}
           onResult={(nextArticle, nextAssets) => {
             setCurrentArticle(nextArticle);
             setAssets(nextAssets);
-            onResult(nextArticle, nextAssets);
           }}
         />
       );
@@ -341,21 +342,76 @@ describe("ImagePlanningPanel", () => {
     await screen.findByRole("button", { name: "一键生成全部配图（2 张）" });
     await user.click(screen.getByRole("button", { name: "一键生成全部配图（2 张）" }));
 
-    await waitFor(() => expect(generateImage).toHaveBeenCalledTimes(2));
-    // 顺序执行；第二张用第一张完成后的最新文章版本。
-    expect(generateImage).toHaveBeenNthCalledWith(1, "asset-1", article.updatedAt, undefined);
-    expect(generateImage).toHaveBeenNthCalledWith(
-      2,
-      "asset-2",
-      "2026-09-09T00:00:04.000Z",
-      undefined
-    );
-    // 完成后进入调整阶段：一键按钮消失，单张重新生成按钮仍在。
+    // 一次批量请求：并行发生在服务端，乐观锁由服务端串行推进。
+    expect(generateBatch).toHaveBeenCalledWith({ expectedUpdatedAt: article.updatedAt });
+    expect(generateImage).not.toHaveBeenCalled();
+    // 全部成功后没有待生成的资产：一键按钮消失，单张重新生成按钮仍在。
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: /一键生成全部配图/ })).not.toBeInTheDocument()
     );
     expect(screen.getByRole("button", { name: "重新生成配图 1" })).toBeVisible();
     expect(screen.getByRole("button", { name: "重新生成配图 2" })).toBeVisible();
+  });
+
+  it("keeps the batch button after failures so one more click retries only the missing ones", async () => {
+    const user = userEvent.setup();
+    const article = articleFixture({ blocks: [paragraphBlock()] });
+    const initialAssets = [imageAsset({ id: "asset-1" }), imageAsset({ id: "asset-2" })];
+    let round = 0;
+    const generateBatch = vi.fn(async () => {
+      round += 1;
+      return round === 1
+        ? {
+            article: { ...article, updatedAt: "2026-09-09T00:00:05.000Z" },
+            assets: [
+              { ...initialAssets[0]!, status: "generated" as const },
+              { ...initialAssets[1]!, status: "failed" as const }
+            ],
+            batch: {
+              results: [
+                { assetId: "asset-1", ok: true },
+                { assetId: "asset-2", ok: false, message: "上游失败" }
+              ],
+              succeeded: 1,
+              failed: 1
+            }
+          }
+        : {
+            article: { ...article, updatedAt: "2026-09-09T00:00:06.000Z" },
+            assets: initialAssets.map((asset) => ({ ...asset, status: "generated" as const })),
+            batch: { results: [{ assetId: "asset-2", ok: true }], succeeded: 1, failed: 0 }
+          };
+    });
+
+    function TestPanel() {
+      const [currentArticle, setCurrentArticle] = useState(article);
+      const [assets, setAssets] = useState(initialAssets);
+      return (
+        <ImagePlanningPanel
+          article={currentArticle}
+          assets={assets}
+          generateBatch={generateBatch}
+          onResult={(nextArticle, nextAssets) => {
+            setCurrentArticle(nextArticle);
+            setAssets(nextAssets);
+          }}
+        />
+      );
+    }
+    render(<TestPanel />);
+
+    await screen.findByRole("button", { name: "一键生成全部配图（2 张）" });
+    await user.click(screen.getByRole("button", { name: "一键生成全部配图（2 张）" }));
+
+    // 有失败：按钮不消失，文案变为「继续生成」，并提示失败张数。
+    await screen.findByRole("button", { name: "继续生成未完成的配图（1 张）" });
+    expect(screen.getByText(/1 张失败/)).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "继续生成未完成的配图（1 张）" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: /继续生成未完成的配图/ })).not.toBeInTheDocument()
+    );
+    expect(generateBatch).toHaveBeenCalledTimes(2);
   });
 
   it("hides and disables the generate entry per status and configuration", async () => {

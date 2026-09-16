@@ -42,7 +42,8 @@ function readableGeneratorError(error: unknown) {
   return "图片生成失败，请稍后重试";
 }
 
-async function persistImage(
+/** 单张与批量生成共用：把上游返回的图片二进制落到生成目录，返回绝对路径。 */
+export async function persistImage(
   binary: Buffer,
   format: string,
   assetId: string,

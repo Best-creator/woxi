@@ -27,6 +27,13 @@ import type {
 import type { ImageAssetPatch } from "@/features/images/repository";
 import { ModelSelect } from "./model-select";
 
+/** 批量生成的逐张结果摘要：ok=false 的张数就是「继续生成」要补的量。 */
+export interface ImageBatchSummary {
+  results: Array<{ assetId: string; ok: boolean; message?: string }>;
+  succeeded: number;
+  failed: number;
+}
+
 export interface ImageMutationPayload {
   article: Article;
   assets: ImageAsset[];
@@ -39,6 +46,8 @@ export interface ImageMutationPayload {
     mode: string;
     reason: string;
   }>;
+  /** 批量生成接口的附加回执（单张生成不返回）。 */
+  batch?: ImageBatchSummary;
 }
 
 /** 规划引导参数：绘制风格与参考形象均为可选项。 */
@@ -69,6 +78,11 @@ export interface ImagePlanningPanelProps {
     expectedUpdatedAt: string,
     model?: string
   ) => Promise<ImageMutationPayload>;
+  /**
+   * 批量并行生成：服务端一次请求内并行跑上游、串行推进乐观锁。
+   * 未提供时「一键生成全部」入口不显示。
+   */
+  generateBatch?: (input: { expectedUpdatedAt: string; model?: string }) => Promise<ImageMutationPayload>;
   /** 在多个生成版本之间切换；也接受本文其他配图的版本（等于把它挪到这张上）。 */
   selectGeneration?: (
     assetId: string,
@@ -226,6 +240,7 @@ export function ImagePlanningPanel({
   deleteAsset,
   refreshPlaceholder,
   generateImage,
+  generateBatch,
   selectGeneration,
   deleteGeneration,
   llmEnabled = false,
@@ -241,8 +256,8 @@ export function ImagePlanningPanel({
   // 生图模型：从 /api/image-models 拉聚合目录（可跨站点），空值 = 服务端默认模型。
   const [imageModels, setImageModels] = useState<Array<{ id: string; provider: string }>>([]);
   const [imageModel, setImageModel] = useState("");
-  // 一键生成全部的进度（初始阶段专用）。
-  const [batchProgress, setBatchProgress] = useState<{ done: number; total: number } | null>(null);
+  // 一键生成的批量进度：本次要生成的张数（生成中显示在按钮文案里）。
+  const [batchTotal, setBatchTotal] = useState<number | null>(null);
   // 文章素材库：本文全部生成版本。版本条与「换一张」都读这一份，避免两处顺序不一致。
   const [generations, setGenerations] = useState<ImageLibraryItem[]>([]);
   const [showLibrary, setShowLibrary] = useState(false);
@@ -412,36 +427,36 @@ export function ImagePlanningPanel({
   }
 
   /**
-   * 初始阶段一键生成全部配图：顺序逐张调用（上游串行更稳，进度可见）。
-   * 每张完成即 onResult 刷新界面；用响应里的最新 updatedAt 推进，避免乐观锁冲突。
-   * 任一张失败即停——已完成的不动，失败/未生成的可稍后单张补生成。
+   * 一键生成（也用于失败后补生成）：一次批量请求交给服务端并行跑，
+   * 乐观锁由服务端串行推进（前端并行打单张接口必然 409，这正是旧串行循环的原因）。
+   * 只生成「未生成」的资产——已成功的不动，失败/待生成的可反复点按钮续生成。
    */
   async function generateAllImages() {
-    if (!generateImage || locked) return;
+    if (!generateBatch || locked) return;
     const pending = assets.filter(
       (asset) => asset.status !== "disabled" && asset.status !== "generated" && asset.status !== "generating"
     );
     if (pending.length === 0) return;
     setBusy(true);
     setError("");
-    setBatchProgress({ done: 0, total: pending.length });
-    let currentUpdatedAt = article.updatedAt;
-    let done = 0;
+    setBatchTotal(pending.length);
     try {
-      for (const asset of pending) {
-        const payload = await generateImage(asset.id, currentUpdatedAt, imageModel || undefined);
-        currentUpdatedAt = payload.article.updatedAt;
-        done += 1;
-        setBatchProgress({ done, total: pending.length });
-        onResult(payload.article, payload.assets);
+      const payload = await generateBatch({
+        expectedUpdatedAt: article.updatedAt,
+        ...(imageModel ? { model: imageModel } : {})
+      });
+      onResult(payload.article, payload.assets);
+      await refreshGenerations();
+      if (payload.batch?.failed) {
+        setError(
+          `已生成 ${payload.batch.succeeded} 张，${payload.batch.failed} 张失败——再点一次按钮可只补失败与未完成的。`
+        );
       }
     } catch (requestError) {
-      setError(`已生成 ${done}/${pending.length} 张后中断：${readableError(requestError, "请稍后重试")}`);
+      setError(readableError(requestError, "批量生成失败，请稍后重试"));
     } finally {
       setBusy(false);
-      setBatchProgress(null);
-      // 中途中断也已经生成了若干张，照样要把版本条刷新出来。
-      await refreshGenerations();
+      setBatchTotal(null);
     }
   }
 
@@ -797,12 +812,14 @@ export function ImagePlanningPanel({
           <ImagePlus size={16} aria-hidden="true" />
           {busy ? "正在分析..." : assets.length ? "按当前风格与形象重新设计分镜" : "根据正文设计动漫分镜"}
         </button>
-        {generateImage && (batchProgress || (!hasGenerated && pendingCount > 0)) ? (
+        {generateBatch && (batchTotal !== null || pendingCount > 0) ? (
           <button className="button button-secondary" type="button" disabled={locked || busy} onClick={() => void generateAllImages()}>
             <Wand2 size={16} aria-hidden="true" />
-            {batchProgress
-              ? `正在生成 ${batchProgress.done}/${batchProgress.total}...`
-              : `一键生成全部配图（${pendingCount} 张）`}
+            {batchTotal !== null
+              ? `正在并行生成 ${batchTotal} 张配图...`
+              : hasGenerated
+                ? `继续生成未完成的配图（${pendingCount} 张）`
+                : `一键生成全部配图（${pendingCount} 张）`}
           </button>
         ) : null}
       </div>
