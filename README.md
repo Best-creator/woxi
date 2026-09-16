@@ -91,10 +91,10 @@ E2E 跑在 `next dev` 上，首次访问某个路由需要现编译，因此 `pl
 
 - 支持粘贴纯文本和 Markdown 资料；资料可以添加、启停和删除。
 - 网页、PDF 和 DOCX 资料会保存为"暂不支持"，不会进入生成上下文。
-- 本地 `/api/image-assets/:id/content` 占位 URL 只用于规划预览；将内容发布到公众号前，仍需在后续素材上传阶段替换为公众号可用的线上素材。
+- 本地 `/api/image-assets/:id/content` 占位 URL 只用于规划预览；「推送到草稿箱」会在服务端自动把正文图上传为微信素材（uploadimg ≤1MB 自动压缩）并替换为 mmbiz.qpic.cn 地址。
 - `POST /api/articles/{id}/generate` 是阶段 1 遗留端点，已退役：固定返回 `410` 和 `{"error":"请使用分阶段纲要与正文生成接口"}`，不再生成 Demo 全文；工作台只通过 `POST /api/articles/{id}/content/generate` 生成正文，只有一个正文生成入口。
 - 登录鉴权尚未启用，只适合本机单人使用。
-- 文件上传、网页抓取、PDF/DOCX 解析、真实图片生成和公众号素材上传不在当前阶段范围。
+- 文件上传、网页抓取和 PDF/DOCX 解析不在当前阶段范围；真实图片生成与公众号草稿箱推送已接入（分别需要 IMAGE_API_KEY 与 WECHAT_APPID/WECHAT_APPSECRET）。生图支持第二站点（IMAGE2_BASE_URL/IMAGE2_API_KEY/IMAGE2_MODEL），配图面板「生图模型」下拉聚合各站模型目录（GET /api/image-models），生成时按模型归属自动路由站点，上游错误详情会透传到界面便于换模型重试。
 - 公众号预览使用经过转义的内联样式 HTML；仍需在已登录的微信公众号编辑器中完成一次人工粘贴验收。
 
 ## 模块边界
@@ -103,7 +103,8 @@ E2E 跑在 `next dev` 上，首次访问某个路由需要现编译，因此 `pl
 - `src/features/outlines`：大纲生成/审核 Agent、用例和不可变大纲版本仓储。
 - `src/features/content`：人物语言风格、正文生成/审核 Agent、正文用例和不可变正文版本仓储。
 - `src/features/sources`：资料领域模型、解析端口和 SQLite 仓储。
-- `src/features/publishing`：公众号主题和共享 HTML 渲染器。
+- `src/features/publishing`：公众号主题、共享 HTML 渲染器与草稿箱推送（port + 官方 API 适配器）。
+- `src/features/style-library`：视觉风格库（style-lab 提炼结果导入），配图规划时注入绘制风格。
 - `src/app/api`：经过 Zod 校验的 HTTP 边界。
 - `src/components`：列表、编辑器、生成控制、审核面板和公众号预览。
 - `tests/helpers/run-e2e.mjs`：启动测试服务器、运行 Playwright，并按已知进程 ID 回收服务。

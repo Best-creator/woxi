@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { LENGTH_RANGES, type OutlineSection } from "@/features/articles/domain";
 import type { ArticleRepository } from "@/features/articles/repository";
+import { describeAudience } from "@/features/content/audience";
 import type { SourceRepository } from "@/features/sources/repository";
+import type { OutlineReviewFeedback } from "./domain";
 import { readySourceContext } from "./generate-outline";
 import { resolveOutlineModel } from "./model";
 import type { OutlineGenerator } from "./ports";
@@ -11,6 +13,8 @@ export interface ApplyOutlineReviewCommand {
   articleId: string;
   expectedUpdatedAt: string;
   model?: string;
+  /** 作者自己提的修改要求；给了它就不再要求先有审核记录。 */
+  userInstructions?: string;
 }
 
 export interface ApplyOutlineReviewDependencies {
@@ -52,15 +56,31 @@ export async function applyOutlineReview(
       sourceContextSnapshot: sourceContext
     }
   });
-  if (!current) return { kind: "review_required" };
-  if (current.review.result.status === "passed") return { kind: "no_revision_needed" };
+
+  // 有用户自述要求时不再拿审核状态当闸门：审核通过、甚至还没审核，作者都可以提要求改大纲。
+  // 审核意见仍然照传（如果存在），让模型一次同时满足两边。
+  const userInstructions = command.userInstructions?.trim();
+  let reviewFeedback: OutlineReviewFeedback | undefined;
+  if (!userInstructions) {
+    if (!current) return { kind: "review_required" };
+    if (current.review.result.status === "passed") return { kind: "no_revision_needed" };
+  }
+  if (current) {
+    reviewFeedback = {
+      status: current.review.result.status,
+      summary: current.review.result.summary,
+      issues: current.review.result.issues,
+      hiddenPrerequisites: current.review.result.hiddenPrerequisites,
+      complexDependencies: current.review.result.complexDependencies
+    };
+  }
 
   const model = resolveOutlineModel(command.model, dependencies.defaultModel);
   let generated;
   try {
     generated = await dependencies.generator.generate({
       topic: article.topic,
-      targetAudience: "对该知识点零基础的普通读者",
+      targetAudience: describeAudience(article.styleProfile.audience),
       lengthPreset: article.planning.lengthPreset,
       wordRange: LENGTH_RANGES[article.planning.lengthPreset],
       currentBrief: article.brief,
@@ -70,18 +90,16 @@ export async function applyOutlineReview(
         goal: section.goal ?? section.title,
         recommendedWords: section.recommendedWords ?? 50
       })),
-      reviewFeedback: {
-        status: current.review.result.status,
-        summary: current.review.result.summary,
-        issues: current.review.result.issues,
-        hiddenPrerequisites: current.review.result.hiddenPrerequisites,
-        complexDependencies: current.review.result.complexDependencies
-      },
+      ...(reviewFeedback ? { reviewFeedback } : {}),
+      ...(userInstructions ? { userInstructions } : {}),
       ...(sourceContext ? { sourceContext } : {}),
       model
     });
   } catch (error) {
-    return { kind: "generator_error", message: error instanceof Error ? error.message : "按审核意见修改大纲失败" };
+    return {
+      kind: "generator_error",
+      message: error instanceof Error ? error.message : userInstructions ? "按你的要求修改大纲失败" : "按审核意见修改大纲失败"
+    };
   }
 
   const outline: OutlineSection[] = generated.outline.map((section, order) => ({

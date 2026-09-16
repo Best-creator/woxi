@@ -4,10 +4,17 @@ import type { ArticleRepository } from "@/features/articles/repository";
 import type { ImageAssetRepository } from "@/features/images/repository";
 import { planImages } from "@/features/images/plan-images";
 import type { VisualPlanner } from "@/features/images/visual-planner";
+import type { StyleLibraryRepository } from "@/features/style-library/domain";
+import {
+  isLibraryStyleRef,
+  libraryStyleId,
+  styleToGuideText
+} from "@/features/style-library/style-guide";
 import {
   getArticleRepository,
   getImageAssetRepository,
   getReferenceCharacterRepository,
+  getStyleLibraryRepository,
   getVisualPlanner
 } from "@/server/services";
 
@@ -29,7 +36,8 @@ export function createImagePlanRouteHandler(
   articles: ArticleRepository,
   images: ImageAssetRepository,
   planner: VisualPlanner,
-  characters: ReferenceCharacterRepository | null = null
+  characters: ReferenceCharacterRepository | null = null,
+  styleLibrary: StyleLibraryRepository | null = null
 ) {
   return async function POST(request: Request, context: RouteContext) {
     const { id } = await context.params;
@@ -42,6 +50,24 @@ export function createImagePlanRouteHandler(
     const input = requestSchema.safeParse(body);
     if (!input.success) {
       return Response.json({ error: "文章版本信息无效" }, { status: 400 });
+    }
+
+    // 绘制风格：风格库条目由服务端解析成完整风格文本（library:<id>），
+    // 自由文本与预设词原样透传——两种形态都不信任客户端拼好的长文案。
+    let style: string | undefined;
+    if (input.data.style) {
+      if (isLibraryStyleRef(input.data.style)) {
+        if (!styleLibrary) {
+          return Response.json({ error: "风格库功能不可用" }, { status: 400 });
+        }
+        const entry = await styleLibrary.findById(libraryStyleId(input.data.style));
+        if (!entry) {
+          return Response.json({ error: "所选风格已不存在，请重新选择" }, { status: 400 });
+        }
+        style = styleToGuideText(entry.profile);
+      } else {
+        style = input.data.style;
+      }
     }
 
     // 参考形象由服务端解析成外形描述，避免信任客户端拼好的文案。
@@ -63,7 +89,7 @@ export function createImagePlanRouteHandler(
 
     const result = await planImages(id, input.data.expectedUpdatedAt, articles, images, planner, {
       ...(input.data.model ? { model: input.data.model } : {}),
-      ...(input.data.style ? { style: input.data.style } : {}),
+      ...(style ? { style } : {}),
       ...(character ? { character } : {})
     });
     if (result.kind === "not_found") {
@@ -93,6 +119,7 @@ export function POST(request: Request, context: RouteContext) {
     getArticleRepository(),
     getImageAssetRepository(),
     getVisualPlanner(),
-    getReferenceCharacterRepository()
+    getReferenceCharacterRepository(),
+    getStyleLibraryRepository()
   )(request, context);
 }

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { LENGTH_RANGES, type OutlineSection } from "@/features/articles/domain";
 import type { ArticleRepository } from "@/features/articles/repository";
+import { describeAudience } from "@/features/content/audience";
 import type { SourceRepository } from "@/features/sources/repository";
 import type { OutlineGenerator } from "./ports";
 import { resolveOutlineModel } from "./model";
@@ -49,7 +50,7 @@ export async function generateOutline(
   try {
     generated = await dependencies.generator.generate({
       topic: article.topic,
-      targetAudience: "对该知识点零基础的普通读者",
+      targetAudience: describeAudience(article.styleProfile.audience),
       lengthPreset: command.lengthPreset,
       wordRange: LENGTH_RANGES[command.lengthPreset],
       ...(sourceContext ? { sourceContext } : {}),

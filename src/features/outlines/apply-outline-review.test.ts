@@ -114,4 +114,111 @@ describe("applyOutlineReview", () => {
     expect(await workflow.listOutlineVersions(article.id)).toHaveLength(1);
     expect(db.prepare("SELECT COUNT(*) AS count FROM article_revisions").get()).toEqual({ count: 1 });
   });
+
+  it("revises from the author's own instructions even when the review passed", async () => {
+    const passed = await reviewedArticle(new DemoOutlineReviewer());
+    let received: GenerateOutlineInput | undefined;
+    const generator: OutlineGenerator = {
+      async generate(input) {
+        received = input;
+        return new DemoOutlineGenerator().generate(input);
+      }
+    };
+
+    const result = await applyOutlineReview(
+      {
+        articleId: passed.article.id,
+        expectedUpdatedAt: passed.article.updatedAt,
+        userInstructions: "  把第二章拆开讲透机制  "
+      },
+      { articles: passed.articles, sources: passed.sources, generator, workflow: passed.workflow }
+    );
+
+    expect(result).toMatchObject({ kind: "revised", revision: { version: 2, reason: "review_applied" } });
+    // 首尾空白要清掉，避免把空白当成一条有效要求。
+    expect(received?.userInstructions).toBe("把第二章拆开讲透机制");
+    expect(received?.currentOutline).toBeDefined();
+    // 审核通过时仍会把这条结论传下去，但闸门不再拦住用户。
+    expect(received?.reviewFeedback).toMatchObject({ status: "passed" });
+  });
+
+  it("revises without any review when the author describes what they want", async () => {
+    const db = createTestDatabase();
+    const articles = new SqliteArticleRepository(db);
+    const sources = new SqliteSourceRepository(db);
+    const workflow = new SqliteOutlineWorkflowRepository(db);
+    const created = await articles.create({ topic: "沉没成本" });
+    const generated = await generateOutline(
+      { articleId: created.id, expectedUpdatedAt: created.updatedAt, lengthPreset: "standard" },
+      { articles, sources, generator: new DemoOutlineGenerator(), workflow }
+    );
+    if (generated.kind !== "generated") throw new Error("fixture should generate");
+
+    const withoutInstructions = await applyOutlineReview(
+      { articleId: generated.article.id, expectedUpdatedAt: generated.article.updatedAt },
+      { articles, sources, generator: new DemoOutlineGenerator(), workflow }
+    );
+    const withInstructions = await applyOutlineReview(
+      {
+        articleId: generated.article.id,
+        expectedUpdatedAt: generated.article.updatedAt,
+        userInstructions: "开场换成工位上的场景"
+      },
+      { articles, sources, generator: new DemoOutlineGenerator(), workflow }
+    );
+
+    expect(withoutInstructions).toEqual({ kind: "review_required" });
+    expect(withInstructions).toMatchObject({ kind: "revised" });
+    if (withInstructions.kind === "revised") {
+      expect(withInstructions.article.outline[0]?.title).not.toBe("先看一个熟悉的选择");
+    }
+  });
+
+  it("hands both the review feedback and the author's instructions to the generator", async () => {
+    const { articles, sources, workflow, article } = await reviewedArticle();
+    let received: GenerateOutlineInput | undefined;
+    const generator: OutlineGenerator = {
+      async generate(input) {
+        received = input;
+        return new DemoOutlineGenerator().generate(input);
+      }
+    };
+
+    const result = await applyOutlineReview(
+      {
+        articleId: article.id,
+        expectedUpdatedAt: article.updatedAt,
+        userInstructions: "开场换成一个高频场景"
+      },
+      { articles, sources, generator, workflow }
+    );
+
+    expect(result).toMatchObject({ kind: "revised" });
+    expect(received?.reviewFeedback).toMatchObject({ status: "needs_revision", summary: "章节目标不够具体。" });
+    expect(received?.userInstructions).toBe("开场换成一个高频场景");
+  });
+
+  it("treats whitespace-only instructions as absent and keeps the review gate", async () => {
+    const db = createTestDatabase();
+    const articles = new SqliteArticleRepository(db);
+    const sources = new SqliteSourceRepository(db);
+    const workflow = new SqliteOutlineWorkflowRepository(db);
+    const created = await articles.create({ topic: "边际效用" });
+    const generated = await generateOutline(
+      { articleId: created.id, expectedUpdatedAt: created.updatedAt, lengthPreset: "standard" },
+      { articles, sources, generator: new DemoOutlineGenerator(), workflow }
+    );
+    if (generated.kind !== "generated") throw new Error("fixture should generate");
+
+    const result = await applyOutlineReview(
+      {
+        articleId: generated.article.id,
+        expectedUpdatedAt: generated.article.updatedAt,
+        userInstructions: "   \n  "
+      },
+      { articles, sources, generator: new DemoOutlineGenerator(), workflow }
+    );
+
+    expect(result).toEqual({ kind: "review_required" });
+  });
 });

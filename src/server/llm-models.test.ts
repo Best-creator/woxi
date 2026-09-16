@@ -102,7 +102,9 @@ describe("getPublicLlmConfigWithDiscovery", () => {
     const result = await getPublicLlmConfigWithDiscovery({
       databasePath: ":memory:",
       llm: { ...config, baseUrl },
-      image: null
+      image: null,
+      extraImageSites: [],
+      wechat: null
     }, fetchFn);
 
     expect(result).toEqual({
@@ -118,7 +120,9 @@ describe("getPublicLlmConfigWithDiscovery", () => {
     const result = await getPublicLlmConfigWithDiscovery({
       databasePath: ":memory:",
       llm: { ...config, baseUrl: "https://fallback-config.example.test" },
-      image: null
+      image: null,
+      extraImageSites: [],
+      wechat: null
     }, fetchFn);
 
     expect(result).toEqual({
@@ -132,7 +136,9 @@ describe("getPublicLlmConfigWithDiscovery", () => {
     const result = await getPublicLlmConfigWithDiscovery({
       databasePath: ":memory:",
       llm: null,
-      image: null
+      image: null,
+      extraImageSites: [],
+      wechat: null
     });
 
     expect(result).toEqual({ enabled: false, availableModels: [], defaultModel: null });

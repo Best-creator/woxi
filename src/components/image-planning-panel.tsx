@@ -1,10 +1,29 @@
 "use client";
 
-import { ImagePlus, MapPin, RefreshCw, Sparkles, Trash2, Upload, Wand2 } from "lucide-react";
+import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  ImagePlus,
+  Layers,
+  MapPin,
+  Maximize2,
+  RefreshCw,
+  Sparkles,
+  Trash2,
+  Upload,
+  Wand2,
+  X
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { Article, ContentBlock } from "@/features/articles/domain";
 import type { ReferenceCharacter } from "@/features/characters/domain";
-import type { ImageAsset, ImageAspectRatio } from "@/features/images/domain";
+import type {
+  ImageAsset,
+  ImageAspectRatio,
+  ImageGeneration,
+  ImageLibraryItem
+} from "@/features/images/domain";
 import type { ImageAssetPatch } from "@/features/images/repository";
 import { ModelSelect } from "./model-select";
 
@@ -35,8 +54,20 @@ export interface ImagePlanningPanelProps {
     assetId: string,
     expectedUpdatedAt: string
   ) => Promise<ImageMutationPayload>;
-  /** 真实图片生成服务；未提供（未配置）时不显示生成入口。 */
-  generateImage?: (assetId: string, expectedUpdatedAt: string) => Promise<ImageMutationPayload>;
+  /** 真实图片生成服务；未提供（未配置）时不显示生成入口。model 为 UI 选中的生图模型（可跨站点）。 */
+  generateImage?: (
+    assetId: string,
+    expectedUpdatedAt: string,
+    model?: string
+  ) => Promise<ImageMutationPayload>;
+  /** 在多个生成版本之间切换；也接受本文其他配图的版本（等于把它挪到这张上）。 */
+  selectGeneration?: (
+    assetId: string,
+    generationId: string,
+    expectedUpdatedAt: string
+  ) => Promise<ImageMutationPayload>;
+  /** 删除某一版生成结果（连同磁盘文件）。 */
+  deleteGeneration?: (generationId: string, expectedUpdatedAt: string) => Promise<ImageMutationPayload>;
   /** 配图规划的模型选择：默认走服务端 LLM_VISUAL_MODEL（快模型），可手动切换。 */
   llmEnabled?: boolean;
   availableModels?: string[];
@@ -44,6 +75,7 @@ export interface ImagePlanningPanelProps {
 
 const typeLabels: Record<ImageAsset["type"], string> = {
   cover: "封面图",
+  storyboard: "动漫分镜",
   concept: "概念图",
   process: "流程图",
   comparison: "对比图",
@@ -81,6 +113,20 @@ const stylePresets: Array<{ value: string; label: string }> = [
   { value: "3D 可爱风", label: "3D 可爱风" }
 ];
 
+/** 风格库条目（style-lab 提炼后导入）；value 用 library:<id> 标记，由服务端解析成完整风格文本。 */
+interface StyleLibrarySummary {
+  id: string;
+  name: string;
+  summary: string;
+  palette: string[];
+  source: string;
+  updatedAt: string;
+}
+
+function libraryStyleValue(id: string) {
+  return `library:${id}`;
+}
+
 interface ImageDraft {
   prompt: string;
   altText: string;
@@ -95,11 +141,64 @@ function draftFor(asset: ImageAsset, drafts: Record<string, ImageDraft>) {
 }
 
 function sourceFor(asset: ImageAsset) {
+  if (asset.status === "generated") {
+    // 生成成功：优先远程图；本地落盘图走 content 路由。URL 追加 updatedAt 破缓存，
+    // 否则重新生成后 src 不变，浏览器继续显示旧图（占位/上一版），看起来像"没反应"。
+    return (
+      asset.publicUrl ??
+      `/api/image-assets/${asset.id}/content?v=${encodeURIComponent(asset.updatedAt)}`
+    );
+  }
   return asset.publicUrl ?? asset.placeholderUrl ?? `/api/image-assets/${asset.id}/content`;
+}
+
+/** 拉一次素材库；失败返回 null，调用方静默降级（版本条显示为空，不影响生成本身）。 */
+async function fetchGenerations(articleId: string): Promise<ImageLibraryItem[] | null> {
+  try {
+    const response = await fetch(`/api/articles/${articleId}/image-generations`);
+    if (!response.ok) return null;
+    const data = (await response.json()) as { generations?: ImageLibraryItem[] };
+    return Array.isArray(data.generations) ? data.generations : [];
+  } catch {
+    return null;
+  }
 }
 
 function truncate(value: string) {
   return value.length > 36 ? `${value.slice(0, 36)}...` : value;
+}
+
+/** 预览框按配图比例留位，避免加载完成后页面跳动。 */
+const aspectRatioCss: Record<ImageAspectRatio, string> = {
+  cover: "2.35 / 1",
+  landscape: "3 / 2",
+  square: "1 / 1",
+  portrait: "3 / 4"
+};
+
+/**
+ * 某一版生成结果的取图地址。
+ * 生成文件按 `{assetId}-{generationId}` 命名，每个版本一个不可变 URL，
+ * 因此不需要像资产那样追 `?v=` 破缓存。
+ */
+function generationSrc(generation: ImageGeneration) {
+  return generation.publicUrl ?? `/api/image-generations/${generation.id}/content`;
+}
+
+function formatGeneratedAt(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${date.getMonth() + 1}月${date.getDate()}日 ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/**
+ * 版本条按时间正序排列，编号随时间递增：最早生成的是第 1 版，最新的是第 N 版。
+ * 参数必须是已按正序排好的数组（generationsByAsset 保证），不能用仓储返回的倒序列表。
+ */
+function versionLabel(generations: ImageGeneration[], generationId: string) {
+  const index = generations.findIndex((generation) => generation.id === generationId);
+  return index === -1 ? 0 : index + 1;
 }
 
 function readableError(error: unknown, fallback: string) {
@@ -117,6 +216,8 @@ export function ImagePlanningPanel({
   deleteAsset,
   refreshPlaceholder,
   generateImage,
+  selectGeneration,
+  deleteGeneration,
   llmEnabled = false,
   availableModels = []
 }: ImagePlanningPanelProps) {
@@ -124,13 +225,41 @@ export function ImagePlanningPanel({
   const [error, setError] = useState("");
   const [drafts, setDrafts] = useState<Record<string, ImageDraft>>({});
   const [planModel, setPlanModel] = useState("");
+  // 生图模型：从 /api/image-models 拉聚合目录（可跨站点），空值 = 服务端默认模型。
+  const [imageModels, setImageModels] = useState<Array<{ id: string; provider: string }>>([]);
+  const [imageModel, setImageModel] = useState("");
+  // 一键生成全部的进度（初始阶段专用）。
+  const [batchProgress, setBatchProgress] = useState<{ done: number; total: number } | null>(null);
+  // 文章素材库：本文全部生成版本。版本条与「换一张」都读这一份，避免两处顺序不一致。
+  const [generations, setGenerations] = useState<ImageLibraryItem[]>([]);
+  const [showLibrary, setShowLibrary] = useState(false);
+  // 大图预览的目标：看哪一张配图的哪一版，以及在「换一张」时要移到哪个位置。
+  const [preview, setPreview] = useState<{ assetId: string; generationId: string; targetAssetId: string } | null>(null);
+  // 素材库按 assetId 分组，省得每次渲染都过滤一遍。
+  // 仓储给的是最新在前（素材库就按这个顺序浏览），版本条反过来按时间正序排：
+  // 这样「第 1 版」永远在最左边，大图预览左右翻页的方向和肉眼看到的顺序一致。
+  const generationsByAsset = new Map<string, ImageLibraryItem[]>();
+  for (const generation of generations) {
+    const bucket = generationsByAsset.get(generation.assetId) ?? [];
+    bucket.unshift(generation);
+    generationsByAsset.set(generation.assetId, bucket);
+  }
   const anchors = article.blocks.filter((block) => block.type !== "image");
+  // 初始阶段（还没有任何生成成功的图）显示「一键生成全部」；进入调整阶段后靠单张按钮针对性重生成。
+  const hasGenerated = assets.some((asset) => asset.status === "generated");
+  const pendingCount = assets.filter(
+    (asset) => asset.status !== "disabled" && asset.status !== "generated" && asset.status !== "generating"
+  ).length;
 
-  // 绘制风格：预设下拉 + 自定义文本，最终以字符串参与规划。
+  // 绘制风格：预设下拉 + 风格库条目 + 自定义文本，最终以字符串参与规划。
+  // 风格库条目以 library:<id> 标记参与持久化与规划，服务端解析成完整风格文本。
   const [styleOption, setStyleOption] = useState(STYLE_NONE);
   const [styleInput, setStyleInput] = useState("");
   const effectiveStyle =
     styleOption === STYLE_CUSTOM ? styleInput.trim() : styleOption === STYLE_NONE ? "" : styleOption;
+
+  // 风格库：全局共享（style-lab 导入），选择后随规划请求提交。
+  const [libraryStyles, setLibraryStyles] = useState<StyleLibrarySummary[]>([]);
 
   // 参考形象库：全局共享，选择后随规划请求提交。
   const [characters, setCharacters] = useState<ReferenceCharacter[]>([]);
@@ -155,12 +284,27 @@ export function ImagePlanningPanel({
         if (!cancelled) setCharacters(Array.isArray(data.characters) ? data.characters : []);
       })
       .catch(() => undefined);
+    fetch("/api/style-library")
+      .then((response) => (response.ok ? response.json() : Promise.reject(new Error(String(response.status)))))
+      .then((data: { styles?: StyleLibrarySummary[] }) => {
+        if (!cancelled) setLibraryStyles(Array.isArray(data.styles) ? data.styles : []);
+      })
+      .catch(() => undefined);
+    fetch("/api/image-models")
+      .then((response) => (response.ok ? response.json() : Promise.reject(new Error(String(response.status)))))
+      .then((data: { models?: Array<{ id: string; provider: string }> }) => {
+        if (!cancelled) setImageModels(Array.isArray(data.models) ? data.models : []);
+      })
+      .catch(() => undefined);
     fetch(`/api/articles/${article.id}/image-settings`)
       .then((response) => (response.ok ? response.json() : Promise.reject(new Error(String(response.status)))))
       .then((data: { style?: unknown; characterId?: unknown }) => {
         if (cancelled) return;
         const style = typeof data.style === "string" ? data.style : "";
-        if (stylePresets.some((preset) => preset.value === style)) {
+        if (style.startsWith("library:")) {
+          // 风格库标记直接回显；条目被删时下拉回落显示「不指定风格」，重新规划会得到明确报错。
+          setStyleOption(style);
+        } else if (stylePresets.some((preset) => preset.value === style)) {
           setStyleOption(style);
         } else if (style) {
           setStyleOption(STYLE_CUSTOM);
@@ -192,6 +336,45 @@ export function ImagePlanningPanel({
 
   // 选中形象的编辑草稿由 CharacterEditor 组件自持（key 重挂载即重置）。
 
+  /** 生成版本列表：挂载时拉一次，之后每次生成/选用/删除成功都刷新。 */
+  useEffect(() => {
+    let cancelled = false;
+    fetchGenerations(article.id).then((items) => {
+      if (!cancelled && items) setGenerations(items);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [article.id]);
+
+  async function refreshGenerations() {
+    const items = await fetchGenerations(article.id);
+    if (items) setGenerations(items);
+  }
+
+  // 大图预览的键盘操作：左右翻版、Esc 关闭。挂在 window 上，弹窗打开时无需先聚焦。
+  useEffect(() => {
+    if (!preview) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setPreview(null);
+        return;
+      }
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      const versions = generationsByAsset.get(preview.assetId) ?? [];
+      const index = versions.findIndex((item) => item.id === preview.generationId);
+      if (index === -1) return;
+      // 版本条是时间正序，所以「左」＝更早的一版、「右」＝更新的一版，和看到的顺序一致。
+      const next = event.key === "ArrowLeft" ? index - 1 : index + 1;
+      const target = versions[(next + versions.length) % versions.length];
+      if (target) setPreview((current) => (current ? { ...current, generationId: target.id } : current));
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  // generationsByAsset 每次都重建，不作为依赖；preview 变化已足够重挂监听。
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preview]);
+
   function updateDraft(asset: ImageAsset, field: "prompt" | "altText", value: string) {
     setDrafts((current) => ({
       ...current,
@@ -206,6 +389,8 @@ export function ImagePlanningPanel({
     try {
       const result = await operation();
       onResult(result.article, result.assets);
+      // 生成会新增一版、选用/删除会改版本状态，两种情况下版本条都要重拉。
+      await refreshGenerations();
     } catch (requestError) {
       setError(readableError(requestError, "配图操作失败，请稍后重试"));
     } finally {
@@ -213,9 +398,103 @@ export function ImagePlanningPanel({
     }
   }
 
+  /**
+   * 初始阶段一键生成全部配图：顺序逐张调用（上游串行更稳，进度可见）。
+   * 每张完成即 onResult 刷新界面；用响应里的最新 updatedAt 推进，避免乐观锁冲突。
+   * 任一张失败即停——已完成的不动，失败/未生成的可稍后单张补生成。
+   */
+  async function generateAllImages() {
+    if (!generateImage || locked) return;
+    const pending = assets.filter(
+      (asset) => asset.status !== "disabled" && asset.status !== "generated" && asset.status !== "generating"
+    );
+    if (pending.length === 0) return;
+    setBusy(true);
+    setError("");
+    setBatchProgress({ done: 0, total: pending.length });
+    let currentUpdatedAt = article.updatedAt;
+    let done = 0;
+    try {
+      for (const asset of pending) {
+        const payload = await generateImage(asset.id, currentUpdatedAt, imageModel || undefined);
+        currentUpdatedAt = payload.article.updatedAt;
+        done += 1;
+        setBatchProgress({ done, total: pending.length });
+        onResult(payload.article, payload.assets);
+      }
+    } catch (requestError) {
+      setError(`已生成 ${done}/${pending.length} 张后中断：${readableError(requestError, "请稍后重试")}`);
+    } finally {
+      setBusy(false);
+      setBatchProgress(null);
+      // 中途中断也已经生成了若干张，照样要把版本条刷新出来。
+      await refreshGenerations();
+    }
+  }
+
   function patchAsset(assetId: string, patch: ImageAssetPatch) {
     if (locked || !updateAsset) return;
     void run(() => updateAsset(assetId, { ...patch, expectedUpdatedAt: article.updatedAt }));
+  }
+
+  function openPreview(assetId: string, generationId: string) {
+    setPreview({ assetId, generationId, targetAssetId: assetId });
+  }
+
+  /** 预览里的当前版本；列表被刷新掉（例如那一版刚被删）就自动收敛为 null。 */
+  const previewGenerations = preview ? generationsByAsset.get(preview.assetId) ?? [] : [];
+  const previewGeneration =
+    previewGenerations.find((generation) => generation.id === preview?.generationId) ?? null;
+  const previewAsset = preview ? assets.find((asset) => asset.id === preview.assetId) ?? null : null;
+
+  function stepPreview(direction: -1 | 1) {
+    if (!preview || previewGenerations.length === 0) return;
+    const index = previewGenerations.findIndex((item) => item.id === preview.generationId);
+    const next = (index + direction + previewGenerations.length) % previewGenerations.length;
+    const target = previewGenerations[next];
+    if (target) setPreview({ ...preview, generationId: target.id });
+  }
+
+  /**
+   * 选用预览中这一版。
+   * 目标位置可以在弹窗里改（默认是它自己所属的那张配图）：选别的位置＝把这一版挪过去，
+   * 这样就能把某张生成得好的图用到别的段落上。
+   */
+  async function applyPreviewedGeneration() {
+    if (!preview || !selectGeneration || locked) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await selectGeneration(
+        preview.targetAssetId,
+        preview.generationId,
+        article.updatedAt
+      );
+      onResult(result.article, result.assets);
+      await refreshGenerations();
+      setPreview(null);
+    } catch (requestError) {
+      setError(readableError(requestError, "切换生成版本失败，请稍后重试"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deletePreviewedGeneration() {
+    if (!preview || !deleteGeneration || locked) return;
+    if (!window.confirm("删除这一版生成结果？文件会一并删除，无法恢复。")) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await deleteGeneration(preview.generationId, article.updatedAt);
+      onResult(result.article, result.assets);
+      await refreshGenerations();
+      setPreview(null);
+    } catch (requestError) {
+      setError(readableError(requestError, "删除生成版本失败，请稍后重试"));
+    } finally {
+      setBusy(false);
+    }
   }
 
   function planGuideOptions(): ImagePlanGuideOptions {
@@ -283,6 +562,16 @@ export function ImagePlanningPanel({
       : CHARACTER_NONE;
   }
 
+  // 回显的风格库标记可能已失效（条目被删）→ 下拉回落显示「不指定风格」。
+  const styleSelectValue =
+    styleOption.startsWith("library:") &&
+    !libraryStyles.some((item) => libraryStyleValue(item.id) === styleOption)
+      ? STYLE_NONE
+      : styleOption;
+  const selectedLibraryStyle = libraryStyles.find(
+    (item) => libraryStyleValue(item.id) === styleOption
+  );
+
   function onCharacterSelectChange(value: string) {
     setCharacterError("");
     if (value === CHARACTER_UPLOAD) {
@@ -300,7 +589,7 @@ export function ImagePlanningPanel({
           <span>绘制风格（可选）</span>
           <select
             aria-label="绘制风格"
-            value={styleOption}
+            value={styleSelectValue}
             disabled={locked || busy}
             onChange={(event) => setStyleOption(event.target.value)}
           >
@@ -308,9 +597,31 @@ export function ImagePlanningPanel({
             {stylePresets.map((preset) => (
               <option key={preset.value} value={preset.value}>{preset.label}</option>
             ))}
+            {libraryStyles.length > 0 ? (
+              <optgroup label="风格库（提炼导入）">
+                {libraryStyles.map((style) => (
+                  <option key={style.id} value={libraryStyleValue(style.id)}>
+                    {style.name}
+                  </option>
+                ))}
+              </optgroup>
+            ) : null}
             <option value={STYLE_CUSTOM}>自定义…</option>
           </select>
         </label>
+        {selectedLibraryStyle ? (
+          <p className="plan-style-hint">
+            {selectedLibraryStyle.summary}
+            {selectedLibraryStyle.palette.slice(0, 6).map((hex) => (
+              <span
+                key={hex}
+                className="plan-style-swatch"
+                style={{ background: hex }}
+                title={hex}
+              />
+            ))}
+          </p>
+        ) : null}
         {styleOption === STYLE_CUSTOM ? (
           <label className="plan-guide-field">
             <span>自定义风格描述</span>
@@ -437,9 +748,33 @@ export function ImagePlanningPanel({
           label="规划模型"
           disabled={locked || busy}
           includeDefaultOption
-          defaultOptionLabel="默认（轻量快模型）"
+          defaultOptionLabel="默认（gemini-3.8-flash）"
           onChange={setPlanModel}
         />
+        {generateImage && imageModels.length > 0 ? (
+          (() => {
+            const multiProvider = new Set(imageModels.map((item) => item.provider)).size > 1;
+            return (
+              <label className="plan-guide-field">
+                <span>生图模型</span>
+                <select
+                  aria-label="生图模型"
+                  value={imageModel}
+                  disabled={locked || busy}
+                  onChange={(event) => setImageModel(event.target.value)}
+                  title="生成配图使用的模型；可跨站点选择，报错时可换模型重试"
+                >
+                  <option value="">默认模型</option>
+                  {imageModels.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {multiProvider ? `${item.id}（${item.provider}）` : item.id}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            );
+          })()
+        ) : null}
         <button
           className="button button-primary generation-button"
           type="button"
@@ -447,8 +782,16 @@ export function ImagePlanningPanel({
           onClick={assets.length ? reanalyzePlan : analyzePlan}
         >
           <ImagePlus size={16} aria-hidden="true" />
-          {busy ? "正在分析..." : assets.length ? "按当前风格与形象重新分析" : "分析配图需求"}
+          {busy ? "正在分析..." : assets.length ? "按当前风格与形象重新设计分镜" : "根据正文设计动漫分镜"}
         </button>
+        {generateImage && (batchProgress || (!hasGenerated && pendingCount > 0)) ? (
+          <button className="button button-secondary" type="button" disabled={locked || busy} onClick={() => void generateAllImages()}>
+            <Wand2 size={16} aria-hidden="true" />
+            {batchProgress
+              ? `正在生成 ${batchProgress.done}/${batchProgress.total}...`
+              : `一键生成全部配图（${pendingCount} 张）`}
+          </button>
+        ) : null}
       </div>
     </div>
   );
@@ -469,6 +812,7 @@ export function ImagePlanningPanel({
   }
 
   return (
+    <>
     <section className="image-planning-panel" aria-label="配图工作区">
       {locked ? (
         <p className="image-plan-lock-notice" role="status">
@@ -481,16 +825,37 @@ export function ImagePlanningPanel({
         {assets.map((asset, index) => {
           const draft = draftFor(asset, drafts);
           const anchor = anchors.find((block) => block.id === asset.anchorBlockId);
+          const versions = generationsByAsset.get(asset.id) ?? [];
+          const activeVersion = versions.find((generation) => generation.selected) ?? null;
           return (
             <li className="image-plan-item" key={asset.id}>
-              {/* Placeholder URLs are dynamic internal API routes. */}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                className="image-plan-thumbnail"
-                src={sourceFor(asset)}
-                alt={asset.altText || "文章配图"}
-                loading="lazy"
-              />
+              <button
+                type="button"
+                className="image-plan-preview"
+                style={{ aspectRatio: aspectRatioCss[asset.aspectRatio] }}
+                disabled={locked || !activeVersion}
+                title={activeVersion ? "点击看大图，可左右切换各版本" : "尚未生成，无法预览"}
+                aria-label={`预览配图 ${index + 1}`}
+                onClick={() => activeVersion && openPreview(asset.id, activeVersion.id)}
+              >
+                {/* 占位图走内部 API 路由，动态地址，next/image 不适用。 */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  className="image-plan-thumbnail"
+                  src={sourceFor(asset)}
+                  alt={asset.altText || "文章配图"}
+                  loading="lazy"
+                />
+                {activeVersion ? (
+                  <span className="image-plan-preview-hint">
+                    <Maximize2 size={13} aria-hidden="true" />
+                    点击放大
+                  </span>
+                ) : null}
+                {versions.length > 1 ? (
+                  <span className="image-plan-preview-count">{versions.length} 版</span>
+                ) : null}
+              </button>
               <div className="image-plan-summary">
                 <div className="image-plan-meta">
                   <strong>{typeLabels[asset.type]}</strong>
@@ -506,6 +871,40 @@ export function ImagePlanningPanel({
                 )}
                 <p className="image-plan-purpose">{asset.purpose}</p>
               </div>
+
+              {versions.length ? (
+                <div className="image-generation-strip">
+                  <p className="image-generation-strip-label">
+                    <Layers size={13} aria-hidden="true" />
+                    生成版本 {versions.length} 版
+                    {activeVersion ? `，正在使用第 ${versionLabel(versions, activeVersion.id)} 版` : ""}
+                  </p>
+                  <ol>
+                    {versions.map((generation) => {
+                      const number = versionLabel(versions, generation.id);
+                      return (
+                        <li key={generation.id}>
+                          <button
+                            type="button"
+                            className={`image-generation-thumb${generation.selected ? " image-generation-thumb-current" : ""}`}
+                            title={`第 ${number} 版 · ${formatGeneratedAt(generation.createdAt)}${generation.model ? ` · ${generation.model}` : ""}`}
+                            aria-label={`查看配图 ${index + 1} 的第 ${number} 版`}
+                            disabled={locked}
+                            onClick={() => openPreview(asset.id, generation.id)}
+                          >
+                            {/* 版本文件按 generationId 命名，URL 不可变，不需要破缓存参数。 */}
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={generationSrc(generation)} alt="" loading="lazy" />
+                            {generation.selected ? (
+                              <span className="image-generation-badge">使用中</span>
+                            ) : null}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                </div>
+              ) : null}
 
               {!readOnly ? (
                 <div className="image-plan-fields">
@@ -593,7 +992,13 @@ export function ImagePlanningPanel({
                         }
                         disabled={locked || busy || asset.status === "disabled" || asset.status === "generating"}
                         onClick={() =>
-                          void run(() => generateImage(asset.id, article.updatedAt))
+                          void run(() =>
+                            generateImage(
+                              asset.id,
+                              article.updatedAt,
+                              imageModel || undefined
+                            )
+                          )
                         }
                       >
                         <Sparkles size={15} aria-hidden="true" />
@@ -626,7 +1031,183 @@ export function ImagePlanningPanel({
           );
         })}
       </ol>
+
+      {generations.length ? (
+        <div className="image-library">
+          <button
+            type="button"
+            className="image-library-toggle"
+            aria-expanded={showLibrary}
+            onClick={() => setShowLibrary((current) => !current)}
+          >
+            <Layers size={14} aria-hidden="true" />
+            素材库（本文已生成 {generations.length} 张）
+            <ChevronRight
+              size={14}
+              aria-hidden="true"
+              className={`image-library-chevron${showLibrary ? " image-library-chevron-open" : ""}`}
+            />
+          </button>
+          {showLibrary ? (
+            <div className="image-library-body">
+              <p className="image-library-hint">
+                点开任意一张看大图。在弹窗里可以「移到」别的配图上——同一张图只会出现在一个位置，
+                所以移走之后原位置会自动回落到它剩下的最新一版。
+              </p>
+              <ol className="image-library-grid">
+                {generations.map((generation) => {
+                  const ownerIndex = assets.findIndex((asset) => asset.id === generation.assetId);
+                  return (
+                    <li key={generation.id}>
+                      <button
+                        type="button"
+                        className={`image-library-thumb${generation.selected ? " image-library-thumb-current" : ""}`}
+                        disabled={locked}
+                        title={`${typeLabels[generation.assetType]} · ${formatGeneratedAt(generation.createdAt)}`}
+                        aria-label={`预览素材库图片：${typeLabels[generation.assetType]}，${formatGeneratedAt(generation.createdAt)}`}
+                        onClick={() => openPreview(generation.assetId, generation.id)}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={generationSrc(generation)} alt="" loading="lazy" />
+                        <span className="image-library-caption">
+                          {ownerIndex === -1 ? "已移除" : `配图 ${ownerIndex + 1}`}
+                          {generation.selected ? " · 使用中" : ""}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ol>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </section>
+
+    {preview && previewGeneration && previewAsset ? (
+      <div className="image-lightbox" role="dialog" aria-modal="true" aria-label="配图大图预览">
+        <div className="image-lightbox-panel">
+          <header className="image-lightbox-toolbar">
+            <div>
+              <p className="panel-label">大图预览</p>
+              <h2>
+                {typeLabels[previewAsset.type]} · 第{" "}
+                {versionLabel(previewGenerations, previewGeneration.id)} / {previewGenerations.length} 版
+              </h2>
+            </div>
+            <button className="icon-button" type="button" aria-label="关闭预览" onClick={() => setPreview(null)}>
+              <X size={16} aria-hidden="true" />
+            </button>
+          </header>
+
+          <div className="image-lightbox-stage">
+            <button
+              className="icon-button image-lightbox-step"
+              type="button"
+              aria-label="上一版"
+              disabled={previewGenerations.length < 2 || busy}
+              onClick={() => stepPreview(-1)}
+            >
+              <ChevronLeft size={18} aria-hidden="true" />
+            </button>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              className="image-lightbox-image"
+              src={generationSrc(previewGeneration)}
+              alt={previewAsset.altText || "配图预览"}
+            />
+            <button
+              className="icon-button image-lightbox-step"
+              type="button"
+              aria-label="下一版"
+              disabled={previewGenerations.length < 2 || busy}
+              onClick={() => stepPreview(1)}
+            >
+              <ChevronRight size={18} aria-hidden="true" />
+            </button>
+          </div>
+
+          <div className="image-lightbox-meta">
+            <p className="image-lightbox-facts">
+              {formatGeneratedAt(previewGeneration.createdAt)}
+              {previewGeneration.model ? ` · ${previewGeneration.model}` : ""}
+              {previewGeneration.selected ? " · 正在使用这一版" : ""}
+            </p>
+            {previewGeneration.prompt ? (
+              <p className="image-lightbox-prompt">{previewGeneration.prompt}</p>
+            ) : null}
+          </div>
+
+          {previewGenerations.length > 1 ? (
+            <ol className="image-lightbox-strip">
+              {previewGenerations.map((generation) => (
+                <li key={generation.id}>
+                  <button
+                    type="button"
+                    className={`image-generation-thumb${generation.id === previewGeneration.id ? " image-generation-thumb-active" : ""}${generation.selected ? " image-generation-thumb-current" : ""}`}
+                    aria-label={`切到第 ${versionLabel(previewGenerations, generation.id)} 版`}
+                    disabled={busy}
+                    onClick={() => setPreview({ ...preview, generationId: generation.id })}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={generationSrc(generation)} alt="" loading="lazy" />
+                  </button>
+                </li>
+              ))}
+            </ol>
+          ) : null}
+
+          {error ? <p className="image-plan-error" role="alert">{error}</p> : null}
+
+          <div className="image-lightbox-actions">
+            {selectGeneration ? (
+              <label className="plan-guide-field image-lightbox-target">
+                <span>用到</span>
+                <select
+                  aria-label="用到哪张配图"
+                  value={preview.targetAssetId}
+                  disabled={locked || busy}
+                  onChange={(event) => setPreview({ ...preview, targetAssetId: event.target.value })}
+                >
+                  {assets.map((asset, assetIndex) => (
+                    <option key={asset.id} value={asset.id}>
+                      配图 {assetIndex + 1}（{typeLabels[asset.type]}）
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            {deleteGeneration ? (
+              <button
+                className="button button-secondary"
+                type="button"
+                disabled={locked || busy}
+                onClick={() => void deletePreviewedGeneration()}
+              >
+                <Trash2 size={15} aria-hidden="true" />
+                删除这一版
+              </button>
+            ) : null}
+            {selectGeneration ? (
+              <button
+                className="button button-primary"
+                type="button"
+                disabled={
+                  locked ||
+                  busy ||
+                  (previewGeneration.selected && preview.targetAssetId === preview.assetId)
+                }
+                onClick={() => void applyPreviewedGeneration()}
+              >
+                <Check size={15} aria-hidden="true" />
+                {preview.targetAssetId === preview.assetId ? "使用这一版" : "移到这张配图"}
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    ) : null}
+    </>
   );
 }
 

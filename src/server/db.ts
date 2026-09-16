@@ -78,6 +78,26 @@ export function migrateDatabase(db: DatabaseSync) {
     CREATE INDEX IF NOT EXISTS image_assets_anchor_idx
       ON image_assets(anchor_block_id);
 
+    CREATE TABLE IF NOT EXISTS image_asset_generations (
+      id TEXT PRIMARY KEY,
+      article_id TEXT NOT NULL,
+      asset_id TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      model TEXT,
+      file_path TEXT,
+      public_url TEXT,
+      selected INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE,
+      FOREIGN KEY (asset_id) REFERENCES image_assets(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS image_asset_generations_asset_idx
+      ON image_asset_generations(asset_id, created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS image_asset_generations_article_idx
+      ON image_asset_generations(article_id, created_at DESC);
+
     CREATE TABLE IF NOT EXISTS reference_characters (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -96,6 +116,29 @@ export function migrateDatabase(db: DatabaseSync) {
       updated_at TEXT NOT NULL,
       FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS style_library (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      profile_json TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS wechat_drafts (
+      id TEXT PRIMARY KEY,
+      article_id TEXT NOT NULL,
+      media_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      theme_id TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS wechat_drafts_article_idx
+      ON wechat_drafts(article_id, created_at DESC);
 
     CREATE TABLE IF NOT EXISTS article_revisions (
       id TEXT PRIMARY KEY,
@@ -158,6 +201,24 @@ export function migrateDatabase(db: DatabaseSync) {
         position += 1;
       }
     }
+
+    // 版本表是新加的，此前已经生成好的配图没有对应记录 —— 补一条「第 1 版」，
+    // 否则老文章进配图步骤时版本条是空的，用户会以为图丢了。
+    // file_path 原样沿用旧命名（{assetId}.{ext}），content 路由照常能读。
+    // NOT EXISTS 保证可重复执行。
+    db.exec(`
+      INSERT INTO image_asset_generations (
+        id, article_id, asset_id, prompt, model, file_path, public_url, selected, created_at
+      )
+      SELECT 'legacy-' || a.id, a.article_id, a.id, a.prompt, NULL,
+             a.file_path, a.public_url, 1, a.updated_at
+      FROM image_assets a
+      WHERE a.status = 'generated'
+        AND NOT EXISTS (
+          SELECT 1 FROM image_asset_generations g WHERE g.asset_id = a.id
+        );
+    `);
+
     db.exec("COMMIT");
   } catch (error) {
     try {

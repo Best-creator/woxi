@@ -2,6 +2,8 @@ import type { Article } from "@/features/articles/domain";
 import type {
   ImageAspectRatio,
   ImageAsset,
+  ImageGeneration,
+  ImageLibraryItem,
   ImagePlanSuggestion
 } from "./domain";
 
@@ -13,6 +15,16 @@ export type ImagePlanMutationResult =
   | { kind: "invalid_anchor"; anchorBlockId: string }
   | { kind: "invalid_state"; message: string };
 
+/**
+ * 版本选用/删除的结果。
+ * `removedFilePath` 只在删除时有值：仓储不碰文件系统，把路径交回上层去清理磁盘。
+ */
+export type ImageGenerationMutationResult =
+  | { kind: "saved"; article: Article; assets: ImageAsset[]; removedFilePath: string | null }
+  | { kind: "not_found" }
+  | { kind: "conflict" }
+  | { kind: "invalid_state"; message: string };
+
 export interface ImageAssetPatch {
   anchorBlockId?: string | null;
   prompt?: string;
@@ -21,10 +33,23 @@ export interface ImageAssetPatch {
   enabled?: boolean;
 }
 
+export interface CompleteGenerationInput {
+  publicUrl: string | null;
+  filePath: string | null;
+  /** 版本 id 由编排层先生成：落盘文件名要用它，不能等落库时才拿到。 */
+  generationId: string;
+  model?: string;
+}
+
 export interface ImageAssetRepository {
   list(articleId: string): Promise<ImageAsset[]>;
   findById(articleId: string, assetId: string): Promise<ImageAsset | null>;
   findByAssetId(assetId: string): Promise<ImageAsset | null>;
+  /** 文章素材库：本文全部生成版本，带所属配图的类型与用途，供跨槽位复用。 */
+  listGenerations(articleId: string): Promise<ImageLibraryItem[]>;
+  /** 单张配图的生成版本，按时间倒序（最新在前）。 */
+  listGenerationsForAsset(articleId: string, assetId: string): Promise<ImageGeneration[]>;
+  findGenerationById(generationId: string): Promise<ImageGeneration | null>;
   applyPlan(
     articleId: string,
     expectedUpdatedAt: string,
@@ -52,12 +77,15 @@ export interface ImageAssetRepository {
     assetId: string,
     expectedUpdatedAt: string
   ): Promise<ImagePlanMutationResult>;
-  /** 生成成功落库：写入 publicUrl/filePath 并置为 generated。 */
+  /**
+   * 生成成功落库：新增一条版本记录并置为「使用中」，
+   * 同时把 filePath/publicUrl 镜像到配图资产上（下游消费者只看资产，不感知版本）。
+   */
   completeGeneration(
     articleId: string,
     assetId: string,
     expectedUpdatedAt: string,
-    result: { publicUrl: string | null; filePath: string | null }
+    result: CompleteGenerationInput
   ): Promise<ImagePlanMutationResult>;
   /** 生成失败落库：置为 failed，占位图继续可用。 */
   failGeneration(
@@ -65,4 +93,27 @@ export interface ImageAssetRepository {
     assetId: string,
     expectedUpdatedAt: string
   ): Promise<ImagePlanMutationResult>;
+  /**
+   * 选用某一版：切换 selected 标记并把该版镜像到配图资产上。
+   *
+   * 也接受本文其他配图的版本——那等于把这一版「挪」到本槽位（原槽位自动回落），
+   * 而不是两处共享同一张图：一图一主人，删除时才不会牵连到别人。
+   */
+  selectGeneration(
+    articleId: string,
+    assetId: string,
+    generationId: string,
+    expectedUpdatedAt: string
+  ): Promise<ImageGenerationMutationResult>;
+  /**
+   * 删除某一版。删掉的若是当前版本，自动回落到剩下的最新一版；
+   * 一版都不剩时配图退回「待生成」，占位图重新接管。
+   */
+  deleteGeneration(
+    articleId: string,
+    assetId: string,
+    generationId: string,
+    expectedUpdatedAt: string
+  ): Promise<ImageGenerationMutationResult>;
 }
+

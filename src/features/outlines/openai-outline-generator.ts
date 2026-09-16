@@ -11,7 +11,13 @@ export const OUTLINE_GENERATOR_SYSTEM_PROMPT = `你是面向普通读者的知�
 没有资料时，必须在 brief.unsupportedNotes 中写明需要人工核验的事实。只生成 brief 与章节纲要，绝不生成文章正文块。`;
 
 export const OUTLINE_REVISION_SYSTEM_PROMPT = `${OUTLINE_GENERATOR_SYSTEM_PROMPT}
-如果输入包含 currentOutline、currentBrief 和 reviewFeedback，必须根据审核意见修订现有大纲，而不是从零另起一份无关结构。保留仍然有效的章节意图，逐条处理 issues、hiddenPrerequisites 和 complexDependencies；修订后的大纲应能直接回应这些审核意见。`;
+如果输入包含 currentOutline 和 currentBrief，必须在它们的基础上修订，而不是从零另起一份无关结构；保留仍然有效的章节意图。
+输入可能出现两类修改要求，出现的都要逐条处理：
+- reviewFeedback：审核模型发现的问题。逐条处理 issues、hiddenPrerequisites 和 complexDependencies。
+- userInstructions：作者本人用自然语言写的修改要求。它是最高优先级的意图来源，必须优先满足：
+  作者点名要保留、删除、拆分、合并或调整顺序的章节，照做；作者描述的场景、例子和侧重点，落到对应章节的 title 与 goal 上。
+两类要求互相冲突时，以 userInstructions 为准。
+无论哪一类要求，都不得突破硬约束：recommendedTotalWords 与各章节 recommendedWords 之和必须吻合且落在字数区间内、outline 至少 2 个章节、key 唯一、brief 各字段完整、不生成正文块。`;
 
 type JsonClient = Pick<OpenAiJsonClient, "complete">;
 
@@ -54,7 +60,10 @@ export class OpenAiOutlineGenerator implements OutlineGenerator {
   async generate(input: GenerateOutlineInput): Promise<GeneratedOutline> {
     const result = await this.client.complete({
       model: input.model,
-      systemPrompt: input.reviewFeedback ? OUTLINE_REVISION_SYSTEM_PROMPT : OUTLINE_GENERATOR_SYSTEM_PROMPT,
+      // 只要带上了任一「修订意图」就走修订提示词：只有用户要求、没有审核意见时同样成立。
+      systemPrompt: input.reviewFeedback || input.userInstructions
+        ? OUTLINE_REVISION_SYSTEM_PROMPT
+        : OUTLINE_GENERATOR_SYSTEM_PROMPT,
       userPayload: input,
       schema: generatedOutlineSchema,
       timeoutMs: 600_000

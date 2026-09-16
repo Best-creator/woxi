@@ -23,6 +23,12 @@ export interface GenerationPanelProps {
   deleteImageAsset: (assetId: string, expectedUpdatedAt: string) => Promise<ImageMutationPayload>;
   refreshPlaceholder: (assetId: string, expectedUpdatedAt: string) => Promise<ImageMutationPayload>;
   generateImage?: (assetId: string, expectedUpdatedAt: string) => Promise<ImageMutationPayload>;
+  selectGeneration?: (
+    assetId: string,
+    generationId: string,
+    expectedUpdatedAt: string
+  ) => Promise<ImageMutationPayload>;
+  deleteGeneration?: (generationId: string, expectedUpdatedAt: string) => Promise<ImageMutationPayload>;
   /** 配图规划的模型选择（默认走服务端 LLM_VISUAL_MODEL）。 */
   llmEnabled?: boolean;
   availableModels?: string[];
@@ -39,6 +45,8 @@ export function GenerationPanel({
   deleteImageAsset,
   refreshPlaceholder,
   generateImage,
+  selectGeneration,
+  deleteGeneration,
   llmEnabled = false,
   availableModels = []
 }: GenerationPanelProps) {
@@ -59,6 +67,8 @@ export function GenerationPanel({
         deleteAsset={deleteImageAsset}
         refreshPlaceholder={refreshPlaceholder}
         generateImage={generateImage}
+        selectGeneration={selectGeneration}
+        deleteGeneration={deleteGeneration}
         llmEnabled={llmEnabled}
         availableModels={availableModels}
       />

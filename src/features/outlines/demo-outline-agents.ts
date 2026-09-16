@@ -32,7 +32,8 @@ export class DemoOutlineGenerator implements OutlineGenerator {
   async generate(input: GenerateOutlineInput): Promise<GeneratedOutline> {
     const total = totalWords(input);
     const [opening, explanation, application] = sectionWords(total);
-    const revising = Boolean(input.reviewFeedback);
+    // 只要有修订意图就产出「修订版」结构：只带 userInstructions、没有审核意见时也一样。
+    const revising = Boolean(input.reviewFeedback || input.userInstructions);
     return {
       workingTitle: revising ? `用日常选择理解${input.topic}` : `理解${input.topic}`,
       recommendedTotalWords: total,

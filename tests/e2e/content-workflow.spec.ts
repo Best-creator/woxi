@@ -175,7 +175,7 @@ test.describe("content workflow", () => {
       .getByRole("navigation", { name: "文章工作流" })
       .getByRole("button", { name: /配图/ })
       .click();
-    await page.getByRole("button", { name: "分析配图需求" }).click();
+    await page.getByRole("button", { name: "根据正文设计动漫分镜" }).click();
     await expect(page.getByText("待生成").first()).toBeVisible();
     await expect(page.locator("img.image-plan-thumbnail").first()).toBeVisible();
 

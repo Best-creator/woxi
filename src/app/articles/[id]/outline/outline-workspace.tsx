@@ -36,7 +36,12 @@ type GenerateOutline = (input: {
 }) => Promise<WorkflowResult>;
 
 type ReviewOutline = (input: { expectedUpdatedAt: string; model?: string }) => Promise<ReviewResult>;
-type ApplyReview = (input: { expectedUpdatedAt: string; model?: string }) => Promise<WorkflowResult>;
+type ApplyReview = (input: {
+  expectedUpdatedAt: string;
+  model?: string;
+  /** 只按审核意见改时不传；用户自己写了要求时一并透传。 */
+  userInstructions?: string;
+}) => Promise<WorkflowResult>;
 type ConfirmOutline = (input: { expectedUpdatedAt: string; acknowledgeWarnings: boolean }) => Promise<WorkflowResult>;
 type SaveVersion = (input: { expectedUpdatedAt: string }) => Promise<WorkflowResult>;
 type RestoreVersion = (versionId: string, expectedUpdatedAt: string) => Promise<WorkflowResult>;
@@ -182,8 +187,10 @@ export function OutlineWorkspace({
   );
   const [lengthPreset, setLengthPreset] = useState<LengthPreset>(initialArticle.planning.lengthPreset);
   const [isDirty, setIsDirty] = useState(false);
-  const [operation, setOperation] = useState<"idle" | "saving" | "generating" | "reviewing" | "applying" | "confirming" | "restoring">("idle");
+  const [operation, setOperation] = useState<"idle" | "saving" | "generating" | "reviewing" | "applying" | "revising" | "confirming" | "restoring">("idle");
   const [message, setMessage] = useState("");
+  // 「补充要求」输入框的内容：成功后清空，失败时保留，避免用户白打一遍。
+  const [instructions, setInstructions] = useState("");
   const articleRef = useRef(article);
 
   const isBusy = operation !== "idle";
@@ -310,13 +317,18 @@ export function OutlineWorkspace({
     }, "reviewing");
   }
 
-  function handleApplyReview() {
+  /**
+   * 两个入口共用一条链路：不带 userInstructions 时是「按审核意见改」，带了就是「按我的意见改」。
+   * 后者不要求必须先有审核记录，所以服务端的 review 闸门由 userInstructions 是否存在来决定。
+   */
+  function reviseOutline(userInstructions: string | undefined, nextOperation: "applying" | "revising") {
     void run(async () => {
       setPreviewVersionId(null);
       const saved = await persistChanges();
       const result = await (applyReview ?? applyReviewRequest(saved.id))({
         expectedUpdatedAt: saved.updatedAt,
-        ...(model ? { model } : {})
+        ...(model ? { model } : {}),
+        ...(userInstructions ? { userInstructions } : {})
       });
       replaceArticle(result.article);
       setLengthPreset(result.article.planning.lengthPreset);
@@ -326,7 +338,18 @@ export function OutlineWorkspace({
       // 审核意见已应用：旧审核不再对应当前大纲，置为 stale 引导用户重新审核，
       // 否则面板清空后确认按钮灰着且没有任何下一步提示。
       setReviewApplied(true);
-    }, "applying");
+      if (userInstructions) setInstructions("");
+    }, nextOperation);
+  }
+
+  function handleApplyReview() {
+    // 面板在写了补充要求时会隐藏这个按钮；这里仍带上已输入的内容，任何调用方漏传都不会丢用户的话。
+    reviseOutline(instructions.trim() || undefined, "applying");
+  }
+
+  function handleRevise() {
+    const trimmed = instructions.trim();
+    if (trimmed) reviseOutline(trimmed, "revising");
   }
 
   function handleConfirm(acknowledgeWarnings: boolean) {
@@ -473,6 +496,10 @@ export function OutlineWorkspace({
             isReviewing={operation === "reviewing"}
             isConfirming={operation === "confirming"}
             isApplyingReview={operation === "applying"}
+            instructions={instructions}
+            isRevising={operation === "revising"}
+            onInstructionsChange={setInstructions}
+            onRevise={handleRevise}
             confirmed={Boolean(article.outlineConfirmedAt)}
             disabled={isBusy}
             previewing={isPreviewing}

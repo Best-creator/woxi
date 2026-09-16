@@ -3,6 +3,7 @@ import type { SourceRepository } from "@/features/sources/repository";
 import { readySourceContext } from "@/features/outlines/generate-outline";
 import type { ArticleReview, ArticleRevision, ContentRevisionSnapshot } from "@/features/revisions/domain";
 import { createContentSnapshot, isContentBasedOnCurrentOutline, textBlocksOf } from "./content-version";
+import { describeAudience } from "./audience";
 import { resolveContentModel } from "./model";
 import type { ContentReviewer } from "./ports";
 import type { ContentWorkflowRepository } from "./workflow-repository";
@@ -63,7 +64,9 @@ export async function reviewContent(
   try {
     result = await dependencies.reviewer.review({
       topic: article.topic,
-      targetAudience: "对该知识点零基础的普通读者",
+      // 审核用的受众取自这一版正文的快照，而不是文章当前设置：
+      // 否则改过受众之后，回看旧版本会被按新受众打分。
+      targetAudience: describeAudience(snapshot.styleProfile.audience),
       styleProfile: snapshot.styleProfile,
       blocks: snapshot.textBlocks.map((block) => ({
         id: block.id,

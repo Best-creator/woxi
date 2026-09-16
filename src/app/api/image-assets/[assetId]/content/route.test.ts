@@ -78,12 +78,13 @@ describe("image asset content route", () => {
     const { db, images, article, asset } = await setup();
     const begun = await images.beginGeneration(article.id, asset.id, article.updatedAt);
     if (begun.kind !== "saved") throw new Error("fixture should begin");
-    const filePath = resolve(storageDir, `${asset.id}.png`);
+    const filePath = resolve(storageDir, `${asset.id}-generation-1.png`);
     await mkdir(storageDir, { recursive: true });
     await writeFile(filePath, PNG_BYTES);
     const completed = await images.completeGeneration(article.id, asset.id, begun.article.updatedAt, {
       publicUrl: null,
-      filePath
+      filePath,
+      generationId: "generation-1"
     });
     if (completed.kind !== "saved") throw new Error("fixture should complete");
     void db;
@@ -105,7 +106,8 @@ describe("image asset content route", () => {
     if (begun.kind !== "saved") throw new Error("fixture should begin");
     const completed = await images.completeGeneration(article.id, asset.id, begun.article.updatedAt, {
       publicUrl: null,
-      filePath: resolve(storageDir, "never-written.png")
+      filePath: resolve(storageDir, "never-written.png"),
+      generationId: "generation-missing"
     });
     if (completed.kind !== "saved") throw new Error("fixture should complete");
 

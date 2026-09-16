@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { resolveAudience } from "@/features/content/audience";
 import { stylePresetSchema, styleProfileSchema } from "@/features/content/schemas";
 import { resolveStyleProfile } from "@/features/content/style-profile";
 import { generateContent, type GenerateContentDependencies } from "@/features/content/generate-content";
@@ -18,7 +19,7 @@ interface RouteContext {
 }
 
 /**
- * 调用方可以只给 `{ preset }`（可带 `customInstructions`），由服务端补齐预设派生字段；
+ * 调用方可以只给 `{ preset }`（可带 `customInstructions`、`audience`），由服务端补齐预设派生字段；
  * 也可以传完整 profile，行为不变。
  */
 const styleProfileRequestSchema = z.preprocess((value) => {
@@ -29,11 +30,15 @@ const styleProfileRequestSchema = z.preprocess((value) => {
   if (!input) return value;
   const preset = stylePresetSchema.safeParse(input.preset);
   if (!preset.success) return value;
-  if (!Object.keys(input).every((key) => key === "preset" || key === "customInstructions")) {
+  if (
+    !Object.keys(input).every(
+      (key) => key === "preset" || key === "customInstructions" || key === "audience"
+    )
+  ) {
     return value;
   }
   const customInstructions = typeof input.customInstructions === "string" ? input.customInstructions : "";
-  return resolveStyleProfile(preset.data, customInstructions);
+  return resolveStyleProfile(preset.data, customInstructions, resolveAudience(input.audience));
 }, styleProfileSchema);
 
 const generateContentRequestSchema = z.object({

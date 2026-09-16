@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { AUDIENCE_LABELS, type AudienceId } from "@/features/content/audience";
 import {
   MAX_CUSTOM_INSTRUCTIONS_LENGTH,
   STYLE_PRESET_LABELS,
@@ -21,8 +22,11 @@ const presetOrder: StylePreset[] = [
   "friend_chat",
   "storyteller",
   "knowledge_cards",
+  "science_comic_script",
   "custom"
 ];
+
+const audienceOrder: AudienceId[] = ["general_beginner", "office_desk", "senior_reader"];
 
 export function StyleProfileControl({ value, disabled = false, onChange }: StyleProfileControlProps) {
   const [instructions, setInstructions] = useState(value.customInstructions);
@@ -33,7 +37,12 @@ export function StyleProfileControl({ value, disabled = false, onChange }: Style
   }, [value.customInstructions]);
 
   function selectPreset(preset: StylePreset) {
-    onChange(resolveStyleProfile(preset, instructions));
+    // 受众与预设正交：换风格不能顺手把读者也重置掉。
+    onChange(resolveStyleProfile(preset, instructions, value.audience));
+  }
+
+  function selectAudience(audience: AudienceId) {
+    onChange({ ...value, audience });
   }
 
   function updateInstructions(next: string) {
@@ -44,6 +53,23 @@ export function StyleProfileControl({ value, disabled = false, onChange }: Style
 
   return (
     <div className="style-profile-control">
+      <label className="field-label" htmlFor="style-audience">
+        目标读者
+      </label>
+      <select
+        id="style-audience"
+        className="field-control"
+        value={value.audience}
+        disabled={disabled}
+        onChange={(event) => selectAudience(event.target.value as AudienceId)}
+      >
+        {audienceOrder.map((audience) => (
+          <option key={audience} value={audience}>
+            {AUDIENCE_LABELS[audience]}
+          </option>
+        ))}
+      </select>
+
       <label className="field-label" htmlFor="style-preset">
         人物语言风格
       </label>

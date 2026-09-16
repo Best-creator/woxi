@@ -50,7 +50,7 @@ test.describe("unified article workflow", () => {
     await workflow.getByRole("button", { name: /配图/ }).click();
     await expect(page).toHaveURL(/\?step=images$/);
     await expect(page.getByRole("region", { name: "配图规划" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "分析配图需求" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "根据正文设计动漫分镜" })).toBeVisible();
     expect(imagePlanRequests).toBe(0);
   });
 });

@@ -1,79 +1,53 @@
-import type { ContentBlock } from "@/features/articles/domain";
-import type { ImageAspectRatio, ImageAssetType, ImagePlanSuggestion } from "./domain";
+import type { ImageAspectRatio, ImagePlanSuggestion } from "./domain";
 import type { VisualPlanInput, VisualPlanner } from "./visual-planner";
 
-type Candidate = {
-  block: ContentBlock;
-  type: Exclude<ImageAssetType, "cover">;
-  score: number;
-};
-
-const rules: Array<{
-  pattern?: RegExp;
-  type: Exclude<ImageAssetType, "cover">;
-  score: number;
-}> = [
-  { pattern: /首先|然后|最后|步骤|过程/, type: "process", score: 4 },
-  { pattern: /相比|区别|不同|共同/, type: "comparison", score: 4 },
-  { pattern: /因为|所以|导致|关系|原理/, type: "concept", score: 3 },
-  { type: "knowledge_card", score: 3 }
-];
+/** Demo 分镜的景别轮换：保证相邻分镜景别有变化，接近真实规划器的镜头语言。 */
+const shotCycle = ["全景", "中景", "特写", "俯视", "近景", "仰视"] as const;
 
 function summarize(content: string) {
   return content.replace(/\s+/g, " ").trim().slice(0, 100);
 }
 
-function prompt(topic: string, summary: string, type: ImageAssetType) {
-  return `${topic}：围绕“${summary}”制作${type}类型的清晰中文信息图，无水印，适合公众号阅读。`;
-}
-
-function createCandidate(block: ContentBlock): Candidate | null {
-  const rule = rules.find((item) =>
-    item.type === "knowledge_card" ? block.type === "knowledge_card" : item.pattern?.test(block.content)
+function storyboardPrompt(topic: string, summary: string, scene: number, shot: string) {
+  return (
+    `动漫分镜 第 ${scene} 格，${shot}镜头。围绕「${summary}」绘制日系动漫画风画面：` +
+    `清晰线条、赛璐璐上色、明快配色，角色动作与表情突出「${topic}」的这个知识点，画面承担解释职责，` +
+    `含旁白框「${topic}」。`
   );
-  if (!rule) return null;
-
-  return {
-    block,
-    type: rule.type,
-    score: rule.score + (block.content.length >= 60 ? 1 : 0)
-  };
 }
 
 export class DemoVisualPlanner implements VisualPlanner {
   async plan(input: VisualPlanInput): Promise<ImagePlanSuggestion[]> {
-    const candidates = input.blocks
-      .filter((block) => block.type !== "image")
-      .map(createCandidate)
-      .filter((candidate): candidate is Candidate => candidate !== null)
-      .sort((left, right) => right.score - left.score || left.block.order - right.block.order);
-
-    const selected: Candidate[] = [];
-    for (const candidate of candidates) {
-      if (selected.some((item) => Math.abs(item.block.order - candidate.block.order) === 1)) {
-        continue;
-      }
-      selected.push(candidate);
-      if (selected.length === 4) break;
-    }
+    // Demo 规则：跳过与相邻块的距离过近者，按正文顺序取最多 4 个需要图示解释的段落。
+    const explainable = input.blocks
+      .filter((block) => block.type !== "image" && block.content.trim().length >= 30)
+      .filter(
+        (block, index, all) =>
+          index === 0 || all[index - 1].content.trim().length < 30 || block.order - all[index - 1].order > 1
+      )
+      .slice(0, 4);
 
     return [
       {
         type: "cover",
         anchorBlockId: null,
         purpose: `概览${input.topic}`,
-        prompt: prompt(input.topic, input.title || input.topic, "cover"),
+        prompt: `${input.topic}：围绕「${input.title || input.topic}」绘制日系动漫画风公众号封面，清晰线条、赛璐璐上色，无水印。`,
         altText: `${input.topic}封面图`,
         aspectRatio: "cover"
       },
-      ...selected.map((candidate) => ({
-        type: candidate.type,
-        anchorBlockId: candidate.block.id,
-        purpose: `解释${summarize(candidate.block.content)}`,
-        prompt: prompt(input.topic, summarize(candidate.block.content), candidate.type),
-        altText: `${input.topic}${candidate.type}图`,
-        aspectRatio: (candidate.type === "knowledge_card" ? "square" : "landscape") as ImageAspectRatio
-      }))
+      ...explainable.map((block, index) => {
+        const shot = shotCycle[index % shotCycle.length];
+        const scene = index + 1;
+        return {
+          type: "storyboard" as const,
+          anchorBlockId: block.id,
+          purpose: `分镜 ${scene}｜${shot}：解释${summarize(block.content)}`,
+          prompt: storyboardPrompt(input.topic, summarize(block.content), scene, shot),
+          altText: `${input.topic}分镜${scene}`,
+          aspectRatio: (index % 2 === 0 ? "landscape" : "portrait") as ImageAspectRatio
+        };
+      })
     ];
   }
 }

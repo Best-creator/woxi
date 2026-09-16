@@ -1,9 +1,12 @@
+import { AUDIENCE_LABELS, DEFAULT_AUDIENCE_ID, resolveAudience, type AudienceId } from "./audience";
+
 export type StylePreset =
   | "popular_science_teacher"
   | "rational_analyst"
   | "friend_chat"
   | "storyteller"
   | "knowledge_cards"
+  | "science_comic_script"
   | "custom";
 
 export type HumorLevel = "none" | "light" | "moderate";
@@ -12,6 +15,8 @@ export type ContentDensity = "low" | "medium" | "high";
 
 export interface StyleProfile {
   preset: StylePreset;
+  /** 写给谁看；与 preset（怎么写）正交，两者互不覆盖。 */
+  audience: AudienceId;
   persona: string;
   tone: string;
   readerAddress: string;
@@ -24,6 +29,12 @@ export interface StyleProfile {
   avoid: string[];
 }
 
+/**
+ * 预设只描述「怎么写」，不含受众——受众是独立维度，
+ * 因此预设常量里不重复 6 遍同样的默认值，由 resolveStyleProfile 统一补上。
+ */
+export type StylePresetShape = Omit<StyleProfile, "audience">;
+
 export const MAX_CUSTOM_INSTRUCTIONS_LENGTH = 1_000;
 export const MAX_AVOID_ITEMS = 12;
 export const MAX_AVOID_ITEM_LENGTH = 100;
@@ -34,10 +45,13 @@ export const STYLE_PRESET_LABELS: Record<StylePreset, string> = {
   friend_chat: "朋友聊天式",
   storyteller: "故事讲述者",
   knowledge_cards: "简洁知识卡片",
+  science_comic_script: "科普漫画脚本",
   custom: "自定义"
 };
 
-export const STYLE_PRESETS: Record<Exclude<StylePreset, "custom">, StyleProfile> = {
+export const SCIENCE_COMIC_SCRIPT_PRESET: StylePreset = "science_comic_script";
+
+export const STYLE_PRESETS: Record<Exclude<StylePreset, "custom">, StylePresetShape> = {
   popular_science_teacher: {
     preset: "popular_science_teacher",
     persona: "善于用生活案例讲知识的科普老师",
@@ -102,16 +116,38 @@ export const STYLE_PRESETS: Record<Exclude<StylePreset, "custom">, StyleProfile>
     contentDensity: "high",
     customInstructions: "",
     avoid: ["冗长铺垫", "重复同一观点", "模糊表述", "口语废话"]
+  },
+  science_comic_script: {
+    preset: "science_comic_script",
+    persona: "把知识点画成一组漫画分镜的脚本作者",
+    tone: "轻松、有画面感、不端着",
+    readerAddress: "你",
+    sentenceStyle: "短句，一句一个镜头；对白口语化，不用书面腔",
+    // 块角色约定写在这里而不是系统提示词里：只有选了这个预设才会生效，
+    // 不会把漫画的分镜概念泄漏给其他风格。
+    explanationStyle:
+      "先用一个具体生活场景抛出反差问题，再逐格拆开背后的机制，最后用一张干货卡给出能立刻执行的结论。" +
+      "分镜标题用 heading，画面与镜头描述用 paragraph，角色对白用 quote，旁白与反转提问用 callout，可执行的结论用 knowledge_card。",
+    humorLevel: "light",
+    questionFrequency: "moderate",
+    contentDensity: "medium",
+    customInstructions: "",
+    avoid: ["悬念式标题", "夸张煽动", "过度商业化表达", "说教口吻", "只有情节没有知识", "术语堆砌"]
   }
 };
 
-export const DEFAULT_STYLE_PROFILE: StyleProfile = STYLE_PRESETS.popular_science_teacher;
+export const DEFAULT_STYLE_PROFILE: StyleProfile = {
+  ...STYLE_PRESETS.popular_science_teacher,
+  audience: DEFAULT_AUDIENCE_ID
+};
 
 /** 旧数据没有 style_json 列时回落到默认风格，保证升级后仍可读。 */
 export function parseStyleProfileJson(styleJson: string | null | undefined): StyleProfile {
   if (!styleJson) return { ...DEFAULT_STYLE_PROFILE };
   try {
-    return { ...DEFAULT_STYLE_PROFILE, ...(JSON.parse(styleJson) as Partial<StyleProfile>) };
+    const parsed = { ...DEFAULT_STYLE_PROFILE, ...(JSON.parse(styleJson) as Partial<StyleProfile>) };
+    // 兼容本次改动之前写入的行：它们没有 audience 字段，或存了已废弃的取值。
+    return { ...parsed, audience: resolveAudience(parsed.audience) };
   } catch {
     return { ...DEFAULT_STYLE_PROFILE };
   }
@@ -132,6 +168,7 @@ export function sanitizeStyleProfile(profile: StyleProfile): StyleProfile {
   return {
     ...profile,
     preset: profile.preset,
+    audience: resolveAudience(profile.audience),
     customInstructions: clampText(profile.customInstructions, MAX_CUSTOM_INSTRUCTIONS_LENGTH),
     avoid: sanitizeAvoid(profile.avoid)
   };
@@ -143,6 +180,7 @@ const STYLE_PRESET_VALUES = [
   "friend_chat",
   "storyteller",
   "knowledge_cards",
+  "science_comic_script",
   "custom"
 ] as const;
 
@@ -150,21 +188,28 @@ export function isStylePreset(value: unknown): value is StylePreset {
   return typeof value === "string" && (STYLE_PRESET_VALUES as readonly string[]).includes(value);
 }
 
-/** 预设只决定风格骨架；自定义说明只对 `custom` 生效，其他预设下作为补充约束保留。 */
+/**
+ * 预设只决定风格骨架；自定义说明只对 `custom` 生效，其他预设下作为补充约束保留。
+ * `audience` 独立于预设：切换风格时必须显式把当前受众传进来，否则会被重置回默认受众。
+ */
 export function resolveStyleProfile(
   preset: StylePreset,
-  customInstructions = ""
+  customInstructions = "",
+  audience: AudienceId = DEFAULT_AUDIENCE_ID
 ): StyleProfile {
   const instructions = clampText(customInstructions, MAX_CUSTOM_INSTRUCTIONS_LENGTH);
+  const resolvedAudience = resolveAudience(audience);
   if (preset === "custom") {
     return {
       ...STYLE_PRESETS.popular_science_teacher,
       preset: "custom",
+      audience: resolvedAudience,
       customInstructions: instructions
     };
   }
   return {
     ...STYLE_PRESETS[preset],
+    audience: resolvedAudience,
     customInstructions: instructions
   };
 }
@@ -173,6 +218,7 @@ export function describeStyleProfile(profile: StyleProfile): string {
   const lines = [
     `人物：${profile.persona}`,
     `语气：${profile.tone}`,
+    `受众：${AUDIENCE_LABELS[resolveAudience(profile.audience)]}`,
     `称呼读者：${profile.readerAddress}`,
     `句式：${profile.sentenceStyle}`,
     `讲解方式：${profile.explanationStyle}`,

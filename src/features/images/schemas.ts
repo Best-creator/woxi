@@ -13,6 +13,14 @@ export const imagePlanSuggestionSchema = z.discriminatedUnion("type", [
     type: z.literal("cover"),
     anchorBlockId: z.null()
   }),
+  // 动漫分镜：解释正文中需要图示的点；景别与序号由规划器归一化进 purpose/prompt。
+  z.object({
+    ...sharedSuggestionFields,
+    type: z.literal("storyboard"),
+    anchorBlockId: z.string().min(1),
+    sceneNumber: z.number().int().min(1).max(99),
+    shot: z.string().trim().min(1).max(20)
+  }),
   z.object({
     ...sharedSuggestionFields,
     type: z.enum(["concept", "process", "comparison", "knowledge_card"]),

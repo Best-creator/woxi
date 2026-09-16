@@ -95,11 +95,53 @@ describe("OpenAiOutlineGenerator", () => {
     });
 
     expect(complete).toHaveBeenCalledWith(expect.objectContaining({
-      systemPrompt: expect.stringContaining("根据审核意见修订"),
+      // 修订提示词必须点在「沿用既有结构」和「逐条处理审核意见」上。
+      systemPrompt: expect.stringContaining("currentOutline"),
       userPayload: expect.objectContaining({
         reviewFeedback: expect.objectContaining({ status: "needs_revision" }),
         currentOutline: validOutline.outline
       })
     }));
+    expect(complete.mock.calls[0][0].systemPrompt).toContain("reviewFeedback");
+  });
+
+  it("switches to the revision prompt for author instructions alone, with no review to lean on", async () => {
+    const complete = vi.fn().mockResolvedValue(validOutline);
+    const generator = new OpenAiOutlineGenerator({ complete });
+
+    await generator.generate({
+      topic: "久坐的代价",
+      targetAudience: "久坐办公的读者",
+      lengthPreset: "short",
+      wordRange: { min: 800, max: 1200 },
+      sourceContext: "久坐会降低脂蛋白脂肪酶活性。",
+      currentBrief: validOutline.brief,
+      currentOutline: validOutline.outline,
+      userInstructions: "把第二章拆成两节讲透机制，开场换成工位场景。"
+    });
+
+    const sent = complete.mock.calls[0][0];
+    expect(sent.systemPrompt).toContain("userInstructions");
+    // 没有任何审核意见时也必须走修订链路，而不是从零重写。
+    expect(sent.systemPrompt).toContain("currentOutline");
+    expect(sent.userPayload).toEqual(expect.objectContaining({
+      userInstructions: "把第二章拆成两节讲透机制，开场换成工位场景。"
+    }));
+    expect(sent.userPayload).not.toHaveProperty("reviewFeedback");
+  });
+
+  it("keeps the from-scratch prompt when neither a review nor author instructions are given", async () => {
+    const complete = vi.fn().mockResolvedValue(validOutline);
+    const generator = new OpenAiOutlineGenerator({ complete });
+
+    await generator.generate({
+      topic: "机会成本",
+      targetAudience: "对该知识点零基础的普通读者",
+      lengthPreset: "short",
+      wordRange: { min: 800, max: 1200 },
+      sourceContext: "机会成本是放弃的最佳替代方案。"
+    });
+
+    expect(complete.mock.calls[0][0].systemPrompt).not.toContain("userInstructions");
   });
 });

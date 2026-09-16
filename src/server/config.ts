@@ -25,6 +25,10 @@ export interface ServerConfig {
   databasePath: string;
   llm: LlmProviderConfig | null;
   image: ProviderConfig | null;
+  /** 额外生图站点（IMAGE2_* 配置）：UI 模型下拉里可跨站选模型，生成时按模型归属路由。 */
+  extraImageSites: ProviderConfig[];
+  /** 公众号草稿箱推送凭据；两个变量都配置时才启用。 */
+  wechat: { appId: string; appSecret: string } | null;
 }
 
 export interface PublicLlmConfig {
@@ -37,7 +41,8 @@ const envSchema = z.object({
   CONTENT_DB_PATH: z.string().min(1).default(".data/content-platform.db"),
   LLM_BASE_URL: z.url().default("https://yelan.xiaobupao.cn"),
   LLM_API_KEY: z.string().default(""),
-  LLM_MODEL: z.string().default(""),
+  // 全场景默认模型：正文/大纲/审核/视觉规划/研究/看图统一走它；各 LLM_*_MODEL 可单独覆盖。
+  LLM_MODEL: z.string().default("gemini-3.8-flash"),
   LLM_MODELS: z.string().default(""),
   LLM_RESEARCH_MODEL: z.string().default(""),
   LLM_REVIEW_MODEL: z.string().default(""),
@@ -45,7 +50,12 @@ const envSchema = z.object({
   LLM_VISION_MODEL: z.string().default(""),
   IMAGE_BASE_URL: z.url().default("https://image2.xiaobupao.cn"),
   IMAGE_API_KEY: z.string().default(""),
-  IMAGE_MODEL: z.string().default("gpt-image-2")
+  IMAGE_MODEL: z.string().default("gpt-image-2"),
+  IMAGE2_BASE_URL: z.url().optional(),
+  IMAGE2_API_KEY: z.string().default(""),
+  IMAGE2_MODEL: z.string().default(""),
+  WECHAT_APPID: z.string().default(""),
+  WECHAT_APPSECRET: z.string().default("")
 });
 
 let workspaceEnvLoaded = false;
@@ -130,7 +140,21 @@ export function parseServerConfig(
       value.LLM_VISUAL_MODEL,
       value.LLM_VISION_MODEL
     ),
-    image: provider(value.IMAGE_BASE_URL, value.IMAGE_API_KEY, value.IMAGE_MODEL, "IMAGE")
+    image: provider(value.IMAGE_BASE_URL, value.IMAGE_API_KEY, value.IMAGE_MODEL, "IMAGE"),
+    extraImageSites: value.IMAGE2_BASE_URL && value.IMAGE2_API_KEY.trim()
+      ? [
+          provider(
+            value.IMAGE2_BASE_URL,
+            value.IMAGE2_API_KEY,
+            value.IMAGE2_MODEL || value.IMAGE_MODEL,
+            "IMAGE2"
+          )!
+        ]
+      : [],
+    wechat:
+      value.WECHAT_APPID.trim() && value.WECHAT_APPSECRET.trim()
+        ? { appId: value.WECHAT_APPID.trim(), appSecret: value.WECHAT_APPSECRET.trim() }
+        : null
   };
 }
 

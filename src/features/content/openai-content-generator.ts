@@ -8,11 +8,13 @@ export const CONTENT_GENERATOR_SYSTEM_PROMPT = `你是公众号知识类图文�
 硬性要求：
 1. 必须按输入 outline 给出的顺序，一次写完整篇文章；每个章节至少产出一个正文块，并按需用一个 heading 块写出章节标题。
 2. sectionKey 只能取输入 outline 中已存在的 id，禁止虚构或改写章节键。
-3. 面向对该知识点零基础的普通读者：先用具体场景建立直觉，再解释术语，最后给出概念名称。
+3. 面向 targetAudience 描述的读者：先用具体场景建立直觉，再解释术语，最后给出概念名称。
 4. 章节之间要有自然承接，不要写成互相独立的片段；禁止通过重复、空泛总结或无关案例凑字数。
 5. 人物语言风格只改变措辞、句式、节奏、称呼和开场，不得改变事实、知识边界、章节顺序和必须解释的关键概念。
 6. 不允许输出图片块；配图由独立流程负责。
-7. 允许的块类型只有 heading、paragraph、quote、callout、knowledge_card。`;
+7. 允许的块类型只有 heading、paragraph、quote、callout、knowledge_card。
+8. 标题必须给出具体的信息或结论，读标题就知道这篇讲什么。禁止悬念式标题、禁止「90% 的人都不知道」「不看就晚了」这类夸大或施压句式、禁止促销引流措辞。
+9. 若输入给出了 panelLimit，则全篇按不超过 panelLimit 个分镜组织：每个分镜以一个 heading 块作分镜标题开场，其余块归属该分镜；每个分镜的正文合计不得少于 150 字，不要为了凑分镜数把内容切碎。未给出 panelLimit 时忽略本条。`;
 
 type JsonClient = Pick<OpenAiJsonClient, "complete">;
 
@@ -48,6 +50,7 @@ export class OpenAiContentGenerator implements ContentGenerator {
         outline: input.outline,
         recommendedTotalWords: input.recommendedTotalWords,
         styleProfile: describeStyleProfile(input.styleProfile),
+        ...(input.panelLimit ? { panelLimit: input.panelLimit } : {}),
         ...(input.sourceContext ? { sourceContext: input.sourceContext } : {})
       },
       schema: generatedContentSchema,

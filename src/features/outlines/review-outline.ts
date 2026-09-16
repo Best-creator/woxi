@@ -1,4 +1,5 @@
 import type { ArticleRepository } from "@/features/articles/repository";
+import { describeAudience } from "@/features/content/audience";
 import type { SourceRepository } from "@/features/sources/repository";
 import { readySourceContext } from "./generate-outline";
 import { resolveOutlineModel } from "./model";
@@ -54,7 +55,7 @@ export async function reviewOutline(
   try {
     result = await dependencies.reviewer.review({
       topic: article.topic,
-      targetAudience: "对该知识点零基础的普通读者",
+      targetAudience: describeAudience(article.styleProfile.audience),
       lengthPreset: article.planning.lengthPreset,
       recommendedTotalWords: article.planning.recommendedTotalWords,
       brief: article.brief,

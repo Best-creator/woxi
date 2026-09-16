@@ -52,4 +52,44 @@ describe("StyleProfileControl", () => {
       customInstructions: "少用反问句"
     }));
   });
+
+  it("reports the audience without touching the preset", async () => {
+    const onChange = vi.fn();
+    render(
+      <StyleProfileControl
+        value={resolveStyleProfile("science_comic_script", "", "general_beginner")}
+        onChange={onChange}
+      />
+    );
+
+    await userEvent.selectOptions(screen.getByLabelText("目标读者"), "senior_reader");
+
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
+      preset: "science_comic_script",
+      audience: "senior_reader"
+    }));
+  });
+
+  it("keeps the chosen audience when the preset changes", async () => {
+    const onChange = vi.fn();
+    render(
+      <StyleProfileControl
+        value={resolveStyleProfile("friend_chat", "", "office_desk")}
+        onChange={onChange}
+      />
+    );
+
+    await userEvent.selectOptions(screen.getByLabelText("人物语言风格"), "science_comic_script");
+
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
+      preset: "science_comic_script",
+      audience: "office_desk"
+    }));
+  });
+
+  it("offers the comic script preset", () => {
+    render(<StyleProfileControl value={resolveStyleProfile("popular_science_teacher")} onChange={vi.fn()} />);
+
+    expect(screen.getByRole("option", { name: "科普漫画脚本" })).toBeInTheDocument();
+  });
 });

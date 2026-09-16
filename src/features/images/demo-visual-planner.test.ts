@@ -3,6 +3,8 @@
 import { describe, expect, it } from "vitest";
 import { DemoVisualPlanner } from "./demo-visual-planner";
 
+const long = (text: string) => text.repeat(3);
+
 const input = {
   title: "用大白话理解机会成本",
   topic: "机会成本",
@@ -10,21 +12,21 @@ const input = {
     {
       id: "process-block",
       type: "paragraph" as const,
-      content: "首先列出可选方案，然后比较每个方案的收益，最后确认被放弃的最佳替代方案。",
+      content: long("首先列出可选方案，然后比较每个方案的收益，最后确认被放弃的最佳替代方案。"),
       order: 0,
       version: 1
     },
     {
-      id: "neutral-block",
+      id: "short-block",
       type: "paragraph" as const,
-      content: "这个例子帮助理解选择需要权衡。",
+      content: "这句话太短，不需要配图。",
       order: 1,
       version: 1
     },
     {
       id: "comparison-block",
       type: "paragraph" as const,
-      content: "相比直接花钱和投入时间，两种选择的区别在于失去的替代机会不同。",
+      content: long("相比直接花钱和投入时间，两种选择的区别在于失去的替代机会不同。"),
       order: 2,
       version: 1
     },
@@ -41,7 +43,7 @@ const input = {
 };
 
 describe("DemoVisualPlanner", () => {
-  it("returns a deterministic cover and process and comparison suggestions", async () => {
+  it("returns a deterministic cover followed by ordered storyboard frames", async () => {
     const planner = new DemoVisualPlanner();
 
     const first = await planner.plan(input);
@@ -50,32 +52,53 @@ describe("DemoVisualPlanner", () => {
     expect(second).toEqual(first);
     expect(first).toHaveLength(3);
     expect(first[0]).toMatchObject({ type: "cover", anchorBlockId: null, aspectRatio: "cover" });
-    expect(first).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ type: "process", anchorBlockId: "process-block" }),
-        expect.objectContaining({ type: "comparison", anchorBlockId: "comparison-block" })
-      ])
-    );
-    expect(first.length).toBeLessThanOrEqual(12);
+    // 分镜按正文顺序编号，景别与序号编进 purpose/prompt。
+    expect(first[1]).toMatchObject({
+      type: "storyboard",
+      anchorBlockId: "process-block",
+      aspectRatio: "landscape"
+    });
+    expect(first[1].purpose).toContain("分镜 1");
+    expect(first[1].prompt).toContain("第 1 格");
+    expect(first[2]).toMatchObject({
+      type: "storyboard",
+      anchorBlockId: "comparison-block",
+      aspectRatio: "portrait"
+    });
+    expect(first[2].purpose).toContain("分镜 2");
     expect(first.some((suggestion) => suggestion.anchorBlockId === "image-block")).toBe(false);
+    expect(first.some((suggestion) => suggestion.anchorBlockId === "short-block")).toBe(false);
   });
 
-  it("keeps only the higher-scored candidate when candidates are adjacent", async () => {
+  it("skips short paragraphs that do not need a visual explanation", async () => {
     const suggestions = await new DemoVisualPlanner().plan({
-      title: "相邻候选",
-      topic: "相邻候选",
+      title: "全短句",
+      topic: "全短句",
+      blocks: [
+        { id: "a", type: "paragraph", content: "太短。", order: 0, version: 1 },
+        { id: "b", type: "paragraph", content: "也很短。", order: 1, version: 1 }
+      ]
+    });
+
+    expect(suggestions.map(({ type }) => type)).toEqual(["cover"]);
+  });
+
+  it("keeps only the first frame when explainable paragraphs are adjacent", async () => {
+    const suggestions = await new DemoVisualPlanner().plan({
+      title: "相邻段落",
+      topic: "相邻段落",
       blocks: [
         {
-          id: "lower-concept",
+          id: "first",
           type: "paragraph",
-          content: "因为这是一种取舍关系。",
+          content: long("第一段需要解释的内容足够长。"),
           order: 3,
           version: 1
         },
         {
-          id: "higher-process",
+          id: "second",
           type: "paragraph",
-          content: "首先列出步骤。",
+          content: long("第二段同样需要解释而且紧跟第一段。"),
           order: 4,
           version: 1
         }
@@ -84,36 +107,7 @@ describe("DemoVisualPlanner", () => {
 
     expect(suggestions.map(({ type, anchorBlockId }) => ({ type, anchorBlockId }))).toEqual([
       { type: "cover", anchorBlockId: null },
-      { type: "process", anchorBlockId: "higher-process" }
-    ]);
-  });
-
-  it("orders non-adjacent equal-scored candidates by block order", async () => {
-    const suggestions = await new DemoVisualPlanner().plan({
-      title: "同分候选",
-      topic: "同分候选",
-      blocks: [
-        {
-          id: "later-comparison",
-          type: "paragraph",
-          content: "相比两种选择的区别。",
-          order: 9,
-          version: 1
-        },
-        {
-          id: "earlier-process",
-          type: "paragraph",
-          content: "首先梳理步骤。",
-          order: 2,
-          version: 1
-        }
-      ]
-    });
-
-    expect(suggestions.map(({ type, anchorBlockId }) => ({ type, anchorBlockId }))).toEqual([
-      { type: "cover", anchorBlockId: null },
-      { type: "process", anchorBlockId: "earlier-process" },
-      { type: "comparison", anchorBlockId: "later-comparison" }
+      { type: "storyboard", anchorBlockId: "first" }
     ]);
   });
 });

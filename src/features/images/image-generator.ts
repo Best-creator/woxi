@@ -15,6 +15,8 @@ export interface GeneratedImagePayload {
 export interface ImageGeneratorInput {
   prompt: string;
   aspectRatio: ImageAspectRatio;
+  /** 生图模型 id；缺省用服务端配置的默认模型。跨站模型由服务端按目录路由。 */
+  model?: string;
 }
 
 export interface ImageGenerator {
@@ -24,7 +26,9 @@ export interface ImageGenerator {
 export class ImageGeneratorError extends Error {
   constructor(
     public readonly code: "timeout" | "authentication" | "invalid_response" | "upstream",
-    message: string
+    message: string,
+    /** 上游 429 且给出 reset_seconds 时的冷却秒数；其余为 null。 */
+    public readonly cooldownSeconds: number | null = null
   ) {
     super(message);
     this.name = "ImageGeneratorError";

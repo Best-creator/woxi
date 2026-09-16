@@ -13,11 +13,15 @@ export const stylePresetSchema = z.enum([
   "friend_chat",
   "storyteller",
   "knowledge_cards",
+  "science_comic_script",
   "custom"
 ]);
 
+export const audienceSchema = z.enum(["general_beginner", "office_desk", "senior_reader"]);
+
 export const styleProfileSchema = z.object({
   preset: stylePresetSchema,
+  audience: audienceSchema,
   persona: z.string().trim().min(1).max(200),
   tone: z.string().trim().min(1).max(200),
   readerAddress: z.string().trim().min(1).max(40),

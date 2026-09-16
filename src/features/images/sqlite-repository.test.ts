@@ -350,7 +350,8 @@ describe("image generation state machine", () => {
 
     const completed = await images.completeGeneration(article.id, asset.id, begun.article.updatedAt, {
       publicUrl: "https://cdn.example.test/x.png",
-      filePath: "C:/tmp/x.png"
+      filePath: "C:/tmp/x.png",
+      generationId: "generation-1"
     });
     if (completed.kind !== "saved") throw new Error("complete should save");
     expect(completed.assets[0]).toMatchObject({
@@ -406,8 +407,186 @@ describe("image generation state machine", () => {
       article.id,
       asset.id,
       planned.article.updatedAt,
-      { publicUrl: "https://cdn.example.test/x.png", filePath: null }
+      {
+        publicUrl: "https://cdn.example.test/x.png",
+        filePath: null,
+        generationId: "generation-1"
+      }
     );
     expect(completed).toMatchObject({ kind: "invalid_state" });
+  });
+});
+
+async function plannedCover() {
+  const { images, article } = await createArticleWithBlocks();
+  const planned = await images.applyPlan(article.id, article.updatedAt, [cover]);
+  if (planned.kind !== "saved") throw new Error("plan should save");
+  return {
+    images,
+    articleId: article.id,
+    assetId: planned.assets[0]!.id,
+    updatedAt: planned.article.updatedAt
+  };
+}
+
+/** 完整走一遍 begin → complete，返回最新的 updatedAt 供下一次生成使用。 */
+async function generateVersion(
+  fixture: Awaited<ReturnType<typeof plannedCover>>,
+  generationId: string,
+  publicUrl: string | null,
+  filePath: string | null
+) {
+  const begun = await fixture.images.beginGeneration(
+    fixture.articleId,
+    fixture.assetId,
+    fixture.updatedAt
+  );
+  if (begun.kind !== "saved") throw new Error("begin should save");
+  const completed = await fixture.images.completeGeneration(
+    fixture.articleId,
+    fixture.assetId,
+    begun.article.updatedAt,
+    { publicUrl, filePath, generationId }
+  );
+  if (completed.kind !== "saved") throw new Error("complete should save");
+  fixture.updatedAt = completed.article.updatedAt;
+  return completed;
+}
+
+describe("image generation history", () => {
+  it("keeps every version and marks the newest one as selected", async () => {
+    const fixture = await plannedCover();
+    await generateVersion(fixture, "gen-1", null, "C:/tmp/a-1.png");
+    await generateVersion(fixture, "gen-2", null, "C:/tmp/a-2.png");
+
+    const generations = await fixture.images.listGenerationsForAsset(
+      fixture.articleId,
+      fixture.assetId
+    );
+
+    expect(generations).toHaveLength(2);
+    // 最新在前：界面第一张就是刚生成的那张。
+    expect(generations[0]?.id).toBe("gen-2");
+    expect(generations[0]?.selected).toBe(true);
+    expect(generations[1]?.selected).toBe(false);
+    // 提示词随版本快照，提示词后来被改过也能看出这一版是怎么来的。
+    expect(generations[0]?.prompt).toBe(cover.prompt);
+
+    const asset = await fixture.images.findById(fixture.articleId, fixture.assetId);
+    expect(asset).toMatchObject({ status: "generated", filePath: "C:/tmp/a-2.png" });
+  });
+
+  it("switches the active version and mirrors it onto the asset for downstream consumers", async () => {
+    const fixture = await plannedCover();
+    await generateVersion(fixture, "gen-1", "https://cdn.test/1.png", "C:/tmp/a-1.png");
+    await generateVersion(fixture, "gen-2", "https://cdn.test/2.png", "C:/tmp/a-2.png");
+
+    const result = await fixture.images.selectGeneration(
+      fixture.articleId,
+      fixture.assetId,
+      "gen-1",
+      fixture.updatedAt
+    );
+    if (result.kind !== "saved") throw new Error("select should save");
+
+    // 镜像关系是关键：正文块、content 路由、发布链路读的都是 asset，不是版本表。
+    const asset = result.assets.find((candidate) => candidate.id === fixture.assetId);
+    expect(asset).toMatchObject({
+      status: "generated",
+      filePath: "C:/tmp/a-1.png",
+      publicUrl: "https://cdn.test/1.png"
+    });
+
+    const generations = await fixture.images.listGenerationsForAsset(
+      fixture.articleId,
+      fixture.assetId
+    );
+    expect(generations.filter((generation) => generation.selected)).toHaveLength(1);
+    expect(generations.find((generation) => generation.selected)?.id).toBe("gen-1");
+  });
+
+  it("exposes the whole article library with each version's owning slot", async () => {
+    const { images, article } = await createArticleWithBlocks();
+    const planned = await images.applyPlan(article.id, article.updatedAt, [cover, concept]);
+    if (planned.kind !== "saved") throw new Error("plan should save");
+    const coverAsset = planned.assets.find((asset) => asset.type === "cover")!;
+
+    const begun = await images.beginGeneration(article.id, coverAsset.id, planned.article.updatedAt);
+    if (begun.kind !== "saved") throw new Error("begin should save");
+    const completed = await images.completeGeneration(
+      article.id,
+      coverAsset.id,
+      begun.article.updatedAt,
+      { publicUrl: null, filePath: "C:/tmp/cover.png", generationId: "gen-cover" }
+    );
+    if (completed.kind !== "saved") throw new Error("complete should save");
+
+    const library = await images.listGenerations(article.id);
+    expect(library).toHaveLength(1);
+    expect(library[0]).toMatchObject({
+      id: "gen-cover",
+      assetId: coverAsset.id,
+      assetType: "cover",
+      assetPurpose: cover.purpose,
+      selected: true
+    });
+  });
+
+  it("falls back to the newest remaining version when the active one is deleted", async () => {
+    const fixture = await plannedCover();
+    await generateVersion(fixture, "gen-1", null, "C:/tmp/a-1.png");
+    await generateVersion(fixture, "gen-2", null, "C:/tmp/a-2.png");
+
+    const result = await fixture.images.deleteGeneration(
+      fixture.articleId,
+      fixture.assetId,
+      "gen-2",
+      fixture.updatedAt
+    );
+    if (result.kind !== "saved") throw new Error("delete should save");
+
+    // 回落到还剩下的那一版，并把它的文件路径镜像回资产；顺带把要删的文件交回给上层。
+    expect(result.removedFilePath).toBe("C:/tmp/a-2.png");
+    const asset = result.assets.find((candidate) => candidate.id === fixture.assetId);
+    expect(asset).toMatchObject({ status: "generated", filePath: "C:/tmp/a-1.png" });
+
+    const generations = await fixture.images.listGenerationsForAsset(
+      fixture.articleId,
+      fixture.assetId
+    );
+    expect(generations).toHaveLength(1);
+    expect(generations[0]?.selected).toBe(true);
+  });
+
+  it("returns the asset to placeholder when its last version is deleted", async () => {
+    const fixture = await plannedCover();
+    await generateVersion(fixture, "gen-1", null, "C:/tmp/only.png");
+
+    const result = await fixture.images.deleteGeneration(
+      fixture.articleId,
+      fixture.assetId,
+      "gen-1",
+      fixture.updatedAt
+    );
+    if (result.kind !== "saved") throw new Error("delete should save");
+
+    // 不清回 placeholder 的话，资产会继续指向一个已被删掉的文件，前端直接裂图。
+    const asset = result.assets.find((candidate) => candidate.id === fixture.assetId);
+    expect(asset).toMatchObject({ status: "placeholder", filePath: null, publicUrl: null });
+  });
+
+  it("cascades generations away with the asset and keeps them scoped per article", async () => {
+    const fixture = await plannedCover();
+    await generateVersion(fixture, "gen-1", null, "C:/tmp/a-1.png");
+
+    const removed = await fixture.images.remove(
+      fixture.articleId,
+      fixture.assetId,
+      fixture.updatedAt
+    );
+    expect(removed.kind).toBe("saved");
+
+    expect(await fixture.images.listGenerations(fixture.articleId)).toEqual([]);
+    expect(await fixture.images.findGenerationById("gen-1")).toBeNull();
   });
 });

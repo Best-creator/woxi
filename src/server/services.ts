@@ -12,6 +12,10 @@ import { SqliteImageAssetRepository } from "@/features/images/sqlite-repository"
 import { OpenAiJsonClient } from "@/features/llm/openai-json-client";
 import type { ImageGenerator } from "@/features/images/image-generator";
 import { OpenAiImageGenerator } from "@/features/images/openai-image-generator";
+import type { ImageCatalogEntry, ImageSite } from "@/features/images/image-catalog";
+import { fetchImageCatalog } from "@/features/images/image-catalog";
+import type { WechatDraftPublisher } from "@/features/publishing/wechat-draft";
+import { OfficialWechatDraftPublisher } from "@/features/publishing/official-wechat-draft-publisher";
 import { DemoOutlineGenerator, DemoOutlineReviewer } from "@/features/outlines/demo-outline-agents";
 import { OpenAiOutlineGenerator } from "@/features/outlines/openai-outline-generator";
 import { OpenAiOutlineReviewer } from "@/features/outlines/openai-outline-reviewer";
@@ -24,6 +28,7 @@ import type { WebSearchPort } from "@/features/research/types";
 import { SqliteRevisionRepository } from "@/features/revisions/sqlite-repository";
 import { SqliteOutlineWorkflowRepository } from "@/features/outlines/sqlite-workflow-repository";
 import { SqliteContentWorkflowRepository } from "@/features/content/sqlite-workflow-repository";
+import { SqliteStyleLibraryRepository } from "@/features/style-library/sqlite-repository";
 import type { VisualPlanner } from "@/features/images/visual-planner";
 import { openDatabase } from "./db";
 import { getCharacterImageStore } from "./character-storage";
@@ -156,6 +161,13 @@ export function getReferenceCharacterRepository() {
   return characterRepository;
 }
 
+let styleLibraryRepository: SqliteStyleLibraryRepository | undefined;
+
+export function getStyleLibraryRepository() {
+  styleLibraryRepository ??= new SqliteStyleLibraryRepository(getDatabase());
+  return styleLibraryRepository;
+}
+
 export function getCharacterDescriber(): CharacterDescriber | null {
   const config = getServerConfig();
   if (!config.llm) return null;
@@ -217,8 +229,62 @@ export function getWebSearch(): WebSearchPort {
 
 /** 真实图片生成器；未配置 IMAGE_API_KEY 时返回 null（调用方自行降级或拒绝）。 */
 export function getImageGenerator(): ImageGenerator | null {
-  const config = getServerConfig().image;
-  if (!config) return null;
-  imageGenerator ??= new OpenAiImageGenerator(config);
+  const sites = getImageSites();
+  if (!sites) return null;
+  imageGenerator ??= new OpenAiImageGenerator(sites, fetch, getImageModelCatalog);
   return imageGenerator;
+}
+
+/** 全部生图站点（主站 + IMAGE2 额外站）；主站未配置时返回 null。 */
+function getImageSites(): ImageSite[] | null {
+  const config = getServerConfig();
+  if (!config.image) return null;
+  const host = (url: string) => {
+    try {
+      return new URL(url).hostname.split(".")[0];
+    } catch {
+      return url;
+    }
+  };
+  const sites: ImageSite[] = [{ ...config.image, name: host(config.image.baseUrl) }];
+  for (const extra of config.extraImageSites) {
+    if (extra.baseUrl !== config.image.baseUrl) {
+      sites.push({ ...extra, name: host(extra.baseUrl) });
+    }
+  }
+  return sites;
+}
+
+// 生图模型目录：模块级 TTL 缓存，避免每次下拉渲染都请求上游 /v1/models。
+const IMAGE_CATALOG_TTL_MS = 10 * 60_000;
+let imageCatalogCache: { entries: ImageCatalogEntry[]; fetchedAt: number } | null = null;
+
+/** TTL 内返回缓存目录；过期或首次调用时重新聚合（单站失败自动跳过）。 */
+export async function getImageModelCatalog(): Promise<ImageCatalogEntry[]> {
+  if (imageCatalogCache && Date.now() - imageCatalogCache.fetchedAt < IMAGE_CATALOG_TTL_MS) {
+    return imageCatalogCache.entries;
+  }
+  const sites = getImageSites() ?? [];
+  const entries = await fetchImageCatalog(sites);
+  imageCatalogCache = { entries, fetchedAt: Date.now() };
+  return entries;
+}
+
+/** 测试钩子：清空模型目录缓存。 */
+export function resetImageModelCatalogForTest() {
+  imageCatalogCache = null;
+  imageGenerator = undefined;
+}
+
+let wechatDraftPublisher: WechatDraftPublisher | undefined;
+
+/**
+ * 公众号草稿箱推送器；未配置 WECHAT_APPID/WECHAT_APPSECRET 时返回 null。
+ * 单例内含 access_token 缓存（2 小时有效，提前刷新）。
+ */
+export function getWechatDraftPublisher(): WechatDraftPublisher | null {
+  const wechat = getServerConfig().wechat;
+  if (!wechat) return null;
+  wechatDraftPublisher ??= new OfficialWechatDraftPublisher(wechat);
+  return wechatDraftPublisher;
 }

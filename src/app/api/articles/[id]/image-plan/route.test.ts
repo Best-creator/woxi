@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import { SqliteArticleRepository } from "@/features/articles/sqlite-repository";
 import { SqliteImageAssetRepository } from "@/features/images/sqlite-repository";
 import { SqliteReferenceCharacterRepository } from "@/features/characters/sqlite-repository";
+import { SqliteStyleLibraryRepository } from "@/features/style-library/sqlite-repository";
+import type { StyleProfile } from "@/features/style-library/domain";
 import type { ImagePlanSuggestion } from "@/features/images/domain";
 import { VisualPlannerError } from "@/features/images/openai-visual-planner";
 import type { ImageAssetRepository } from "@/features/images/repository";
@@ -19,6 +21,19 @@ const suggestion: ImagePlanSuggestion = {
   prompt: "信息图",
   altText: "复利封面",
   aspectRatio: "cover"
+};
+
+const PROFILE: StyleProfile = {
+  name: "Q版手绘科普",
+  summary: "低饱和土黄色调的Q版手绘科普卡片画风",
+  palette: ["#bfb3a2", "#8d7e6f", "#66574e"],
+  lineWork: "不均匀细抖动描边，带有手绘颤动感",
+  characterDesign: "两头身圆脸小动物，腮红明显",
+  composition: "主体居中，顶部留出大字标题区",
+  background: "米黄纸纹底，轻微颗粒质感",
+  textRendering: "顶部大字标题，正文手写体配拼音格",
+  promptTemplate:
+    "画面采用Q版手绘科普卡片风格：低饱和土黄色调、不均匀抖动细描边、两头身圆脸角色、米黄纸纹背景，整体温暖治愈，像纸质科普卡片。"
 };
 
 function planner(run: () => Promise<ImagePlanSuggestion[]> = async () => [suggestion]): VisualPlanner {
@@ -110,7 +125,12 @@ describe("image plan route", () => {
       refreshPlaceholder: images.refreshPlaceholder.bind(images),
       beginGeneration: images.beginGeneration.bind(images),
       completeGeneration: images.completeGeneration.bind(images),
-      failGeneration: images.failGeneration.bind(images)
+      failGeneration: images.failGeneration.bind(images),
+      listGenerations: images.listGenerations.bind(images),
+      listGenerationsForAsset: images.listGenerationsForAsset.bind(images),
+      findGenerationById: images.findGenerationById.bind(images),
+      selectGeneration: images.selectGeneration.bind(images),
+      deleteGeneration: images.deleteGeneration.bind(images)
     };
     const response = await createImagePlanRouteHandler(articles, collisionRepository, planner())(
       requestJson("http://test/image-plan", { expectedUpdatedAt: article.updatedAt }),
@@ -164,6 +184,54 @@ describe("image plan route", () => {
       requestJson(`http://test/api/articles/${article.id}/image-plan`, {
         expectedUpdatedAt: article.updatedAt,
         characterId: "missing"
+      }),
+      context(article.id)
+    );
+
+    expect(response.status).toBe(400);
+  });
+
+  it("resolves a style-library ref into the full style guide text", async () => {
+    const { articles, images, article } = await setup();
+    const styleLibrary = new SqliteStyleLibraryRepository(createTestDatabase());
+    const entry = await styleLibrary.upsert(PROFILE, "style-lab 导出");
+    let received: Parameters<VisualPlanner["plan"]>[0] | undefined;
+    const capturingPlanner: VisualPlanner = {
+      plan: async (input) => {
+        received = input;
+        return [suggestion];
+      }
+    };
+    const POST = createImagePlanRouteHandler(articles, images, capturingPlanner, null, styleLibrary);
+
+    const response = await POST(
+      requestJson(`http://test/api/articles/${article.id}/image-plan`, {
+        expectedUpdatedAt: article.updatedAt,
+        style: `library:${entry.id}`
+      }),
+      context(article.id)
+    );
+
+    expect(response.status).toBe(200);
+    expect(received?.style).toContain("【画风】");
+    expect(received?.style).toContain(PROFILE.promptTemplate);
+    expect(received?.style).toContain(`【主色板】${PROFILE.palette.join(" ")}`);
+  });
+
+  it("rejects a deleted style-library ref with 400", async () => {
+    const { articles, images, article } = await setup();
+    const POST = createImagePlanRouteHandler(
+      articles,
+      images,
+      planner(),
+      null,
+      new SqliteStyleLibraryRepository(createTestDatabase())
+    );
+
+    const response = await POST(
+      requestJson(`http://test/api/articles/${article.id}/image-plan`, {
+        expectedUpdatedAt: article.updatedAt,
+        style: "library:missing-id"
       }),
       context(article.id)
     );

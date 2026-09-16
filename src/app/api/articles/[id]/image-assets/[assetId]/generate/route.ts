@@ -16,7 +16,8 @@ interface RouteContext {
 }
 
 const requestSchema = z.object({
-  expectedUpdatedAt: z.iso.datetime()
+  expectedUpdatedAt: z.iso.datetime(),
+  model: z.string().trim().min(1).max(100).optional()
 });
 
 function generationResponse(result: Awaited<ReturnType<typeof generateImageAsset>>) {
@@ -61,7 +62,12 @@ export function createImageAssetGenerateRouteHandler(
     if (storageDir) dependencies.storageDir = storageDir;
     return generationResponse(
       await generateImageAsset(
-        { articleId: id, assetId, expectedUpdatedAt: input.data.expectedUpdatedAt },
+        {
+          articleId: id,
+          assetId,
+          expectedUpdatedAt: input.data.expectedUpdatedAt,
+          ...(input.data.model ? { model: input.data.model } : {})
+        },
         dependencies
       )
     );

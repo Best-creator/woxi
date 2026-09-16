@@ -1,9 +1,9 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { articleFixture, paragraphBlock } from "../../tests/fixtures/article";
-import type { ImageAsset } from "@/features/images/domain";
+import type { ImageAsset, ImageLibraryItem } from "@/features/images/domain";
 import { ImagePlanningPanel } from "./image-planning-panel";
 
 function imageAsset(overrides: Partial<ImageAsset> = {}): ImageAsset {
@@ -44,7 +44,7 @@ describe("ImagePlanningPanel", () => {
       />
     );
 
-    await user.click(screen.getByRole("button", { name: "分析配图需求" }));
+    await user.click(screen.getByRole("button", { name: "根据正文设计动漫分镜" }));
 
     await waitFor(() => expect(onResult).toHaveBeenCalledWith(plannedArticle, plannedAssets));
     // 规划模型下拉默认选「默认」：不透传 model（第二参为 undefined）。
@@ -71,7 +71,7 @@ describe("ImagePlanningPanel", () => {
     );
 
     await user.selectOptions(screen.getByLabelText("规划模型"), "glm-5.3-flash");
-    await user.click(screen.getByRole("button", { name: "分析配图需求" }));
+    await user.click(screen.getByRole("button", { name: "根据正文设计动漫分镜" }));
 
     await waitFor(() => expect(planImages).toHaveBeenCalledWith("2026-09-09T00:00:00.000Z", "glm-5.3-flash"));
   });
@@ -115,7 +115,7 @@ describe("ImagePlanningPanel", () => {
       await screen.findByRole("option", { name: "蘑菇老师" });
       await user.selectOptions(screen.getByLabelText("绘制风格"), "简笔画");
       await user.selectOptions(screen.getByLabelText("参考形象"), "char-1");
-      await user.click(screen.getByRole("button", { name: "分析配图需求" }));
+      await user.click(screen.getByRole("button", { name: "根据正文设计动漫分镜" }));
 
       await waitFor(() =>
         expect(planImages).toHaveBeenCalledWith("2026-09-09T00:00:00.000Z", undefined, {
@@ -142,7 +142,7 @@ describe("ImagePlanningPanel", () => {
       />
     );
 
-    await user.click(screen.getByRole("button", { name: "按当前风格与形象重新分析" }));
+    await user.click(screen.getByRole("button", { name: "按当前风格与形象重新设计分镜" }));
 
     expect(confirmSpy).toHaveBeenCalledOnce();
     expect(planImages).not.toHaveBeenCalled();
@@ -296,8 +296,65 @@ describe("ImagePlanningPanel", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "重新生成配图 1" })).toBeVisible()
     );
-    expect(generateImage).toHaveBeenCalledWith("asset-1", article.updatedAt);
+    expect(generateImage).toHaveBeenCalledWith("asset-1", article.updatedAt, undefined);
     expect(screen.getByText("已生成")).toBeVisible();
+  });
+
+  it("generates all pending images sequentially in one click during the initial stage", async () => {
+    const user = userEvent.setup();
+    const article = articleFixture({ blocks: [paragraphBlock()] });
+    const initialAssets = [imageAsset({ id: "asset-1" }), imageAsset({ id: "asset-2" })];
+    let calls = 0;
+    const generateImage = vi.fn(async () => {
+      calls += 1;
+      // 真实后端每次返回全量最新状态：已完成的保持 generated。
+      const generatedIds = calls === 1 ? ["asset-1"] : ["asset-1", "asset-2"];
+      return {
+        article: { ...article, updatedAt: `2026-09-09T00:00:0${calls + 3}.000Z` },
+        assets: initialAssets.map((asset) =>
+          generatedIds.includes(asset.id) ? { ...asset, status: "generated" as const } : asset
+        )
+      };
+    });
+    const onResult = vi.fn();
+
+    function TestPanel() {
+      const [currentArticle, setCurrentArticle] = useState(article);
+      const [assets, setAssets] = useState(initialAssets);
+      return (
+        <ImagePlanningPanel
+          article={currentArticle}
+          assets={assets}
+          generateImage={generateImage}
+          onResult={(nextArticle, nextAssets) => {
+            setCurrentArticle(nextArticle);
+            setAssets(nextAssets);
+            onResult(nextArticle, nextAssets);
+          }}
+        />
+      );
+    }
+    render(<TestPanel />);
+
+    // 初始阶段：一键按钮可见。
+    await screen.findByRole("button", { name: "一键生成全部配图（2 张）" });
+    await user.click(screen.getByRole("button", { name: "一键生成全部配图（2 张）" }));
+
+    await waitFor(() => expect(generateImage).toHaveBeenCalledTimes(2));
+    // 顺序执行；第二张用第一张完成后的最新文章版本。
+    expect(generateImage).toHaveBeenNthCalledWith(1, "asset-1", article.updatedAt, undefined);
+    expect(generateImage).toHaveBeenNthCalledWith(
+      2,
+      "asset-2",
+      "2026-09-09T00:00:04.000Z",
+      undefined
+    );
+    // 完成后进入调整阶段：一键按钮消失，单张重新生成按钮仍在。
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: /一键生成全部配图/ })).not.toBeInTheDocument()
+    );
+    expect(screen.getByRole("button", { name: "重新生成配图 1" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "重新生成配图 2" })).toBeVisible();
   });
 
   it("hides and disables the generate entry per status and configuration", async () => {
@@ -353,10 +410,13 @@ describe("ImagePlanningPanel", () => {
 
     expect(screen.getByRole("img", { name: "机会成本关系图" })).toBeVisible();
     expect(screen.getByText("待生成")).toBeVisible();
+    // 只读态不提供可编辑控件；大图预览入口保留，但这一张还没生成过，所以是禁用的。
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "预览配图 1" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "生成配图 1" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "删除配图 1" })).not.toBeInTheDocument();
   });
 
   it("disables every mutation control while article changes are being saved", async () => {
@@ -405,10 +465,200 @@ describe("ImagePlanningPanel", () => {
         planImages={planImages}
       />
     );
-    const lockedPlanButton = screen.getByRole("button", { name: "分析配图需求" });
+    const lockedPlanButton = screen.getByRole("button", { name: "根据正文设计动漫分镜" });
     expect(lockedPlanButton).toBeDisabled();
     await user.click(lockedPlanButton);
     expect(planImages).not.toHaveBeenCalled();
     unmount();
+  });
+});
+
+/** 素材库条目 fixture：默认属于 asset-1、未被选用。 */
+function imageGeneration(overrides: Partial<ImageLibraryItem> = {}): ImageLibraryItem {
+  return {
+    id: "gen-1",
+    articleId: "article-1",
+    assetId: "asset-1",
+    prompt: "清晰的机会成本信息图",
+    model: "seedream-4.5",
+    filePath: "/tmp/asset-1-gen-1.png",
+    publicUrl: null,
+    selected: false,
+    createdAt: "2026-09-09T01:00:00.000Z",
+    assetType: "concept",
+    assetPurpose: "解释机会成本的核心关系",
+    ...overrides
+  };
+}
+
+/**
+ * 素材库只走 `/api/articles/:id/image-generations` 一个接口；
+ * 面板内其余请求（风格库、模型目录、配图偏好）统一回空对象即可。
+ * 每次调用都新建 Response——Response body 只能读一次，复用会抛「body already consumed」。
+ */
+function stubGenerations(generations: ImageLibraryItem[]) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const payload = String(input).includes("/image-generations") ? { generations } : {};
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    })
+  );
+}
+
+/** 大图预览标题由图标 + 多段文本拼成，直接取 h2 的纯文本比对，省得纠缠节点切分。 */
+function lightboxHeading() {
+  const heading = screen
+    .getByRole("dialog", { name: "配图大图预览" })
+    .querySelector("h2")?.textContent;
+  return heading?.replace(/\s+/g, " ") ?? "";
+}
+
+function versionStripLabel() {
+  const label = document.querySelector(".image-generation-strip-label")?.textContent;
+  return label?.replace(/\s+/g, " ") ?? "";
+}
+
+describe("ImagePlanningPanel image versions", () => {
+  const article = articleFixture({ blocks: [paragraphBlock()] });
+  const generatedAsset = imageAsset({ status: "generated" });
+
+  it("lists every kept version in the strip and marks the one in use", async () => {
+    stubGenerations([
+      imageGeneration({ id: "gen-2", selected: true, createdAt: "2026-09-09T02:00:00.000Z" }),
+      imageGeneration()
+    ]);
+    try {
+      render(<ImagePlanningPanel article={article} assets={[generatedAsset]} onResult={vi.fn()} />);
+
+      await screen.findByRole("button", { name: "查看配图 1 的第 2 版" });
+      // 版本条按时间正序：第 1 版在左、第 2 版在右，正在用的那版单独挂「使用中」角标。
+      expect(versionStripLabel()).toBe("生成版本 2 版，正在使用第 2 版");
+      expect(screen.getByRole("button", { name: "查看配图 1 的第 1 版" })).toBeVisible();
+      expect(document.querySelectorAll(".image-generation-badge")).toHaveLength(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("opens the large preview and flips versions along the displayed order", async () => {
+    const user = userEvent.setup();
+    stubGenerations([
+      imageGeneration({ id: "gen-2", selected: true, createdAt: "2026-09-09T02:00:00.000Z" }),
+      imageGeneration()
+    ]);
+    try {
+      render(<ImagePlanningPanel article={article} assets={[generatedAsset]} onResult={vi.fn()} />);
+
+      await user.click(await screen.findByRole("button", { name: "查看配图 1 的第 2 版" }));
+      expect(lightboxHeading()).toBe("概念图 · 第 2 / 2 版");
+
+      // 「上一版」＝版本条上左边那张＝更早的一版。
+      await user.click(screen.getByRole("button", { name: "上一版" }));
+      expect(lightboxHeading()).toBe("概念图 · 第 1 / 2 版");
+      expect(within(screen.getByRole("dialog")).getByRole("img", { name: "机会成本关系图" })).toHaveAttribute(
+        "src",
+        "/api/image-generations/gen-1/content"
+      );
+
+      // 键盘左右翻版和 Esc 关闭。
+      await user.keyboard("{ArrowRight}");
+      expect(lightboxHeading()).toBe("概念图 · 第 2 / 2 版");
+      await user.keyboard("{Escape}");
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("moves a version onto another slot instead of copying it", async () => {
+    const user = userEvent.setup();
+    stubGenerations([imageGeneration({ selected: true })]);
+    const selectGeneration = vi.fn(async () => ({
+      article,
+      assets: [generatedAsset, imageAsset({ id: "asset-2" })]
+    }));
+    try {
+      render(
+        <ImagePlanningPanel
+          article={article}
+          assets={[generatedAsset, imageAsset({ id: "asset-2", purpose: "第二张配图" })]}
+          onResult={vi.fn()}
+          selectGeneration={selectGeneration}
+        />
+      );
+
+      await user.click(await screen.findByRole("button", { name: "预览配图 1" }));
+      // 目标位置就是它自己、而且已经在用：主按钮没有可执行的动作。
+      expect(screen.getByRole("button", { name: "使用这一版" })).toBeDisabled();
+
+      await user.selectOptions(screen.getByLabelText("用到哪张配图"), "asset-2");
+      await user.click(screen.getByRole("button", { name: "移到这张配图" }));
+
+      await waitFor(() =>
+        expect(selectGeneration).toHaveBeenCalledWith("asset-2", "gen-1", article.updatedAt)
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("deletes the previewed version only after confirmation", async () => {
+    const user = userEvent.setup();
+    stubGenerations([imageGeneration({ selected: true })]);
+    const deleteGeneration = vi.fn(async () => ({ article, assets: [imageAsset()] }));
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    try {
+      render(
+        <ImagePlanningPanel
+          article={article}
+          assets={[generatedAsset]}
+          onResult={vi.fn()}
+          deleteGeneration={deleteGeneration}
+        />
+      );
+
+      await user.click(await screen.findByRole("button", { name: "预览配图 1" }));
+      // 取消确认：什么都不做，预览继续开着。
+      await user.click(screen.getByRole("button", { name: "删除这一版" }));
+      expect(deleteGeneration).not.toHaveBeenCalled();
+
+      confirmSpy.mockReturnValue(true);
+      await user.click(screen.getByRole("button", { name: "删除这一版" }));
+      await waitFor(() => expect(deleteGeneration).toHaveBeenCalledWith("gen-1", article.updatedAt));
+    } finally {
+      confirmSpy.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps every generation browsable in the material library", async () => {
+    const user = userEvent.setup();
+    stubGenerations([
+      imageGeneration({ id: "gen-2", selected: true, createdAt: "2026-09-09T02:00:00.000Z" }),
+      imageGeneration({ id: "gen-3", assetId: "asset-2", assetType: "cover", selected: true })
+    ]);
+    try {
+      render(
+        <ImagePlanningPanel
+          article={article}
+          assets={[generatedAsset, imageAsset({ id: "asset-2", type: "cover" })]}
+          onResult={vi.fn()}
+        />
+      );
+
+      await user.click(await screen.findByRole("button", { name: /素材库/ }));
+      // 素材库按最新在前浏览，并标出每张图归属的槽位。
+      const captions = Array.from(document.querySelectorAll(".image-library-caption")).map(
+        (node) => node.textContent
+      );
+      expect(captions).toEqual(["配图 1 · 使用中", "配图 2 · 使用中"]);
+      expect(screen.getAllByRole("button", { name: /预览素材库图片/ })).toHaveLength(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

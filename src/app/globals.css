@@ -1141,6 +1141,45 @@ h2 {
   width: 100%;
 }
 
+/* 补充要求对话框：与审核动作同列，用上边框和上面一组按钮分开。 */
+.outline-revision-request {
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+}
+
+.outline-revision-request .field-label {
+  color: var(--muted);
+  display: grid;
+  font-size: 11px;
+  font-weight: 650;
+  gap: 5px;
+}
+
+.outline-revision-request textarea {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font: inherit;
+  min-width: 0;
+  padding: 7px 8px;
+  resize: vertical;
+  width: 100%;
+}
+
+.outline-revision-button {
+  width: 100%;
+}
+
+.outline-revision-hint {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+  margin: 0;
+}
+
 .outline-workspace .version-history {
   padding: 8px 12px;
 }
@@ -1487,6 +1526,46 @@ h2 {
   min-width: 0;
 }
 
+.plan-style-hint {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 12px;
+  gap: 6px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.plan-style-swatch {
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  display: inline-block;
+  height: 12px;
+  width: 12px;
+}
+
+.push-ok {
+  color: var(--accent, #167554);
+}
+
+.push-error {
+  color: #b3402a;
+}
+
+/* 导出 PDF 走的是浏览器打印对话框，需要一句话说清下一步该点什么。 */
+.pdf-hint {
+  color: var(--text);
+}
+
+.push-force-toggle {
+  align-items: center;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 12px;
+  gap: 5px;
+}
+
 .plan-guide-field > span {
   color: var(--muted);
   font-size: 11px;
@@ -1623,14 +1702,6 @@ h2 {
   padding-top: 10px;
 }
 
-.image-plan-thumbnail {
-  aspect-ratio: 3 / 2;
-  background: var(--surface-subtle);
-  display: block;
-  object-fit: cover;
-  width: 100%;
-}
-
 .image-plan-summary,
 .image-plan-fields,
 .image-plan-fields label {
@@ -1732,6 +1803,277 @@ h2 {
 .image-plan-actions .icon-button {
   height: 30px;
   width: 30px;
+}
+
+/* 主图：可点击放大的预览块，比例按配图自身的宽高比留位，避免加载完页面跳动。 */
+.image-plan-preview {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: zoom-in;
+  display: block;
+  overflow: hidden;
+  padding: 0;
+  position: relative;
+  width: 100%;
+}
+
+.image-plan-preview:disabled {
+  cursor: default;
+}
+
+.image-plan-thumbnail {
+  display: block;
+  height: 100%;
+  object-fit: contain;
+  width: 100%;
+}
+
+.image-plan-preview-hint,
+.image-plan-preview-count {
+  align-items: center;
+  background: rgba(26, 32, 29, 0.72);
+  border-radius: 999px;
+  color: #fff;
+  display: flex;
+  font-size: 11px;
+  gap: 4px;
+  padding: 3px 8px;
+  pointer-events: none;
+  position: absolute;
+}
+
+.image-plan-preview-hint {
+  bottom: 6px;
+  right: 6px;
+}
+
+.image-plan-preview-count {
+  top: 6px;
+  right: 6px;
+}
+
+.image-generation-strip {
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 6px;
+  padding-top: 8px;
+}
+
+.image-generation-strip-label {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  font-size: 11px;
+  gap: 5px;
+  margin: 0;
+}
+
+.image-generation-strip ol,
+.image-library-grid,
+.image-lightbox-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.image-generation-thumb {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: zoom-in;
+  display: block;
+  height: 54px;
+  overflow: hidden;
+  padding: 0;
+  position: relative;
+  width: 54px;
+}
+
+.image-generation-thumb img {
+  display: block;
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.image-generation-thumb-current {
+  border-color: var(--primary);
+  border-width: 2px;
+}
+
+.image-generation-thumb-active {
+  border-color: var(--accent);
+}
+
+.image-generation-badge {
+  background: var(--primary);
+  border-radius: 3px;
+  bottom: 0;
+  color: #fff;
+  font-size: 10px;
+  left: 0;
+  line-height: 1.5;
+  padding: 0 3px;
+  position: absolute;
+}
+
+/* 素材库：本文全部生成结果的汇总入口，默认收起。 */
+.image-library {
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+}
+
+.image-library-toggle {
+  align-items: center;
+  background: none;
+  border: 0;
+  color: var(--text);
+  cursor: pointer;
+  display: flex;
+  font-size: 12px;
+  font-weight: 650;
+  gap: 6px;
+  padding: 0;
+  text-align: left;
+  width: 100%;
+}
+
+.image-library-chevron {
+  margin-left: auto;
+  transition: transform 0.15s ease;
+}
+
+.image-library-chevron-open {
+  transform: rotate(90deg);
+}
+
+.image-library-body {
+  display: grid;
+  gap: 8px;
+}
+
+.image-library-hint {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.image-library-thumb {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: zoom-in;
+  display: grid;
+  overflow: hidden;
+  padding: 0;
+  width: 96px;
+}
+
+.image-library-thumb img {
+  display: block;
+  height: 64px;
+  object-fit: cover;
+  width: 100%;
+}
+
+.image-library-thumb-current {
+  border-color: var(--primary);
+  border-width: 2px;
+}
+
+.image-library-caption {
+  color: var(--muted);
+  font-size: 10px;
+  padding: 3px 4px;
+  text-align: center;
+}
+
+/* 大图预览：左右翻版 + 选用/删除，正文里用哪一版就在这里定。 */
+.image-lightbox {
+  align-items: center;
+  background: rgba(26, 32, 29, 0.72);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 20px;
+  position: fixed;
+  z-index: 30;
+}
+
+.image-lightbox-panel {
+  background: var(--bg);
+  border-radius: var(--radius);
+  display: grid;
+  gap: 12px;
+  max-height: calc(100vh - 40px);
+  max-width: 900px;
+  overflow: auto;
+  padding: 14px;
+  width: 100%;
+}
+
+.image-lightbox-toolbar {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.image-lightbox-toolbar h2 {
+  font-size: 15px;
+  margin: 0;
+}
+
+.image-lightbox-stage {
+  align-items: center;
+  background: var(--surface-subtle);
+  border-radius: var(--radius-sm);
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  min-height: 200px;
+}
+
+.image-lightbox-image {
+  display: block;
+  max-height: 62vh;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+.image-lightbox-meta {
+  display: grid;
+  gap: 4px;
+}
+
+.image-lightbox-facts,
+.image-lightbox-prompt {
+  color: var(--muted);
+  font-size: 11px;
+  margin: 0;
+}
+
+.image-lightbox-prompt {
+  line-height: 1.5;
+}
+
+.image-lightbox-actions {
+  align-items: flex-end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.image-lightbox-target {
+  margin-right: auto;
+  max-width: 260px;
 }
 
 .preview-overlay {

@@ -47,6 +47,43 @@ type DeleteImageAsset = (
   expectedUpdatedAt: string
 ) => Promise<ImageMutationPayload>;
 
+type GenerateImageAssetRequest = (
+  articleId: string,
+  assetId: string,
+  expectedUpdatedAt: string,
+  model?: string
+) => Promise<ImageMutationPayload>;
+
+type SelectImageGeneration = (
+  articleId: string,
+  assetId: string,
+  generationId: string,
+  expectedUpdatedAt: string
+) => Promise<ImageMutationPayload>;
+
+type DeleteImageGeneration = (
+  articleId: string,
+  generationId: string,
+  expectedUpdatedAt: string
+) => Promise<ImageMutationPayload>;
+
+async function publishWechatRequest(
+  articleId: string,
+  themeId: "ink" | "clear" | "warm",
+  force: boolean
+): Promise<{ mediaId: string }> {
+  const response = await fetch(`/api/articles/${articleId}/publish-wechat`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ themeId, force })
+  });
+  const result = (await response.json()) as { record?: { mediaId: string }; error?: string };
+  if (!response.ok || !result.record) {
+    throw new Error(result.error ?? "推送失败，请稍后重试");
+  }
+  return { mediaId: result.record.mediaId };
+}
+
 export interface ArticleWorkspaceProps {
   initialArticle: Article;
   initialSources?: SourceDocument[];
@@ -56,9 +93,13 @@ export interface ArticleWorkspaceProps {
   updateImageAsset?: UpdateImageAsset;
   deleteImageAsset?: DeleteImageAsset;
   refreshPlaceholder?: DeleteImageAsset;
-  generateImage?: DeleteImageAsset;
+  generateImage?: GenerateImageAssetRequest;
+  selectImageGeneration?: SelectImageGeneration;
+  deleteImageGeneration?: DeleteImageGeneration;
   /** 服务端配置了图片生成能力时为 true，控制生成入口显隐。 */
   imageGenerationEnabled?: boolean;
+  /** 服务端配置了公众号凭据时为 true，控制「推送到草稿箱」入口显隐。 */
+  wechatPublishEnabled?: boolean;
   autosaveDelayMs?: number;
   initialStep?: string | null;
   initialVersions?: ArticleRevision<OutlineRevisionSnapshot>[];
@@ -149,10 +190,40 @@ function refreshPlaceholderRequest(articleId: string, assetId: string, expectedU
   );
 }
 
-function generateImageRequest(articleId: string, assetId: string, expectedUpdatedAt: string) {
+function generateImageRequest(
+  articleId: string,
+  assetId: string,
+  expectedUpdatedAt: string,
+  model?: string
+) {
   return imageMutationRequest(
     `/api/articles/${articleId}/image-assets/${assetId}/generate`,
     "POST",
+    { expectedUpdatedAt, ...(model ? { model } : {}) }
+  );
+}
+
+function selectGenerationRequest(
+  articleId: string,
+  assetId: string,
+  generationId: string,
+  expectedUpdatedAt: string
+) {
+  return imageMutationRequest(
+    `/api/articles/${articleId}/image-assets/${assetId}/generations`,
+    "POST",
+    { generationId, expectedUpdatedAt }
+  );
+}
+
+function deleteGenerationRequest(
+  articleId: string,
+  generationId: string,
+  expectedUpdatedAt: string
+) {
+  return imageMutationRequest(
+    `/api/articles/${articleId}/image-generations/${generationId}`,
+    "DELETE",
     { expectedUpdatedAt }
   );
 }
@@ -167,7 +238,10 @@ export function ArticleWorkspace({
   deleteImageAsset = deleteImageAssetRequest,
   refreshPlaceholder = refreshPlaceholderRequest,
   generateImage = generateImageRequest,
+  selectImageGeneration = selectGenerationRequest,
+  deleteImageGeneration = deleteGenerationRequest,
   imageGenerationEnabled = false,
+  wechatPublishEnabled = false,
   autosaveDelayMs = 2_000,
   initialStep = null,
   initialVersions = [],
@@ -564,9 +638,21 @@ export function ArticleWorkspace({
               refreshPlaceholder={(assetId, expectedUpdatedAt) => beginImageOperation(() => refreshPlaceholder(articleRef.current.id, assetId, expectedUpdatedAt))}
               generateImage={
                 imageGenerationEnabled
-                  ? (assetId, expectedUpdatedAt) =>
-                      beginImageOperation(() => generateImage(articleRef.current.id, assetId, expectedUpdatedAt))
+                  ? (assetId: string, expectedUpdatedAt: string, model?: string) =>
+                      beginImageOperation(() =>
+                        generateImage(articleRef.current.id, assetId, expectedUpdatedAt, model)
+                      )
                   : undefined
+              }
+              selectGeneration={(assetId, generationId, expectedUpdatedAt) =>
+                beginImageOperation(() =>
+                  selectImageGeneration(articleRef.current.id, assetId, generationId, expectedUpdatedAt)
+                )
+              }
+              deleteGeneration={(generationId, expectedUpdatedAt) =>
+                beginImageOperation(() =>
+                  deleteImageGeneration(articleRef.current.id, generationId, expectedUpdatedAt)
+                )
               }
             />
           </section>
@@ -575,7 +661,15 @@ export function ArticleWorkspace({
 
       {isPreviewOpen ? (
         <div className="preview-overlay" role="dialog" aria-modal="true" aria-label="公众号预览">
-          <WechatPreview blocks={article.blocks} onClose={() => setIsPreviewOpen(false)} />
+          <WechatPreview
+            blocks={article.blocks}
+            onClose={() => setIsPreviewOpen(false)}
+            publishDraft={
+              wechatPublishEnabled
+                ? (themeId, force) => publishWechatRequest(articleRef.current.id, themeId, force)
+                : undefined
+            }
+          />
         </div>
       ) : null}
     </section>

@@ -87,6 +87,37 @@ describe("OpenAiVisualPlanner", () => {
     });
   });
 
+  it("normalizes storyboard frames: scene number and shot fold into purpose and prompt", async () => {
+    const storyboardPlan = {
+      images: [
+        {
+          type: "storyboard",
+          anchorBlockId: "anchor-1",
+          sceneNumber: 2,
+          shot: "特写",
+          purpose: "解释机会成本的取舍",
+          prompt: "角色犹豫地看向两个选项，特写表情",
+          altText: "机会成本取舍分镜",
+          aspectRatio: "portrait"
+        }
+      ]
+    };
+    const fetchFn = fetchResponse(completion(JSON.stringify(storyboardPlan)));
+
+    const result = await new OpenAiVisualPlanner(config, fetchFn).plan(input);
+
+    expect(result).toHaveLength(1);
+    // 存储层形状：无 sceneNumber/shot 字段，序号与景别编进 purpose/prompt。
+    expect(result[0]).toEqual({
+      type: "storyboard",
+      anchorBlockId: "anchor-1",
+      purpose: "分镜 2｜特写：解释机会成本的取舍",
+      prompt: "动漫分镜 第 2 格，特写镜头。角色犹豫地看向两个选项，特写表情",
+      altText: "机会成本取舍分镜",
+      aspectRatio: "portrait"
+    });
+  });
+
   it("raises a controlled upstream error for a non-success response without exposing the key", async () => {
     const error = await new OpenAiVisualPlanner(
       config,

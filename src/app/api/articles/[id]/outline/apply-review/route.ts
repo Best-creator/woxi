@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { applyOutlineReview, type ApplyOutlineReviewDependencies } from "@/features/outlines/apply-outline-review";
+import { MAX_USER_INSTRUCTIONS_LENGTH } from "@/features/outlines/domain";
 import { getArticleRepository, getOutlineDefaultModel, getOutlineGenerator, getOutlineWorkflowRepository, getSourceRepository } from "@/server/services";
 
 export const runtime = "nodejs";
@@ -11,7 +12,9 @@ interface RouteContext {
 
 const applyReviewRequestSchema = z.object({
   expectedUpdatedAt: z.iso.datetime(),
-  model: z.string().trim().min(1).optional()
+  model: z.string().trim().min(1).optional(),
+  // 允许空串：空串与不传等价，都由领域层判断后走「必须已有审核」那条老路径。
+  userInstructions: z.string().max(MAX_USER_INSTRUCTIONS_LENGTH).optional()
 });
 
 export function createOutlineApplyReviewRouteHandler(dependencies: ApplyOutlineReviewDependencies) {
@@ -29,8 +32,8 @@ export function createOutlineApplyReviewRouteHandler(dependencies: ApplyOutlineR
     if (result.kind === "not_found") return Response.json({ error: "文章不存在" }, { status: 404 });
     if (result.kind === "conflict") return Response.json({ error: "文章已在其他位置更新，请刷新后重试" }, { status: 409 });
     if (result.kind === "no_outline") return Response.json({ error: "请先生成完整的大纲" }, { status: 400 });
-    if (result.kind === "review_required") return Response.json({ error: "当前大纲尚未审核或审核已过期" }, { status: 400 });
-    if (result.kind === "no_revision_needed") return Response.json({ error: "当前审核已通过，无需按意见修改大纲" }, { status: 400 });
+    if (result.kind === "review_required") return Response.json({ error: "当前大纲尚未审核或审核已过期，也可以直接写下你的修改要求" }, { status: 400 });
+    if (result.kind === "no_revision_needed") return Response.json({ error: "当前审核已通过；如仍想调整，请写下你的修改要求" }, { status: 400 });
     if (result.kind === "generator_error") return Response.json({ error: result.message }, { status: 502 });
     return Response.json({ article: result.article, revision: result.revision });
   };

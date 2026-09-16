@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { ArticleRepository } from "@/features/articles/repository";
+import { removeGenerationFiles } from "@/features/images/generation-files";
 import type { ImageAssetRepository, ImagePlanMutationResult } from "@/features/images/repository";
 import { getArticleRepository, getImageAssetRepository } from "@/server/services";
 
@@ -85,7 +86,14 @@ export function createImageAssetRouteHandlers(
         return Response.json({ error: "文章版本信息无效" }, { status: 400 });
       }
 
-      return mutationResponse(await images.remove(id, assetId, input.data.expectedUpdatedAt));
+      // 配图整张删掉时，它名下的所有生成版本会随外键级联消失，磁盘文件得手动带走，
+      // 否则那些图再没有任何入口能访问到，只会一直占空间。
+      const generations = await images.listGenerationsForAsset(id, assetId);
+      const result = await images.remove(id, assetId, input.data.expectedUpdatedAt);
+      if (result.kind === "saved") {
+        await removeGenerationFiles(generations.map((generation) => generation.filePath));
+      }
+      return mutationResponse(result);
     }
   };
 }

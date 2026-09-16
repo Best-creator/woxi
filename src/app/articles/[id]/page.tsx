@@ -4,7 +4,8 @@ import {
   getContentWorkflowRepository,
   getImageAssetRepository,
   getOutlineWorkflowRepository,
-  getSourceRepository
+  getSourceRepository,
+  getWechatDraftPublisher
 } from "@/server/services";
 import { getServerConfig } from "@/server/config";
 import { getPublicLlmConfigWithDiscovery } from "@/server/llm-models";
@@ -53,6 +54,7 @@ export default async function ArticlePage({
       initialStep={step ?? null}
       llmConfig={await getPublicLlmConfigWithDiscovery(getServerConfig())}
       imageGenerationEnabled={Boolean(getServerConfig().image)}
+      wechatPublishEnabled={Boolean(getWechatDraftPublisher())}
     />
   );
 }

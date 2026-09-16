@@ -4,6 +4,7 @@ import {
   MAX_AVOID_ITEMS,
   STYLE_PRESET_LABELS,
   STYLE_PRESETS,
+  describeStyleProfile,
   parseStyleProfileJson,
   resolveStyleProfile,
   sanitizeStyleProfile,
@@ -16,6 +17,7 @@ const ALL_PRESETS: StylePreset[] = [
   "friend_chat",
   "storyteller",
   "knowledge_cards",
+  "science_comic_script",
   "custom"
 ];
 
@@ -36,6 +38,32 @@ describe("style presets", () => {
   it("uses the popular science teacher as the default profile", () => {
     expect(DEFAULT_STYLE_PROFILE.preset).toBe("popular_science_teacher");
     expect(DEFAULT_STYLE_PROFILE.tone).toBe("亲切、自然、有耐心");
+    expect(DEFAULT_STYLE_PROFILE.audience).toBe("general_beginner");
+  });
+
+  it("keeps audience out of the preset constants so the two dimensions stay orthogonal", () => {
+    for (const profile of Object.values(STYLE_PRESETS)) {
+      expect(profile).not.toHaveProperty("audience");
+    }
+  });
+});
+
+describe("science comic script preset", () => {
+  it("maps comic narration onto the block types the schema already allows", () => {
+    const comic = STYLE_PRESETS.science_comic_script;
+
+    // 分镜标题 / 画面 / 对白 / 旁白 / 干货卡，全部复用现有块类型，不需要新 schema。
+    for (const blockType of ["heading", "paragraph", "quote", "callout", "knowledge_card"]) {
+      expect(comic.explanationStyle).toContain(blockType);
+    }
+  });
+
+  it("bans the clickbait wording the account wants to avoid", () => {
+    const comic = STYLE_PRESETS.science_comic_script;
+
+    expect(comic.avoid).toContain("悬念式标题");
+    expect(comic.avoid).toContain("夸张煽动");
+    expect(comic.avoid).toContain("过度商业化表达");
   });
 });
 
@@ -67,6 +95,25 @@ describe("resolveStyleProfile", () => {
 
     expect(STYLE_PRESETS.storyteller.customInstructions).toBe("");
   });
+
+  it("defaults to the general audience when the caller does not pass one", () => {
+    expect(resolveStyleProfile("friend_chat").audience).toBe("general_beginner");
+  });
+
+  it("carries the chosen audience across a preset switch", () => {
+    const switched = resolveStyleProfile("science_comic_script", "", "senior_reader");
+
+    expect(switched.preset).toBe("science_comic_script");
+    expect(switched.audience).toBe("senior_reader");
+  });
+});
+
+describe("describeStyleProfile", () => {
+  it("states the audience with its readable label", () => {
+    expect(describeStyleProfile(resolveStyleProfile("friend_chat", "", "office_desk"))).toContain(
+      "受众：上班摸鱼族"
+    );
+  });
 });
 
 describe("sanitizeStyleProfile", () => {
@@ -79,6 +126,15 @@ describe("sanitizeStyleProfile", () => {
     expect(sanitized.avoid).toHaveLength(MAX_AVOID_ITEMS);
     expect(sanitized.avoid[0]).toBe("规则0");
     expect(sanitized.avoid.every((item) => item.length <= 100)).toBe(true);
+  });
+
+  it("normalizes an unknown audience back to the default", () => {
+    const sanitized = sanitizeStyleProfile({
+      ...DEFAULT_STYLE_PROFILE,
+      audience: "office-slacker" as never
+    });
+
+    expect(sanitized.audience).toBe("general_beginner");
   });
 });
 
@@ -95,5 +151,19 @@ describe("parseStyleProfileJson", () => {
     expect(parsed.preset).toBe("rational_analyst");
     expect(parsed.tone).toBe("冷静、克制、就事论事");
     expect(parsed.readerAddress).toBe(DEFAULT_STYLE_PROFILE.readerAddress);
+  });
+
+  it("fills the audience for rows written before the audience dimension existed", () => {
+    expect(parseStyleProfileJson(JSON.stringify({ preset: "friend_chat" })).audience).toBe("general_beginner");
+    expect(parseStyleProfileJson(null).audience).toBe("general_beginner");
+  });
+
+  it("keeps a stored audience and rejects an unknown one", () => {
+    expect(
+      parseStyleProfileJson(JSON.stringify({ preset: "friend_chat", audience: "senior_reader" })).audience
+    ).toBe("senior_reader");
+    expect(
+      parseStyleProfileJson(JSON.stringify({ preset: "friend_chat", audience: "office-slacker" })).audience
+    ).toBe("general_beginner");
   });
 });

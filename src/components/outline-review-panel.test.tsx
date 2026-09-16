@@ -165,4 +165,145 @@ describe("OutlineReviewPanel", () => {
     expect(screen.getByRole("button", { name: "审核大纲" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "确认大纲" })).toBeVisible();
   });
+
+  it("shows no instruction box unless the caller wires up onRevise", () => {
+    render(
+      <OutlineReviewPanel
+        review={review("needs_revision")}
+        isStale={false}
+        canReview
+        onReview={vi.fn()}
+        onConfirm={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByLabelText("补充要求")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "按我的意见改大纲" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the instruction box available after a passed review", () => {
+    const props = {
+      review: review("passed"),
+      isStale: false,
+      canReview: true,
+      onReview: vi.fn(),
+      onConfirm: vi.fn(),
+      onInstructionsChange: vi.fn(),
+      onRevise: vi.fn()
+    };
+    const { rerender } = render(<OutlineReviewPanel {...props} instructions="" />);
+
+    // AI 说没问题，不代表作者不能提要求——这正是对话框存在的理由。
+    expect(screen.queryByRole("button", { name: "按审核意见改大纲" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("补充要求")).toBeVisible();
+    expect(screen.getByRole("button", { name: "按我的意见改大纲" })).toBeDisabled();
+
+    rerender(<OutlineReviewPanel {...props} instructions="把第二章拆开讲透机制" />);
+    expect(screen.getByRole("button", { name: "按我的意见改大纲" })).toBeEnabled();
+  });
+
+  it("reports typed instructions and applies them", async () => {
+    const onInstructionsChange = vi.fn();
+    const onRevise = vi.fn();
+    render(
+      <OutlineReviewPanel
+        review={review("needs_revision")}
+        isStale={false}
+        canReview
+        instructions="开场换成工位场景"
+        onInstructionsChange={onInstructionsChange}
+        onRevise={onRevise}
+        onReview={vi.fn()}
+        onConfirm={vi.fn()}
+      />
+    );
+
+    await userEvent.type(screen.getByLabelText("补充要求"), "。");
+    expect(onInstructionsChange).toHaveBeenCalledWith("开场换成工位场景。");
+
+    await userEvent.click(screen.getByRole("button", { name: "按我的意见改大纲" }));
+    expect(onRevise).toHaveBeenCalledOnce();
+  });
+
+  it("disables the instruction box while a revision is running", () => {
+    render(
+      <OutlineReviewPanel
+        review={review("needs_revision")}
+        isStale={false}
+        canReview
+        instructions="把第二章拆开"
+        isRevising
+        onInstructionsChange={vi.fn()}
+        onRevise={vi.fn()}
+        onReview={vi.fn()}
+        onConfirm={vi.fn()}
+      />
+    );
+
+    expect(screen.getByLabelText("补充要求")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "修改中..." })).toBeDisabled();
+  });
+
+  it("hides the instruction box while previewing a historical version", () => {
+    render(
+      <OutlineReviewPanel
+        review={review("needs_revision")}
+        actionReview={null}
+        isStale={false}
+        canReview
+        previewing
+        instructions="把第二章拆开"
+        onInstructionsChange={vi.fn()}
+        onRevise={vi.fn()}
+        onReview={vi.fn()}
+        onConfirm={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByLabelText("补充要求")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "按我的意见改大纲" })).not.toBeInTheDocument();
+  });
+
+  it("merges the two revise entries into one once instructions are typed", () => {
+    const props = {
+      review: review("needs_revision"),
+      isStale: false,
+      canReview: true,
+      onReview: vi.fn(),
+      onConfirm: vi.fn(),
+      onApplyReview: vi.fn(),
+      onInstructionsChange: vi.fn(),
+      onRevise: vi.fn()
+    };
+    const { rerender } = render(<OutlineReviewPanel {...props} instructions="" />);
+
+    // 没写字时两条路都在：一条纯审核意见，一条留给作者补充。
+    expect(screen.getByRole("button", { name: "按审核意见改大纲" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "按我的意见改大纲" })).toBeDisabled();
+
+    rerender(<OutlineReviewPanel {...props} instructions="开场换成工位场景" />);
+
+    // 写了字就只剩一个入口，避免点了纯审核那条把自己的要求丢掉。
+    expect(screen.queryByRole("button", { name: "按审核意见改大纲" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "按我的意见改大纲" })).toBeEnabled();
+  });
+
+  it("treats a whitespace-only request as empty", () => {
+    render(
+      <OutlineReviewPanel
+        review={review("needs_revision")}
+        isStale={false}
+        canReview
+        instructions="   "
+        onInstructionsChange={vi.fn()}
+        onRevise={vi.fn()}
+        onApplyReview={vi.fn()}
+        onReview={vi.fn()}
+        onConfirm={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "按我的意见改大纲" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "按审核意见改大纲" })).toBeEnabled();
+  });
 });

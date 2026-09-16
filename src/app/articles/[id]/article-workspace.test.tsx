@@ -186,7 +186,7 @@ describe("ArticleWorkspace", () => {
       />
     );
 
-    await user.click(screen.getByRole("button", { name: "分析配图需求" }));
+    await user.click(screen.getByRole("button", { name: "根据正文设计动漫分镜" }));
 
     // 规划模型默认走服务端配置（下拉为空 → model 为 undefined）。
     expect(planImages).toHaveBeenCalledWith("article-1", "2026-09-09T00:00:00.000Z", undefined);
@@ -629,7 +629,7 @@ describe("ArticleWorkspace", () => {
         />
       );
 
-      fireEvent.click(screen.getByRole("button", { name: "分析配图需求" }));
+      fireEvent.click(screen.getByRole("button", { name: "根据正文设计动漫分镜" }));
       await act(async () => undefined);
       await act(async () => vi.advanceTimersByTimeAsync(1));
 
@@ -659,7 +659,7 @@ describe("ArticleWorkspace", () => {
 
     fireEvent.change(screen.getByLabelText("正文块 1"), { target: { value: "本地未保存正文" } });
 
-    const planButton = screen.getByRole("button", { name: "分析配图需求" });
+    const planButton = screen.getByRole("button", { name: "根据正文设计动漫分镜" });
     expect(planButton).toBeDisabled();
     expect(screen.getByText("正在保存文章，保存完成后可操作配图")).toBeVisible();
     fireEvent.click(planButton);
@@ -687,7 +687,7 @@ describe("ArticleWorkspace", () => {
       />
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "分析配图需求" }));
+    fireEvent.click(screen.getByRole("button", { name: "根据正文设计动漫分镜" }));
     await waitFor(() => expect(planImages).toHaveBeenCalledOnce());
     fireEvent.change(screen.getByLabelText("正文块 1"), { target: { value: "规划期间的新正文" } });
 
@@ -704,7 +704,7 @@ describe("ArticleWorkspace", () => {
     });
 
     expect(screen.getByDisplayValue("规划期间的新正文")).toBeVisible();
-    expect(screen.getByRole("button", { name: "分析配图需求" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "根据正文设计动漫分镜" })).toBeDisabled();
     expect(screen.queryByRole("img", { name: "概念图" })).not.toBeInTheDocument();
     expect(screen.getByText("文章已发生新编辑，请保存后刷新配图结果")).toBeVisible();
     expect(localStorage.getItem("article-draft:article-1")).toContain("规划期间的新正文");
@@ -763,7 +763,7 @@ describe("ArticleWorkspace", () => {
 
     await waitFor(() => expect(screen.getByText(/文章已在其他位置更新/)).toBeVisible());
     expect(screen.getByDisplayValue("冲突本地正文")).toBeVisible();
-    expect(screen.getByRole("button", { name: "分析配图需求" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "根据正文设计动漫分镜" })).toBeDisabled();
     expect(localStorage.getItem("article-draft:article-1")).toContain("冲突本地正文");
   });
 
@@ -782,7 +782,7 @@ describe("ArticleWorkspace", () => {
 
     await waitFor(() => expect(screen.getByText("保存失败，本地修改已暂存")).toBeVisible());
     expect(screen.getByDisplayValue("失败本地正文")).toBeVisible();
-    expect(screen.getByRole("button", { name: "分析配图需求" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "根据正文设计动漫分镜" })).toBeDisabled();
     expect(localStorage.getItem("article-draft:article-1")).toContain("失败本地正文");
   });
 
