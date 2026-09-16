@@ -2,6 +2,7 @@ import { AUDIENCE_LABELS, DEFAULT_AUDIENCE_ID, resolveAudience, type AudienceId 
 
 export type StylePreset =
   | "popular_science_teacher"
+  | "plain_explainer"
   | "rational_analyst"
   | "friend_chat"
   | "storyteller"
@@ -40,6 +41,7 @@ export const MAX_AVOID_ITEM_LENGTH = 100;
 
 export const STYLE_PRESET_LABELS: Record<StylePreset, string> = {
   popular_science_teacher: "通俗科普老师",
+  plain_explainer: "大白话科普者",
   rational_analyst: "理性分析者",
   friend_chat: "朋友聊天式",
   storyteller: "故事讲述者",
@@ -60,6 +62,25 @@ export const STYLE_PRESETS: Record<Exclude<StylePreset, "custom">, StylePresetSh
     contentDensity: "medium",
     customInstructions: "",
     avoid: ["说教口吻", "堆砌专业术语", "空泛鸡汤", "夸张结论"]
+  },
+  plain_explainer: {
+    preset: "plain_explainer",
+    persona: "把复杂知识翻成大白话的科普解说者，讲什么都像在放一段看得懂的小动画",
+    tone: "接地气、轻松、有画面感；不端着、不装、不唬人",
+    readerAddress: "你",
+    sentenceStyle: "大白话短句为主；复杂概念先用生活画面讲出来，再给概念名称，禁止术语先行",
+    // 「动漫感」落在文风层面：像动画旁白一样有画面、有情节地讲述。
+    // 刻意不引入分镜结构/对白气泡——那是已移除的漫画脚本预设，用户明确不再往分镜化方向加。
+    explanationStyle:
+      "每个知识点都按「先画面、再拆解、后回生活」讲：先用一段像动画旁白的具体场景把读者拉进来——谁、在哪、发生了什么；" +
+      "再用大白话一层层拆开背后的机制，比喻只取吃饭、通勤、手机、家务这类日常事物；" +
+      "术语第一次出现必须用大白话定义，之后才能使用；每讲完一个概念都落一句「这对你的日常生活意味着什么」。" +
+      "吃饭、睡觉、花钱、健康这些身边事优先当讲解素材。",
+    humorLevel: "light",
+    questionFrequency: "moderate",
+    contentDensity: "medium",
+    customInstructions: "",
+    avoid: ["术语先行", "书面腔翻译腔", "堆数据不解释", "说教口吻", "比喻只有壳没原理", "故弄玄虚"]
   },
   rational_analyst: {
     preset: "rational_analyst",
@@ -158,6 +179,7 @@ export function sanitizeStyleProfile(profile: StyleProfile): StyleProfile {
 
 const STYLE_PRESET_VALUES = [
   "popular_science_teacher",
+  "plain_explainer",
   "rational_analyst",
   "friend_chat",
   "storyteller",

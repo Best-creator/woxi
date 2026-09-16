@@ -9,6 +9,7 @@ import {
 
 export const stylePresetSchema = z.enum([
   "popular_science_teacher",
+  "plain_explainer",
   "rational_analyst",
   "friend_chat",
   "storyteller",

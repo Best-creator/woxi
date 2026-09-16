@@ -13,6 +13,7 @@ import {
 
 const ALL_PRESETS: StylePreset[] = [
   "popular_science_teacher",
+  "plain_explainer",
   "rational_analyst",
   "friend_chat",
   "storyteller",
@@ -44,6 +45,28 @@ describe("style presets", () => {
     for (const profile of Object.values(STYLE_PRESETS)) {
       expect(profile).not.toHaveProperty("audience");
     }
+  });
+});
+
+describe("plain explainer preset", () => {
+  it("explains through everyday scenes first and lands back in daily life", () => {
+    const plain = STYLE_PRESETS.plain_explainer;
+
+    // 「先画面、再拆解、后回生活」是大白话科普的骨架：术语必须晚于画面出现。
+    expect(plain.explanationStyle).toContain("先画面");
+    expect(plain.explanationStyle).toContain("后回生活");
+    expect(plain.explanationStyle).toContain("术语第一次出现必须用大白话定义");
+    expect(plain.sentenceStyle).toContain("禁止术语先行");
+    expect(plain.avoid).toContain("术语先行");
+  });
+
+  it("keeps the anime feel at the prose level, not as storyboard structure", () => {
+    const plain = STYLE_PRESETS.plain_explainer;
+
+    // 动漫感只允许出现在「像动画旁白」的画面叙事里；
+    // 分镜结构已被移除且用户明确不再往分镜化方向加，这里要钉死边界。
+    expect(plain.explanationStyle).toContain("像动画旁白");
+    expect(plain.explanationStyle).not.toContain("分镜");
   });
 });
 
