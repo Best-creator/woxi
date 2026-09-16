@@ -4,7 +4,7 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ContentBlock } from "@/features/articles/domain";
 import { SqliteArticleRepository } from "@/features/articles/sqlite-repository";
 import { createTestDatabase } from "../../../tests/helpers/test-db";
@@ -119,6 +119,52 @@ describe("composeComicStrips", () => {
     expect(metadata.format).toBe("png");
     expect(metadata.width).toBe(result.strips[0].width);
     expect(metadata.height).toBe(result.strips[0].height);
+  });
+
+  it("lets the mode router decide when the request asks for auto", async () => {
+    const fixture = await comicFixture();
+    const decide = vi.fn().mockResolvedValue({ mode: "text_image", reason: "先铺垫再给画面" });
+    const result = await composeComicStrips(
+      { articleId: fixture.articleId, expectedUpdatedAt: fixture.expectedUpdatedAt, mode: "auto" },
+      {
+        articles: fixture.articles,
+        images: fixture.images,
+        storageDir: fixture.storageDir,
+        modeRouter: { decide }
+      }
+    );
+
+    if (result.kind !== "composed") throw new Error(`expected composed, got ${result.kind}`);
+    // 路由收到的是分镜特征（标题/文案/字数）与正文节选，决策写回回执与用途。
+    expect(decide).toHaveBeenCalledWith(
+      expect.objectContaining({
+        panels: expect.arrayContaining([
+          expect.objectContaining({ title: "第一格：眼睛为什么会酸", chars: expect.any(Number) })
+        ]),
+        excerpt: expect.stringContaining("眨眼")
+      })
+    );
+    expect(result.strips[0]).toMatchObject({ mode: "text_image", reason: "先铺垫再给画面", panels: 3 });
+    const strip = result.assets.find((asset) => asset.id === result.strips[0].assetId);
+    expect(strip?.purpose).toContain("text_image");
+  });
+
+  it("falls back to the deterministic rule when the auto router fails", async () => {
+    const fixture = await comicFixture();
+    const result = await composeComicStrips(
+      { articleId: fixture.articleId, expectedUpdatedAt: fixture.expectedUpdatedAt, mode: "auto" },
+      {
+        articles: fixture.articles,
+        images: fixture.images,
+        storageDir: fixture.storageDir,
+        modeRouter: { decide: vi.fn().mockRejectedValue(new Error("模型抽风")) }
+      }
+    );
+
+    if (result.kind !== "composed") throw new Error(`expected composed, got ${result.kind}`);
+    // 夹具三格短文案、格数为奇数：规则给出 image_text，理由注明模型不可用。
+    expect(result.strips[0].mode).toBe("image_text");
+    expect(result.strips[0].reason).toContain("模型不可用");
   });
 
   it("puts the text back exactly where it was when the strip is cancelled", async () => {

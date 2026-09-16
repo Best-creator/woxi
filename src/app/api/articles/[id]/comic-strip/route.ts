@@ -1,12 +1,17 @@
 import { z } from "zod";
 import type { ArticleRepository } from "@/features/articles/repository";
 import { composeComicStrips, removeComicStrips } from "@/features/images/compose-comic-strip";
+import type { ComicStripModeRouter } from "@/features/images/comic-strip-mode-router";
 import type { ImageAssetRepository } from "@/features/images/repository";
-import { getArticleRepository, getImageAssetRepository } from "@/server/services";
+import {
+  getArticleRepository,
+  getComicStripModeRouter,
+  getImageAssetRepository
+} from "@/server/services";
 
 export const runtime = "nodejs";
-// 拼图是纯 CPU 活（sharp 合成 + PNG 编码），不调外部服务，比生图快得多；
-// 但仍然不开成同步接口，超时就交给平台兜底。
+// 拼图是 CPU 活（sharp 合成 + PNG 编码）；auto 模式多一次轻量 LLM 路由调用。
+// 仍不开成同步接口，超时就交给平台兜底。
 export const maxDuration = 120;
 
 interface RouteContext {
@@ -15,7 +20,8 @@ interface RouteContext {
 
 const requestSchema = z.object({
   expectedUpdatedAt: z.iso.datetime(),
-  mode: z.enum(["image_text", "text_image", "image_text_image"])
+  // 缺省即 auto：排法交给模型按正文内容决定，具体排法是手动覆盖项。
+  mode: z.enum(["image_text", "text_image", "image_text_image", "auto"]).default("auto")
 });
 
 function notFound() {
@@ -28,7 +34,8 @@ function conflict() {
 
 export function createComicStripComposeHandler(
   articles: ArticleRepository,
-  images: ImageAssetRepository
+  images: ImageAssetRepository,
+  modeRouter?: ComicStripModeRouter
 ) {
   return async function POST(request: Request, context: RouteContext) {
     const { id } = await context.params;
@@ -49,7 +56,7 @@ export function createComicStripComposeHandler(
         expectedUpdatedAt: input.data.expectedUpdatedAt,
         mode: input.data.mode
       },
-      { articles, images }
+      { articles, images, modeRouter }
     );
 
     if (result.kind === "not_found") return notFound();
@@ -89,10 +96,11 @@ export function createComicStripRemoveHandler(
 }
 
 export function POST(request: Request, context: RouteContext) {
-  return createComicStripComposeHandler(getArticleRepository(), getImageAssetRepository())(
-    request,
-    context
-  );
+  return createComicStripComposeHandler(
+    getArticleRepository(),
+    getImageAssetRepository(),
+    getComicStripModeRouter()
+  )(request, context);
 }
 
 export function DELETE(request: Request, context: RouteContext) {

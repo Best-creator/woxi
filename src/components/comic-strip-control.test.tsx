@@ -68,13 +68,15 @@ function setup(overrides: {
   blocks?: ContentBlock[];
   assets?: ImageAsset[];
   disabled?: boolean;
+  /** compose 的返回值，默认空对象；测试自动回显时注入 strips。 */
+  composeResult?: unknown;
 } = {}) {
   const article = articleFixture({ blocks: overrides.blocks ?? PANEL_SOURCE });
   const props = {
     article,
     assets: overrides.assets ?? [panel("p1"), panel("p2"), panel("p3")],
     onResult: vi.fn(),
-    composeComicStrip: vi.fn().mockResolvedValue({}),
+    composeComicStrip: vi.fn().mockResolvedValue(overrides.composeResult ?? {}),
     removeComicStrip: vi.fn().mockResolvedValue({}),
     ...(overrides.disabled === undefined ? {} : { disabled: overrides.disabled })
   };
@@ -91,8 +93,27 @@ describe("ComicStripControl", () => {
     expect(button).toBeEnabled();
 
     await userEvent.click(button);
-    // 默认排法就是最像连环画的「图 + 文 + 图」。
-    expect(props.composeComicStrip).toHaveBeenCalledWith(articleFixture().updatedAt, "image_text_image");
+    // 默认交给模型按正文内容选排法（auto），不让用户先学三种排法再挑。
+    expect(props.composeComicStrip).toHaveBeenCalledWith(articleFixture().updatedAt, "auto");
+  });
+
+  it("surfaces the model's chosen mode and reason after an auto compose", async () => {
+    setup({
+      composeResult: {
+        strips: [
+          { assetId: "s1", width: 800, height: 1200, panels: 3, mode: "image_text", reason: "文案偏长，先读后看更顺" }
+        ]
+      }
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "合成漫画长图" }));
+
+    expect(screen.getAllByRole("status").map((node) => node.textContent).join("")).toContain(
+      "模型选了「图 + 文」"
+    );
+    expect(screen.getAllByRole("status").map((node) => node.textContent).join("")).toContain(
+      "文案偏长，先读后看更顺"
+    );
   });
 
   it("still allows re-composing after a strip already replaced the panels", async () => {

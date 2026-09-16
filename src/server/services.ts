@@ -8,6 +8,11 @@ import { OpenAiContentReviewer } from "@/features/content/openai-content-reviewe
 import type { ContentGenerator, ContentReviewer } from "@/features/content/ports";
 import { DemoVisualPlanner } from "@/features/images/demo-visual-planner";
 import { OpenAiVisualPlanner } from "@/features/images/openai-visual-planner";
+import {
+  HeuristicComicStripModeRouter,
+  OpenAiComicStripModeRouter,
+  type ComicStripModeRouter
+} from "@/features/images/comic-strip-mode-router";
 import { SqliteImageAssetRepository } from "@/features/images/sqlite-repository";
 import { OpenAiJsonClient } from "@/features/llm/openai-json-client";
 import type { ImageGenerator } from "@/features/images/image-generator";
@@ -154,6 +159,22 @@ export function getVisualPlanner() {
       : new DemoVisualPlanner();
   }
   return visualPlanner;
+}
+
+let comicStripModeRouter: ComicStripModeRouter | undefined;
+
+/** 漫画长图排法路由：配了 LLM 用模型决策，没配用确定性规则（E2E 依赖）。 */
+export function getComicStripModeRouter(): ComicStripModeRouter {
+  if (!comicStripModeRouter) {
+    const client = getOpenAiJsonClient();
+    comicStripModeRouter = client
+      ? new OpenAiComicStripModeRouter(
+          client,
+          getServerConfig().llm?.visualModel || getServerConfig().llm?.model
+        )
+      : new HeuristicComicStripModeRouter();
+  }
+  return comicStripModeRouter;
 }
 
 export function getReferenceCharacterRepository() {

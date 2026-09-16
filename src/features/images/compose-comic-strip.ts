@@ -4,8 +4,13 @@ import { resolve } from "node:path";
 import type { Article } from "@/features/articles/domain";
 import type { ArticleRepository } from "@/features/articles/repository";
 import { DEFAULT_COMIC_STRIP_METRICS, composeComicStrip, type ComicStripBlock, type ComicStripMetrics } from "./comic-strip";
+import {
+  HeuristicComicStripModeRouter,
+  type ComicStripModeDecision,
+  type ComicStripModeRouter
+} from "./comic-strip-mode-router";
 import { withStripsRestored } from "./consumed-content";
-import type { ComicStripMode, ImageAsset } from "./domain";
+import type { ComicStripMode, ComicStripModeChoice, ImageAsset } from "./domain";
 import { removeGenerationFile } from "./generation-files";
 import {
   inspectComicStrip,
@@ -19,6 +24,9 @@ export interface ComicStripOutcome {
   width: number;
   height: number;
   panels: number;
+  /** 实际使用的排法：auto 决策或手动指定都会写进这里，供界面回显。 */
+  mode: ComicStripMode;
+  reason: string;
 }
 
 export type ComposeComicStripsResult =
@@ -34,6 +42,8 @@ export interface ComposeComicStripsDependencies {
   /** 长图落盘目录（默认 .data/generated-images），测试可注入临时目录。 */
   storageDir?: string;
   metrics?: ComicStripMetrics;
+  /** mode 为 auto 时的排法路由；缺省用确定性规则，路由失败也回落到它。 */
+  modeRouter?: ComicStripModeRouter;
 }
 
 /** 没生成图的分镜在长图里只能是一块「待生成」灰块——那还不如不做，至少正文还在。 */
@@ -41,6 +51,44 @@ function missingImageCount(group: ComicStripGroup): number {
   return group.panels.filter(
     (panel) => panel.asset.status !== "generated" || !panel.asset.filePath
   ).length;
+}
+
+function textExcerptOf(article: Article, limit = 600): string {
+  const text = article.blocks
+    .filter((block) => block.type !== "image")
+    .map((block) => block.content)
+    .join("\n");
+  return text.length > limit ? `${text.slice(0, limit)}…` : text;
+}
+
+const fallbackRouter = new HeuristicComicStripModeRouter();
+
+/**
+ * 决定这一组分镜的排法：手动指定直接用；auto 问路由，路由出错回落确定性规则——
+ * 排法选得不完美只影响观感，不该让整个拼图失败。
+ */
+async function decideGroupMode(
+  group: ComicStripGroup,
+  mode: ComicStripModeChoice,
+  excerpt: string,
+  router: ComicStripModeRouter | undefined
+): Promise<ComicStripModeDecision> {
+  if (mode !== "auto") return { mode, reason: "手动指定" };
+
+  const input = {
+    panels: group.panels.map((panel) => ({
+      title: panel.title,
+      caption: panel.caption,
+      chars: panel.caption.replace(/\s/g, "").length
+    })),
+    excerpt
+  };
+  try {
+    return await (router ?? fallbackRouter).decide(input);
+  } catch {
+    const fallback = await fallbackRouter.decide(input);
+    return { ...fallback, reason: `${fallback.reason}（模型不可用，按规则选择）` };
+  }
 }
 
 async function panelBinary(asset: ImageAsset): Promise<Buffer> {
@@ -72,7 +120,7 @@ function toComicStripBlocks(
  * 每一步自己都是完整状态，失败时正文退回原样——比留着一张拼了一半的坏图更好。
  */
 export async function composeComicStrips(
-  input: { articleId: string; expectedUpdatedAt: string; mode: ComicStripMode },
+  input: { articleId: string; expectedUpdatedAt: string; mode: ComicStripModeChoice },
   dependencies: ComposeComicStripsDependencies
 ): Promise<ComposeComicStripsResult> {
   const article = await dependencies.articles.findById(input.articleId);
@@ -121,17 +169,19 @@ export async function composeComicStrips(
   const storageDir =
     dependencies.storageDir ?? resolve(process.cwd(), ".data", "generated-images");
   const metrics = dependencies.metrics ?? DEFAULT_COMIC_STRIP_METRICS;
+  const excerpt = textExcerptOf(currentArticle);
   const strips: ComicStripOutcome[] = [];
 
   try {
     for (const group of readiness.groups) {
+      const decision = await decideGroupMode(group, input.mode, excerpt, dependencies.modeRouter);
       const binaries = new Map<string, Buffer>();
       for (const panel of group.panels) {
         binaries.set(panel.asset.id, await panelBinary(panel.asset));
       }
 
       const { buffer, width, height } = await composeComicStrip(
-        toComicStripBlocks(group, input.mode, binaries),
+        toComicStripBlocks(group, decision.mode, binaries),
         metrics
       );
 
@@ -144,7 +194,7 @@ export async function composeComicStrips(
       const saved = await dependencies.images.saveComicStrip(article.id, expectedUpdatedAt, {
         assetId,
         generationId,
-        mode: input.mode,
+        mode: decision.mode,
         anchorBlockId: group.anchorBlockId,
         // 深拷贝一份再落库：快照要和此刻的正文完全一致，不能被后续编辑串改。
         consumedContent: {
@@ -152,7 +202,7 @@ export async function composeComicStrips(
           resumeBeforeBlockId: group.consumedContent.resumeBeforeBlockId
         },
         altText: `${currentArticle.title}｜漫画长图（${group.panels.length} 格）`,
-        purpose: `漫画长图｜${group.panels.length} 格分镜｜${input.mode}`,
+        purpose: `漫画长图｜${group.panels.length} 格分镜｜${decision.mode}`,
         filePath
       });
 
@@ -172,7 +222,14 @@ export async function composeComicStrips(
 
       currentArticle = saved.article;
       expectedUpdatedAt = saved.article.updatedAt;
-      strips.push({ assetId, width, height, panels: group.panels.length });
+      strips.push({
+        assetId,
+        width,
+        height,
+        panels: group.panels.length,
+        mode: decision.mode,
+        reason: decision.reason
+      });
     }
   } catch (error) {
     return {

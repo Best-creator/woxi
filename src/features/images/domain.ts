@@ -30,6 +30,16 @@ export const COMIC_STRIP_MODE_LABELS: Record<ComicStripMode, string> = {
   image_text_image: "图 + 文 + 图"
 };
 
+/**
+ * 拼图排法的选择：「auto」交给模型按正文内容自行决定（默认），
+ * 具体排法是用户手动覆盖。路由决策见 `comic-strip-mode-router.ts`。
+ */
+export type ComicStripModeChoice = ComicStripMode | "auto";
+
+export function isComicStripModeChoice(value: unknown): value is ComicStripModeChoice {
+  return value === "auto" || isComicStripMode(value);
+}
+
 export function isComicStripMode(value: unknown): value is ComicStripMode {
   return typeof value === "string" && (COMIC_STRIP_MODES as readonly string[]).includes(value);
 }

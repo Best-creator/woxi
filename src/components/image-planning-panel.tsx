@@ -30,6 +30,15 @@ import { ModelSelect } from "./model-select";
 export interface ImageMutationPayload {
   article: Article;
   assets: ImageAsset[];
+  /** 漫画长图接口的附加回执：实际使用的排法与选择理由（其他配图接口不返回）。 */
+  strips?: Array<{
+    assetId: string;
+    width: number;
+    height: number;
+    panels: number;
+    mode: string;
+    reason: string;
+  }>;
 }
 
 /** 规划引导参数：绘制风格与参考形象均为可选项。 */

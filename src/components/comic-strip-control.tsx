@@ -1,12 +1,13 @@
 "use client";
 
-import { Images, Loader2, Trash2 } from "lucide-react";
+import { Images, Loader2, Sparkles, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { Article } from "@/features/articles/domain";
 import {
   COMIC_STRIP_MODES,
   COMIC_STRIP_MODE_LABELS,
   type ComicStripMode,
+  type ComicStripModeChoice,
   type ImageAsset
 } from "@/features/images/domain";
 import { inspectComicStrip } from "@/features/images/plan-comic-strip";
@@ -34,7 +35,7 @@ export interface ComicStripControlProps {
   onResult: (payload: ImageMutationPayload) => void;
   composeComicStrip: (
     expectedUpdatedAt: string,
-    mode: ComicStripMode
+    mode: ComicStripModeChoice
   ) => Promise<ImageMutationPayload>;
   removeComicStrip: (expectedUpdatedAt: string) => Promise<ImageMutationPayload>;
 }
@@ -48,10 +49,12 @@ export function ComicStripControl({
   composeComicStrip,
   removeComicStrip
 }: ComicStripControlProps) {
-  const [mode, setMode] = useState<ComicStripMode>("image_text_image");
+  // 默认交给模型按正文内容选排法；点具体排法是手动覆盖。
+  const [mode, setMode] = useState<ComicStripModeChoice>("auto");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
+  const [decision, setDecision] = useState<{ mode: ComicStripMode; reason: string } | null>(null);
 
   // 和真正拼图共用同一套识别逻辑：按钮亮着就一定能拼成，不会点下去才说拼不了。
   // 拼过长图之后正文里只剩那张长图，必须先把被它替换掉的图文「临时」放回来再判——
@@ -89,6 +92,13 @@ export function ComicStripControl({
     try {
       const result = await action();
       setSize(null);
+      // 自动模式下把模型的排法选择回显出来；取消长图时清掉旧决策。
+      const firstStrip = result.strips?.[0];
+      setDecision(
+        firstStrip && mode === "auto"
+          ? { mode: firstStrip.mode as ComicStripMode, reason: firstStrip.reason }
+          : null
+      );
       onResult(result);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "操作失败，请稍后重试");
@@ -108,6 +118,17 @@ export function ComicStripControl({
       </div>
 
       <div className="comic-strip-modes" role="radiogroup" aria-label="拼图模式">
+        <button
+          type="button"
+          role="radio"
+          aria-checked={mode === "auto"}
+          className={`comic-strip-mode${mode === "auto" ? " comic-strip-mode-active" : ""}`}
+          disabled={locked}
+          onClick={() => setMode("auto")}
+        >
+          <Sparkles size={13} aria-hidden="true" />
+          智能选择
+        </button>
         {COMIC_STRIP_MODES.map((candidate) => (
           <button
             key={candidate}
@@ -122,7 +143,14 @@ export function ComicStripControl({
           </button>
         ))}
       </div>
-      <p className="comic-strip-mode-hint">{MODE_HINTS[mode]}</p>
+      <p className="comic-strip-mode-hint">
+        {mode === "auto" ? "模型读完正文，自动从三种排法里挑最合适的" : MODE_HINTS[mode]}
+      </p>
+      {decision ? (
+        <p className="comic-strip-mode-hint" role="status">
+          模型选了「{COMIC_STRIP_MODE_LABELS[decision.mode]}」：{decision.reason}
+        </p>
+      ) : null}
 
       <div className="comic-strip-actions">
         <button

@@ -12,7 +12,7 @@ import { WechatPreview } from "@/components/wechat-preview";
 import { WorkflowStepper } from "@/components/workflow-stepper";
 import type { Article, ContentBlock } from "@/features/articles/domain";
 import type { SaveArticleResult } from "@/features/articles/repository";
-import type { ComicStripMode, ImageAsset } from "@/features/images/domain";
+import type { ComicStripModeChoice, ImageAsset } from "@/features/images/domain";
 import type { ImageAssetPatch } from "@/features/images/repository";
 import type { ImagePlanGuideOptions } from "@/components/image-planning-panel";
 import type { ContentRevisionSnapshot, ArticleRevision, OutlineRevisionSnapshot } from "@/features/revisions/domain";
@@ -71,7 +71,7 @@ type DeleteImageGeneration = (
 type ComposeComicStrip = (
   articleId: string,
   expectedUpdatedAt: string,
-  mode: ComicStripMode
+  mode: ComicStripModeChoice
 ) => Promise<ImageMutationPayload>;
 
 type RemoveComicStrip = (
@@ -164,12 +164,13 @@ async function imageMutationRequest(
   const result = (await response.json()) as {
     article?: Article;
     assets?: ImageAsset[];
+    strips?: ImageMutationPayload["strips"];
     error?: string;
   };
   if (!response.ok || !result.article || !result.assets) {
     throw new Error(result.error ?? "配图操作失败，请稍后重试");
   }
-  return { article: result.article, assets: result.assets };
+  return { article: result.article, assets: result.assets, strips: result.strips };
 }
 
 function planImagesRequest(
@@ -247,7 +248,7 @@ function deleteGenerationRequest(
 function composeComicStripRequest(
   articleId: string,
   expectedUpdatedAt: string,
-  mode: ComicStripMode
+  mode: ComicStripModeChoice
 ) {
   return imageMutationRequest(`/api/articles/${articleId}/comic-strip`, "POST", {
     expectedUpdatedAt,
