@@ -93,8 +93,8 @@ describe("ComicStripControl", () => {
     expect(button).toBeEnabled();
 
     await userEvent.click(button);
-    // 默认交给模型按正文内容选排法（auto），不让用户先学三种排法再挑。
-    expect(props.composeComicStrip).toHaveBeenCalledWith(articleFixture().updatedAt, "auto");
+    // 排法交给模型决定：请求只带版本号（mode 走缺省 auto），手动选择已移除。
+    expect(props.composeComicStrip).toHaveBeenCalledWith(articleFixture().updatedAt);
   });
 
   it("surfaces the model's chosen mode and reason after an auto compose", async () => {
@@ -127,10 +127,11 @@ describe("ComicStripControl", () => {
     const button = screen.getByRole("button", { name: "按新模式重拼" });
     expect(button).toBeEnabled();
 
-    await userEvent.click(screen.getByRole("radio", { name: "文 + 图" }));
     await userEvent.click(button);
 
-    expect(props.composeComicStrip).toHaveBeenCalledWith(articleFixture().updatedAt, "text_image");
+    expect(props.composeComicStrip).toHaveBeenCalledWith(articleFixture().updatedAt);
+    // 排法选择 radio 已移除：UI 只有「合成」一个决策入口。
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
   });
 
   it("offers to cancel the strip so the original text can come back", async () => {
@@ -165,6 +166,6 @@ describe("ComicStripControl", () => {
     setup({ disabled: true });
 
     expect(screen.getByRole("button", { name: "合成漫画长图" })).toBeDisabled();
-    expect(screen.getByRole("radio", { name: "图 + 文" })).toBeDisabled();
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
   });
 });

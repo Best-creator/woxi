@@ -12,7 +12,7 @@ import { WechatPreview } from "@/components/wechat-preview";
 import { WorkflowStepper } from "@/components/workflow-stepper";
 import type { Article, ContentBlock } from "@/features/articles/domain";
 import type { SaveArticleResult } from "@/features/articles/repository";
-import type { ComicStripModeChoice, ImageAsset } from "@/features/images/domain";
+import type { ImageAsset } from "@/features/images/domain";
 import type { ImageAssetPatch } from "@/features/images/repository";
 import type { ImagePlanGuideOptions } from "@/components/image-planning-panel";
 import type { ContentRevisionSnapshot, ArticleRevision, OutlineRevisionSnapshot } from "@/features/revisions/domain";
@@ -55,6 +55,12 @@ type GenerateImageAssetRequest = (
   model?: string
 ) => Promise<ImageMutationPayload>;
 
+type GenerateImageBatchRequest = (
+  articleId: string,
+  expectedUpdatedAt: string,
+  model?: string
+) => Promise<ImageMutationPayload>;
+
 type SelectImageGeneration = (
   articleId: string,
   assetId: string,
@@ -70,8 +76,7 @@ type DeleteImageGeneration = (
 
 type ComposeComicStrip = (
   articleId: string,
-  expectedUpdatedAt: string,
-  mode: ComicStripModeChoice
+  expectedUpdatedAt: string
 ) => Promise<ImageMutationPayload>;
 
 type RemoveComicStrip = (
@@ -106,6 +111,7 @@ export interface ArticleWorkspaceProps {
   deleteImageAsset?: DeleteImageAsset;
   refreshPlaceholder?: DeleteImageAsset;
   generateImage?: GenerateImageAssetRequest;
+  generateBatch?: GenerateImageBatchRequest;
   selectImageGeneration?: SelectImageGeneration;
   deleteImageGeneration?: DeleteImageGeneration;
   /** 把分镜图与文案拼成漫画长图（三种排法之一）。 */
@@ -165,12 +171,13 @@ async function imageMutationRequest(
     article?: Article;
     assets?: ImageAsset[];
     strips?: ImageMutationPayload["strips"];
+    batch?: ImageMutationPayload["batch"];
     error?: string;
   };
   if (!response.ok || !result.article || !result.assets) {
     throw new Error(result.error ?? "配图操作失败，请稍后重试");
   }
-  return { article: result.article, assets: result.assets, strips: result.strips };
+  return { article: result.article, assets: result.assets, strips: result.strips, batch: result.batch };
 }
 
 function planImagesRequest(
@@ -220,6 +227,18 @@ function generateImageRequest(
   );
 }
 
+function generateImageBatchRequest(
+  articleId: string,
+  expectedUpdatedAt: string,
+  model?: string
+) {
+  return imageMutationRequest(
+    `/api/articles/${articleId}/image-assets/generate-batch`,
+    "POST",
+    { expectedUpdatedAt, ...(model ? { model } : {}) }
+  );
+}
+
 function selectGenerationRequest(
   articleId: string,
   assetId: string,
@@ -247,12 +266,11 @@ function deleteGenerationRequest(
 
 function composeComicStripRequest(
   articleId: string,
-  expectedUpdatedAt: string,
-  mode: ComicStripModeChoice
+  expectedUpdatedAt: string
 ) {
+  // 排法交给模型决定（mode 缺省 auto）；手动选择入口已按产品决策移除。
   return imageMutationRequest(`/api/articles/${articleId}/comic-strip`, "POST", {
-    expectedUpdatedAt,
-    mode
+    expectedUpdatedAt
   });
 }
 
@@ -276,6 +294,7 @@ export function ArticleWorkspace({
   deleteImageAsset = deleteImageAssetRequest,
   refreshPlaceholder = refreshPlaceholderRequest,
   generateImage = generateImageRequest,
+  generateBatch = generateImageBatchRequest,
   selectImageGeneration = selectGenerationRequest,
   deleteImageGeneration = deleteGenerationRequest,
   composeComicStrip = composeComicStripRequest,
@@ -662,9 +681,9 @@ export function ArticleWorkspace({
               readOnly={isNarrowViewport}
               disabled={isDirty || autosaveBlocked || saveState === "saving"}
               onResult={applyImageResult}
-              composeComicStrip={(expectedUpdatedAt, mode) =>
+              composeComicStrip={(expectedUpdatedAt) =>
                 beginImageOperation(() =>
-                  composeComicStrip(articleRef.current.id, expectedUpdatedAt, mode)
+                  composeComicStrip(articleRef.current.id, expectedUpdatedAt)
                 )
               }
               removeComicStrip={(expectedUpdatedAt) =>
@@ -698,6 +717,14 @@ export function ArticleWorkspace({
                   ? (assetId: string, expectedUpdatedAt: string, model?: string) =>
                       beginImageOperation(() =>
                         generateImage(articleRef.current.id, assetId, expectedUpdatedAt, model)
+                      )
+                  : undefined
+              }
+              generateBatch={
+                imageGenerationEnabled
+                  ? ({ expectedUpdatedAt, model }: { expectedUpdatedAt: string; model?: string }) =>
+                      beginImageOperation(() =>
+                        generateBatch(articleRef.current.id, expectedUpdatedAt, model)
                       )
                   : undefined
               }

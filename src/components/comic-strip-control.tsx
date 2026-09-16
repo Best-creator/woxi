@@ -1,13 +1,11 @@
 "use client";
 
-import { Images, Loader2, Sparkles, Trash2 } from "lucide-react";
+import { Images, Loader2, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { Article } from "@/features/articles/domain";
 import {
-  COMIC_STRIP_MODES,
   COMIC_STRIP_MODE_LABELS,
   type ComicStripMode,
-  type ComicStripModeChoice,
   type ImageAsset
 } from "@/features/images/domain";
 import { inspectComicStrip } from "@/features/images/plan-comic-strip";
@@ -18,13 +16,6 @@ import type { ImageMutationPayload } from "./image-planning-panel";
 // 进客户端组件会把浏览器构建打挂。路径形态和配图面板保持一致即可。
 const contentUrl = (assetId: string) => `/api/image-assets/${assetId}/content`;
 
-/** 三种排法各自适合什么画面，写在按钮下面而不是塞进按钮里——按钮里放不下，也没人读。 */
-const MODE_HINTS: Record<ComicStripMode, string> = {
-  image_text: "一格一图，文案跟在这格图后面",
-  text_image: "文案在上、图在下，先铺垫再给画面",
-  image_text_image: "分镜两两成组，文案落在两张图正中间"
-};
-
 export interface ComicStripControlProps {
   article: Article;
   assets: ImageAsset[];
@@ -33,10 +24,8 @@ export interface ComicStripControlProps {
   disabled?: boolean;
   /** 拼图会重写正文，所以回传整份文章与资产，交给工作台统一收口。 */
   onResult: (payload: ImageMutationPayload) => void;
-  composeComicStrip: (
-    expectedUpdatedAt: string,
-    mode: ComicStripModeChoice
-  ) => Promise<ImageMutationPayload>;
+  /** 排法由模型按正文自动决定（mode 走缺省 auto），不再提供手动选择。 */
+  composeComicStrip: (expectedUpdatedAt: string) => Promise<ImageMutationPayload>;
   removeComicStrip: (expectedUpdatedAt: string) => Promise<ImageMutationPayload>;
 }
 
@@ -49,8 +38,6 @@ export function ComicStripControl({
   composeComicStrip,
   removeComicStrip
 }: ComicStripControlProps) {
-  // 默认交给模型按正文内容选排法；点具体排法是手动覆盖。
-  const [mode, setMode] = useState<ComicStripModeChoice>("auto");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
@@ -92,10 +79,10 @@ export function ComicStripControl({
     try {
       const result = await action();
       setSize(null);
-      // 自动模式下把模型的排法选择回显出来；取消长图时清掉旧决策。
+      // 模型的排法选择回显给作者看（拼图依据变得透明）；取消长图时清掉旧决策。
       const firstStrip = result.strips?.[0];
       setDecision(
-        firstStrip && mode === "auto"
+        firstStrip
           ? { mode: firstStrip.mode as ComicStripMode, reason: firstStrip.reason }
           : null
       );
@@ -114,38 +101,8 @@ export function ComicStripControl({
           <Images size={16} aria-hidden="true" />
           漫画长图
         </strong>
-        <p>把分镜图和中间的文字烘进同一张图，正文就从「图文交替」变成连续漫画。</p>
       </div>
 
-      <div className="comic-strip-modes" role="radiogroup" aria-label="拼图模式">
-        <button
-          type="button"
-          role="radio"
-          aria-checked={mode === "auto"}
-          className={`comic-strip-mode${mode === "auto" ? " comic-strip-mode-active" : ""}`}
-          disabled={locked}
-          onClick={() => setMode("auto")}
-        >
-          <Sparkles size={13} aria-hidden="true" />
-          智能选择
-        </button>
-        {COMIC_STRIP_MODES.map((candidate) => (
-          <button
-            key={candidate}
-            type="button"
-            role="radio"
-            aria-checked={mode === candidate}
-            className={`comic-strip-mode${mode === candidate ? " comic-strip-mode-active" : ""}`}
-            disabled={locked}
-            onClick={() => setMode(candidate)}
-          >
-            {COMIC_STRIP_MODE_LABELS[candidate]}
-          </button>
-        ))}
-      </div>
-      <p className="comic-strip-mode-hint">
-        {mode === "auto" ? "模型读完正文，自动从三种排法里挑最合适的" : MODE_HINTS[mode]}
-      </p>
       {decision ? (
         <p className="comic-strip-mode-hint" role="status">
           模型选了「{COMIC_STRIP_MODE_LABELS[decision.mode]}」：{decision.reason}
@@ -157,7 +114,7 @@ export function ComicStripControl({
           className="button button-primary"
           type="button"
           disabled={locked || !ready}
-          onClick={() => void run(() => composeComicStrip(article.updatedAt, mode))}
+          onClick={() => void run(() => composeComicStrip(article.updatedAt))}
         >
           {busy ? (
             <Loader2 size={16} className="comic-strip-spin" aria-hidden="true" />
