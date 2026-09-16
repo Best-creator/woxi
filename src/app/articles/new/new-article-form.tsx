@@ -64,7 +64,8 @@ export function NewArticleForm() {
             body: JSON.stringify({
               title: sourceTitle.trim(),
               type: "markdown",
-              content: sourceContent.trim()
+              content: sourceContent.trim(),
+              expectedUpdatedAt: result.article.updatedAt
             })
           }
         );

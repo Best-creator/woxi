@@ -48,7 +48,8 @@ describe("NewArticleForm", () => {
         body: JSON.stringify({
           title: "课堂笔记",
           type: "markdown",
-          content: "时间会放大积累。"
+          content: "时间会放大积累。",
+          expectedUpdatedAt: "2026-09-13T00:00:00.000Z"
         })
       })
     );
