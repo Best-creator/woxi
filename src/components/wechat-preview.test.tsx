@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { imageBlock, paragraphBlock } from "../../tests/fixtures/article";
 import { renderWechatHtml } from "@/features/publishing/render-wechat-html";
-import { buildPrintDocument, WechatPreview } from "./wechat-preview";
+import { buildPrintDocument, waitForPrintableImages, WechatPreview } from "./wechat-preview";
 
 describe("WechatPreview", () => {
   it("copies the rendered article as rich text", async () => {
@@ -72,7 +72,9 @@ describe("WechatPreview", () => {
   });
 
   it("wraps the article in an A4 print document", () => {
-    const printDocument = buildPrintDocument('<section style="max-width:677px">文章正文</section>');
+    const printDocument = buildPrintDocument(
+      '<section style="max-width:677px"><figure><img src="/api/image-assets/asset-1/content" loading="lazy"></figure>文章正文</section>'
+    );
 
     expect(printDocument).toContain("@page { size: A4");
     expect(printDocument).toContain("文章正文");
@@ -80,5 +82,38 @@ describe("WechatPreview", () => {
     // 配图不能跨页断开，也不能横向溢出。
     expect(printDocument).toContain("break-inside: avoid");
     expect(printDocument).toContain("max-width: 100%");
+    // 离屏 iframe 里懒加载的图不会被取到，打印文档必须改成立即加载。
+    expect(printDocument).toContain('loading="eager"');
+    expect(printDocument).not.toContain('loading="lazy"');
+  });
+
+  it("waits for every print image before letting the browser print", async () => {
+    const image = document.createElement("img");
+    image.src = "/api/image-assets/asset-1/content";
+    image.decode = vi.fn(async () => undefined);
+    const frameWindow = { document: { images: [image] } } as unknown as Window;
+
+    let settled = false;
+    const pending = waitForPrintableImages(frameWindow, 1000).then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    // 图还没回来就不该开始打印，否则 PDF 里是空的。
+    expect(settled).toBe(false);
+
+    image.dispatchEvent(new Event("load"));
+    await pending;
+    expect(settled).toBe(true);
+    expect(image.decode).toHaveBeenCalledOnce();
+  });
+
+  it("does not hang on a print image that never loads", async () => {
+    const image = document.createElement("img");
+    image.src = "/api/image-assets/asset-1/content";
+    image.decode = vi.fn(async () => undefined);
+    const frameWindow = { document: { images: [image] } } as unknown as Window;
+
+    // 上游图床挂了也要照常出 PDF：到点放行。
+    await waitForPrintableImages(frameWindow, 20);
   });
 });

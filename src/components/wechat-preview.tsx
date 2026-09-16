@@ -38,8 +38,37 @@ const printStyles = `
   img, h1, h2, h3, h4 { break-inside: avoid; }
 `;
 
+/**
+ * 正文里的配图带 `loading="lazy"`（公众号正文需要），但打印 iframe 停在屏幕外，
+ * 懒加载的图永远不会进入视口、也就永远不会去取——必须在这里换成立即加载，
+ * 否则导出的 PDF 里图全是空的。
+ */
 export function buildPrintDocument(html: string) {
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>公众号文章</title><style>${printStyles}</style></head><body>${html}</body></html>`;
+  const eagerHtml = html.replaceAll('loading="lazy"', 'loading="eager"');
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>公众号文章</title><style>${printStyles}</style></head><body>${eagerHtml}</body></html>`;
+}
+
+/** 等打印文档里的图真正就绪，抽出来是为了能单独测（jsdom 里没有真实加载）。 */
+export async function waitForPrintableImages(frameWindow: Window, timeoutMs = 8000) {
+  const images = Array.from(frameWindow.document.images);
+  if (images.length === 0) return;
+  const loaded = Promise.all(
+    images.map((image) =>
+      image.complete
+        ? Promise.resolve()
+        : new Promise<void>((resolve) => {
+            image.addEventListener("load", () => resolve(), { once: true });
+            image.addEventListener("error", () => resolve(), { once: true });
+          })
+    )
+  );
+  // 上游图床抽风时不能让打印一直卡着，到点就照常出 PDF（缺图好过点不动）。
+  await Promise.race([
+    loaded,
+    new Promise<void>((resolve) => window.setTimeout(resolve, timeoutMs))
+  ]);
+  // 再等一次解码，避免图取回来了但还没画进位图，打印时仍是空白。
+  await Promise.all(images.map((image) => image.decode().catch(() => undefined)));
 }
 
 /**
@@ -68,8 +97,10 @@ export function exportPreviewAsPdf(html: string) {
     frameWindow.addEventListener("afterprint", () => window.setTimeout(remove, 0), { once: true });
     // 兜底：用户长时间不关打印对话框时也不留下悬挂节点。
     window.setTimeout(remove, 600_000);
-    frameWindow.focus();
-    frameWindow.print();
+    void waitForPrintableImages(frameWindow).then(() => {
+      frameWindow.focus();
+      frameWindow.print();
+    });
   };
 
   document.body.append(frame);
