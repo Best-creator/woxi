@@ -1,5 +1,6 @@
 import type { OpenAiJsonClient } from "@/features/llm/openai-json-client";
 import { generatedContentSchema } from "./schemas";
+import { describeComicCaptionBudget } from "./comic-script";
 import { describeStyleProfile } from "./style-profile";
 import type { ContentGenerator, GenerateContentInput, GeneratedContent } from "./ports";
 
@@ -14,7 +15,7 @@ export const CONTENT_GENERATOR_SYSTEM_PROMPT = `你是公众号知识类图文�
 6. 不允许输出图片块；配图由独立流程负责。
 7. 允许的块类型只有 heading、paragraph、quote、callout、knowledge_card。
 8. 标题必须给出具体的信息或结论，读标题就知道这篇讲什么。禁止悬念式标题、禁止「90% 的人都不知道」「不看就晚了」这类夸大或施压句式、禁止促销引流措辞。
-9. 若输入给出了 panelLimit，则全篇按不超过 panelLimit 个分镜组织：每个分镜以一个 heading 块作分镜标题开场，其余块归属该分镜；每个分镜的正文合计不得少于 150 字，不要为了凑分镜数把内容切碎。未给出 panelLimit 时忽略本条。`;
+9. 若输入给出了 panelLimit，则全篇按不超过 panelLimit 个分镜组织，并且每个分镜固定只有两块：一个 heading 块作分镜标题（不超过 12 字，写成有信息量的一句话），紧接一个 paragraph 块作这一格的文案。画面由配图承担，文案只负责把这一格的结论钉住——${describeComicCaptionBudget()}，宁可少写，绝不允许为了显得充实而铺陈。全篇最多在最后一个分镜再追加一个 knowledge_card 块作为可立刻执行的行动清单。未给出 panelLimit 时忽略本条。`;
 
 type JsonClient = Pick<OpenAiJsonClient, "complete">;
 

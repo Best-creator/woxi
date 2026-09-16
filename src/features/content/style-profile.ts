@@ -125,9 +125,12 @@ export const STYLE_PRESETS: Record<Exclude<StylePreset, "custom">, StylePresetSh
     sentenceStyle: "短句，一句一个镜头；对白口语化，不用书面腔",
     // 块角色约定写在这里而不是系统提示词里：只有选了这个预设才会生效，
     // 不会把漫画的分镜概念泄漏给其他风格。
+    // 每格压到「标题 + 一句文案」两块，是因为这一格的画面交给配图承担——
+    // 文案再拆成对白/旁白/卡片，拼成长图后一格里就全是字，反而没人看。
     explanationStyle:
       "先用一个具体生活场景抛出反差问题，再逐格拆开背后的机制，最后用一张干货卡给出能立刻执行的结论。" +
-      "分镜标题用 heading，画面与镜头描述用 paragraph，角色对白用 quote，旁白与反转提问用 callout，可执行的结论用 knowledge_card。",
+      "每格固定两块：分镜标题用 heading，这一格的文案用 paragraph，对白和反转提问都并进这句文案里；" +
+      "只有全篇最后一格的行动清单用 knowledge_card。",
     humorLevel: "light",
     questionFrequency: "moderate",
     contentDensity: "medium",

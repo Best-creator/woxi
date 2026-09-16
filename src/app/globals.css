@@ -2536,6 +2536,139 @@ h2 {
   transition: outline-color 0.2s ease;
 }
 
+.comic-strip-control {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+}
+
+/* 配图步骤是两栏网格（正文 + 右侧配图面板），长图入口横跨整行，
+   否则会被挤进左栏、把正文画布顶到第二行。 */
+.workflow-images-panel > .comic-strip-control {
+  grid-column: 1 / -1;
+}
+
+.comic-strip-head strong {
+  align-items: center;
+  color: var(--text);
+  display: flex;
+  font-size: 14px;
+  gap: 6px;
+}
+
+.comic-strip-head p {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 4px 0 0;
+}
+
+.comic-strip-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.comic-strip-mode {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 6px 12px;
+}
+
+.comic-strip-mode:hover:not(:disabled) {
+  background: var(--surface-subtle);
+}
+
+.comic-strip-mode-active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #ffffff;
+}
+
+.comic-strip-mode-active:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+
+.comic-strip-mode:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.comic-strip-mode-hint,
+.comic-strip-hint {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 0;
+}
+
+.comic-strip-mode-hint {
+  margin-top: -4px;
+}
+
+.comic-strip-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.comic-strip-actions button {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+}
+
+.comic-strip-error {
+  background: #fff4ed;
+  border: 1px solid #f4c7a8;
+  border-radius: var(--radius-sm);
+  color: #8d351d;
+  font-size: 12px;
+  margin: 0;
+  padding: 6px 10px;
+}
+
+.comic-strip-result {
+  border-top: 1px solid var(--border);
+  margin: 0;
+  padding-top: 10px;
+}
+
+.comic-strip-result img {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  display: block;
+  /* 长图动辄几千像素高：只在入口里给一段可滚动的高度，避免把整页撑出滚动条。 */
+  max-height: 320px;
+  object-fit: contain;
+  object-position: top;
+  width: auto;
+}
+
+.comic-strip-result figcaption {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 6px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .comic-strip-spin {
+    animation: comic-strip-spin 1s linear infinite;
+  }
+
+  @keyframes comic-strip-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+}
+
 @media (max-width: 1080px) {
   .content-workspace-grid {
     grid-template-columns: minmax(0, 1fr);

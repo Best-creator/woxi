@@ -224,6 +224,8 @@ describe("OpenAiVisualPlanner", () => {
     expect(system).toContain("自媒体科普老师");
     expect(system).toContain("红伞白点的卡通蘑菇，戴圆框眼镜");
     expect(system).toContain("画面文字");
+    // 底色规则恒定生效：拼长图要靠每格白底连成一张纸，不能随风格漂走。
+    expect(system).toContain("#FFFFFF");
     // 用户消息中同步携带风格与形象，且不把整个 input 原样透传。
     const userPayload = JSON.parse(body.messages.find((message) => message.role === "user")?.content as string) as Record<string, unknown>;
     expect(userPayload).toMatchObject({
@@ -248,5 +250,6 @@ describe("OpenAiVisualPlanner", () => {
     expect(system).not.toContain("绘制风格：");
     expect(system).not.toContain("参考形象：");
     expect(system).toContain("画面文字");
+    expect(system).toContain("#FFFFFF");
   });
 });

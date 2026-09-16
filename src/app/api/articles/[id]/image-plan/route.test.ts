@@ -130,7 +130,9 @@ describe("image plan route", () => {
       listGenerationsForAsset: images.listGenerationsForAsset.bind(images),
       findGenerationById: images.findGenerationById.bind(images),
       selectGeneration: images.selectGeneration.bind(images),
-      deleteGeneration: images.deleteGeneration.bind(images)
+      deleteGeneration: images.deleteGeneration.bind(images),
+      saveComicStrip: images.saveComicStrip.bind(images),
+      removeComicStrip: images.removeComicStrip.bind(images)
     };
     const response = await createImagePlanRouteHandler(articles, collisionRepository, planner())(
       requestJson("http://test/image-plan", { expectedUpdatedAt: article.updatedAt }),

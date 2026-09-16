@@ -22,6 +22,7 @@ import {
   parseRevisionRow
 } from "@/features/revisions/sqlite-store";
 import { mergeImageBlocks } from "@/features/images/merge-image-blocks";
+import { parseImageAssetRow as parseAsset, type ImageAssetRow } from "@/features/images/asset-row";
 import type { ImageAsset } from "@/features/images/domain";
 import { contentHashInput, textBlocksOf } from "./content-version";
 import { parseStyleProfileJson } from "./style-profile";
@@ -65,24 +66,6 @@ interface ReviewRow {
   model: string;
   result_json: string;
   created_at: string;
-}
-
-interface ImageAssetRow {
-  id: string;
-  article_id: string;
-  anchor_block_id: string | null;
-  type: ImageAsset["type"];
-  purpose: string;
-  prompt: string;
-  alt_text: string;
-  aspect_ratio: ImageAsset["aspectRatio"];
-  status: ImageAsset["status"];
-  placeholder_url: string | null;
-  file_path: string | null;
-  public_url: string | null;
-  manually_edited: number;
-  created_at: string;
-  updated_at: string;
 }
 
 interface SourceRow {
@@ -132,26 +115,6 @@ function parseReview(row: ReviewRow): ArticleReview<ContentReviewResult> {
     model: row.model,
     result: JSON.parse(row.result_json) as ContentReviewResult,
     createdAt: row.created_at
-  };
-}
-
-function parseAsset(row: ImageAssetRow): ImageAsset {
-  return {
-    id: row.id,
-    articleId: row.article_id,
-    anchorBlockId: row.anchor_block_id,
-    type: row.type,
-    purpose: row.purpose,
-    prompt: row.prompt,
-    altText: row.alt_text,
-    aspectRatio: row.aspect_ratio,
-    status: row.status,
-    placeholderUrl: row.placeholder_url,
-    filePath: row.file_path,
-    publicUrl: row.public_url,
-    manuallyEdited: row.manually_edited === 1,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at
   };
 }
 

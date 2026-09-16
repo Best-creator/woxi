@@ -3,6 +3,7 @@
 import { Eye, Save, Send, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BlockEditor } from "@/components/block-editor";
+import { ComicStripControl } from "@/components/comic-strip-control";
 import { GenerationPanel } from "@/components/generation-panel";
 import type { ImageMutationPayload } from "@/components/image-planning-panel";
 import { KnowledgeBriefEditor } from "@/components/knowledge-brief-editor";
@@ -11,7 +12,7 @@ import { WechatPreview } from "@/components/wechat-preview";
 import { WorkflowStepper } from "@/components/workflow-stepper";
 import type { Article, ContentBlock } from "@/features/articles/domain";
 import type { SaveArticleResult } from "@/features/articles/repository";
-import type { ImageAsset } from "@/features/images/domain";
+import type { ComicStripMode, ImageAsset } from "@/features/images/domain";
 import type { ImageAssetPatch } from "@/features/images/repository";
 import type { ImagePlanGuideOptions } from "@/components/image-planning-panel";
 import type { ContentRevisionSnapshot, ArticleRevision, OutlineRevisionSnapshot } from "@/features/revisions/domain";
@@ -67,6 +68,17 @@ type DeleteImageGeneration = (
   expectedUpdatedAt: string
 ) => Promise<ImageMutationPayload>;
 
+type ComposeComicStrip = (
+  articleId: string,
+  expectedUpdatedAt: string,
+  mode: ComicStripMode
+) => Promise<ImageMutationPayload>;
+
+type RemoveComicStrip = (
+  articleId: string,
+  expectedUpdatedAt: string
+) => Promise<ImageMutationPayload>;
+
 async function publishWechatRequest(
   articleId: string,
   themeId: "ink" | "clear" | "warm",
@@ -96,6 +108,10 @@ export interface ArticleWorkspaceProps {
   generateImage?: GenerateImageAssetRequest;
   selectImageGeneration?: SelectImageGeneration;
   deleteImageGeneration?: DeleteImageGeneration;
+  /** 把分镜图与文案拼成漫画长图（三种排法之一）。 */
+  composeComicStrip?: ComposeComicStrip;
+  /** 取消长图，正文回到原来的分镜图文。 */
+  removeComicStrip?: RemoveComicStrip;
   /** 服务端配置了图片生成能力时为 true，控制生成入口显隐。 */
   imageGenerationEnabled?: boolean;
   /** 服务端配置了公众号凭据时为 true，控制「推送到草稿箱」入口显隐。 */
@@ -228,6 +244,27 @@ function deleteGenerationRequest(
   );
 }
 
+function composeComicStripRequest(
+  articleId: string,
+  expectedUpdatedAt: string,
+  mode: ComicStripMode
+) {
+  return imageMutationRequest(`/api/articles/${articleId}/comic-strip`, "POST", {
+    expectedUpdatedAt,
+    mode
+  });
+}
+
+function removeComicStripRequest(articleId: string, expectedUpdatedAt: string) {
+  // 版本号走查询串：DELETE 带请求体容易被中间层吞掉。
+  const query = new URLSearchParams({ expectedUpdatedAt }).toString();
+  return imageMutationRequest(
+    `/api/articles/${articleId}/comic-strip?${query}`,
+    "DELETE",
+    {}
+  );
+}
+
 export function ArticleWorkspace({
   initialArticle,
   initialSources = [],
@@ -240,6 +277,8 @@ export function ArticleWorkspace({
   generateImage = generateImageRequest,
   selectImageGeneration = selectGenerationRequest,
   deleteImageGeneration = deleteGenerationRequest,
+  composeComicStrip = composeComicStripRequest,
+  removeComicStrip = removeComicStripRequest,
   imageGenerationEnabled = false,
   wechatPublishEnabled = false,
   autosaveDelayMs = 2_000,
@@ -616,6 +655,23 @@ export function ArticleWorkspace({
         ) : null}
         {activeStep === "images" ? (
           <section className="workflow-panel workflow-images-panel" aria-label="配图">
+            <ComicStripControl
+              article={article}
+              assets={imageAssets}
+              readOnly={isNarrowViewport}
+              disabled={isDirty || autosaveBlocked || saveState === "saving"}
+              onResult={applyImageResult}
+              composeComicStrip={(expectedUpdatedAt, mode) =>
+                beginImageOperation(() =>
+                  composeComicStrip(articleRef.current.id, expectedUpdatedAt, mode)
+                )
+              }
+              removeComicStrip={(expectedUpdatedAt) =>
+                beginImageOperation(() =>
+                  removeComicStrip(articleRef.current.id, expectedUpdatedAt)
+                )
+              }
+            />
             <div className="article-canvas">
               <BlockEditor blocks={article.blocks} onChange={updateBlocks} readOnly={isNarrowViewport} imageAssets={imageAssets} />
             </div>

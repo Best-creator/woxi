@@ -1,10 +1,38 @@
+import type { ContentBlock } from "@/features/articles/domain";
+
 export type ImageAssetType =
   | "cover"
   | "storyboard"
   | "concept"
   | "process"
   | "comparison"
-  | "knowledge_card";
+  | "knowledge_card"
+  | "comic_strip";
+
+/**
+ * 长图把「分镜图 + 中间的文字」拼成一张图的三种排法。
+ *
+ * - image_text：一格图，下面跟这一格的文案
+ * - text_image：文案在上、图在下，先铺垫再给画面
+ * - image_text_image：两图夹一文——分镜两两成组，文案落在两张图正中间，最像连环画
+ */
+export type ComicStripMode = "image_text" | "text_image" | "image_text_image";
+
+export const COMIC_STRIP_MODES: readonly ComicStripMode[] = [
+  "image_text",
+  "text_image",
+  "image_text_image"
+];
+
+export const COMIC_STRIP_MODE_LABELS: Record<ComicStripMode, string> = {
+  image_text: "图 + 文",
+  text_image: "文 + 图",
+  image_text_image: "图 + 文 + 图"
+};
+
+export function isComicStripMode(value: unknown): value is ComicStripMode {
+  return typeof value === "string" && (COMIC_STRIP_MODES as readonly string[]).includes(value);
+}
 
 export type ImageAssetStatus =
   | "planned"
@@ -25,6 +53,18 @@ export interface ImagePlanSuggestion {
   aspectRatio: ImageAspectRatio;
 }
 
+/**
+ * 漫画长图替换掉的正文。
+ *
+ * 存的是**内容快照**而不是块 id：正文合并后会把图块重新插回 blocks_json，
+ * 被替换的块一旦从那里消失就再也找不回来。带着原文走，取消长图时才能原样放回去。
+ */
+export interface ConsumedContent {
+  blocks: ContentBlock[];
+  /** 放回正文时插在这一块之前；null 表示追加到正文末尾。 */
+  resumeBeforeBlockId: string | null;
+}
+
 export interface ImageAsset extends ImagePlanSuggestion {
   id: string;
   articleId: string;
@@ -33,6 +73,8 @@ export interface ImageAsset extends ImagePlanSuggestion {
   filePath: string | null;
   publicUrl: string | null;
   manuallyEdited: boolean;
+  /** 普通配图是 null；漫画长图带一份被它替换掉的正文快照，用于随时撤销。 */
+  consumedContent: ConsumedContent | null;
   createdAt: string;
   updatedAt: string;
 }

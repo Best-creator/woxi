@@ -79,7 +79,8 @@ const typeLabels: Record<ImageAsset["type"], string> = {
   concept: "概念图",
   process: "流程图",
   comparison: "对比图",
-  knowledge_card: "知识卡片"
+  knowledge_card: "知识卡片",
+  comic_strip: "漫画长图"
 };
 
 const statusLabels: Record<ImageAsset["status"], string> = {
@@ -207,7 +208,7 @@ function readableError(error: unknown, fallback: string) {
 
 export function ImagePlanningPanel({
   article,
-  assets,
+  assets: allAssets,
   readOnly = false,
   locked = false,
   onResult,
@@ -221,6 +222,9 @@ export function ImagePlanningPanel({
   llmEnabled = false,
   availableModels = []
 }: ImagePlanningPanelProps) {
+  // 漫画长图不是「一张待规划的配图」：它由「合成漫画长图」入口独立管理，
+  // 混进这里会多出一张没法生成、也没法重新规划的卡片，还会打乱分镜的序号。
+  const assets = allAssets.filter((asset) => asset.type !== "comic_strip");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [drafts, setDrafts] = useState<Record<string, ImageDraft>>({});

@@ -12,18 +12,19 @@ import {
 } from "@/features/articles/domain";
 import type {
   ImageAsset,
-  ImageAssetStatus,
   ImageGeneration,
   ImageLibraryItem,
   ImagePlanSuggestion
 } from "./domain";
-import { imageContentUrl, mergeImageBlocks } from "./merge-image-blocks";
+import { imageContentUrl, mergeImageBlocks, restoreConsumedBlocks } from "./merge-image-blocks";
+import { parseImageAssetRow as parseAsset, type ImageAssetRow } from "./asset-row";
 import type {
   CompleteGenerationInput,
   ImageAssetPatch,
   ImageAssetRepository,
   ImageGenerationMutationResult,
-  ImagePlanMutationResult
+  ImagePlanMutationResult,
+  SaveComicStripInput
 } from "./repository";
 
 interface ArticleRow {
@@ -37,25 +38,6 @@ interface ArticleRow {
   planning_json: string | null;
   style_json: string | null;
   outline_confirmed_at: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface ImageAssetRow {
-  id: string;
-  article_id: string;
-  anchor_block_id: string | null;
-  type: ImageAsset["type"];
-  purpose: string;
-  prompt: string;
-  alt_text: string;
-  aspect_ratio: ImageAsset["aspectRatio"];
-  status: ImageAssetStatus;
-  placeholder_url: string | null;
-  file_path: string | null;
-  public_url: string | null;
-  manually_edited: number;
-  position: number;
   created_at: string;
   updated_at: string;
 }
@@ -105,26 +87,6 @@ function parseArticle(row: ArticleRow): Article {
     planning: parsePlanning(row.planning_json),
     styleProfile: parseStyleProfileJson(row.style_json),
     outlineConfirmedAt: row.outline_confirmed_at,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at
-  };
-}
-
-function parseAsset(row: ImageAssetRow): ImageAsset {
-  return {
-    id: row.id,
-    articleId: row.article_id,
-    anchorBlockId: row.anchor_block_id,
-    type: row.type,
-    purpose: row.purpose,
-    prompt: row.prompt,
-    altText: row.alt_text,
-    aspectRatio: row.aspect_ratio,
-    status: row.status,
-    placeholderUrl: row.placeholder_url,
-    filePath: row.file_path,
-    publicUrl: row.public_url,
-    manuallyEdited: row.manually_edited === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -254,6 +216,7 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
           filePath: null,
           publicUrl: null,
           manuallyEdited: false,
+          consumedContent: null,
           createdAt: assetTimestamp,
           updatedAt: assetTimestamp
         };
@@ -600,6 +563,94 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
     });
   }
 
+  async saveComicStrip(
+    articleId: string,
+    expectedUpdatedAt: string,
+    input: SaveComicStripInput
+  ): Promise<ImagePlanMutationResult> {
+    return this.inTransaction(() => {
+      const article = this.currentArticle(articleId, expectedUpdatedAt);
+      if (!article) return this.missingOrConflict(articleId, expectedUpdatedAt);
+      if (!input.consumedContent.blocks.length) {
+        return { kind: "invalid_state", message: "长图没有要替换的正文，无法落库" };
+      }
+      // 锚点必须真的存在：它决定长图插在正文的哪一段，落错位置比不落更糟。
+      const anchorExists = article.blocks.some(
+        (block) => block.type !== "image" && block.id === input.anchorBlockId
+      );
+      if (!anchorExists) return { kind: "invalid_anchor", anchorBlockId: input.anchorBlockId };
+
+      const timestamp = nextTimestamp(article.updatedAt);
+      this.insertAsset(
+        {
+          id: input.assetId,
+          articleId,
+          anchorBlockId: input.anchorBlockId,
+          type: "comic_strip",
+          purpose: input.purpose,
+          prompt: `漫画长图｜${input.mode}｜${input.consumedContent.blocks.length} 块`,
+          altText: input.altText,
+          aspectRatio: "portrait",
+          status: "generated",
+          placeholderUrl: imageContentUrl(input.assetId),
+          filePath: input.filePath,
+          publicUrl: null,
+          // 长图是作者手动拼出来的，不该被后续「重新规划配图」当占位图清掉。
+          manuallyEdited: true,
+          consumedContent: {
+            blocks: input.consumedContent.blocks.map((block) => ({ ...block })),
+            resumeBeforeBlockId: input.consumedContent.resumeBeforeBlockId
+          },
+          createdAt: timestamp,
+          updatedAt: timestamp
+        },
+        this.nextPosition(articleId)
+      );
+      this.insertGeneration({
+        id: input.generationId,
+        articleId,
+        assetId: input.assetId,
+        prompt: `漫画长图｜${input.mode}`,
+        model: null,
+        filePath: input.filePath,
+        publicUrl: null,
+        selected: true,
+        createdAt: timestamp
+      });
+      return this.saveAggregate(article, expectedUpdatedAt, this.listSync(articleId));
+    });
+  }
+
+  async removeComicStrip(
+    articleId: string,
+    assetId: string,
+    expectedUpdatedAt: string
+  ): Promise<ImageGenerationMutationResult> {
+    return this.inTransaction(() => {
+      const article = this.currentArticle(articleId, expectedUpdatedAt);
+      if (!article) return this.missingOrConflict(articleId, expectedUpdatedAt);
+      const asset = this.assetForArticle(articleId, assetId);
+      if (!asset) return { kind: "not_found" };
+      if (asset.type !== "comic_strip") {
+        return { kind: "invalid_state", message: "这不是漫画长图，请用删除配图的方式处理" };
+      }
+
+      // 磁盘上的长图文件要跟着一起清掉：资产没了，文件就是没人指向的孤儿。
+      const filePaths = this.generationRowsForAsset(assetId).map((row) => row.file_path);
+      this.db
+        .prepare("DELETE FROM image_assets WHERE article_id = ? AND id = ?")
+        .run(articleId, assetId);
+
+      return this.saveGenerationAggregate(
+        article,
+        expectedUpdatedAt,
+        this.listSync(articleId),
+        asset.filePath ?? filePaths.find((path) => Boolean(path)) ?? null,
+        restoreConsumedBlocks(article.blocks, asset.consumedContent)
+      );
+    });
+  }
+
   private inTransaction<T extends AnyImageMutationResult>(work: () => T): T {
     this.db.exec("BEGIN IMMEDIATE");
     try {
@@ -722,8 +773,8 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
         INSERT INTO image_assets (
           id, article_id, anchor_block_id, type, purpose, prompt, alt_text,
           aspect_ratio, status, placeholder_url, file_path, public_url,
-          manually_edited, position, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          consumed_blocks, manually_edited, position, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         asset.id,
@@ -738,6 +789,7 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
         asset.placeholderUrl,
         asset.filePath,
         asset.publicUrl,
+        asset.consumedContent ? JSON.stringify(asset.consumedContent) : null,
         asset.manuallyEdited ? 1 : 0,
         position,
         asset.createdAt,
@@ -751,7 +803,7 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
         UPDATE image_assets
         SET anchor_block_id = ?, prompt = ?, alt_text = ?, aspect_ratio = ?,
             status = ?, placeholder_url = ?, file_path = ?, public_url = ?,
-            manually_edited = ?, updated_at = ?
+            consumed_blocks = ?, manually_edited = ?, updated_at = ?
         WHERE id = ? AND article_id = ?
       `)
       .run(
@@ -763,6 +815,7 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
         asset.placeholderUrl,
         asset.filePath,
         asset.publicUrl,
+        asset.consumedContent ? JSON.stringify(asset.consumedContent) : null,
         asset.manuallyEdited ? 1 : 0,
         asset.updatedAt,
         asset.id,
@@ -776,10 +829,26 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
     assets: ImageAsset[],
     removedAssetIds: readonly string[] = []
   ): { kind: "saved"; article: Article; assets: ImageAsset[] } {
+    return this.saveBlocksAggregate(article, expectedUpdatedAt, article.blocks, assets, removedAssetIds);
+  }
+
+  /**
+   * 用一段**显式的正文**落库。
+   *
+   * 只有取消长图会用到：那时正文不是「当前这版」，而是「当前这版 + 放回来的原文快照」。
+   * 其余路径一律走 saveAggregate，保持「正文的唯一来源是 article.blocks」这个前提。
+   */
+  private saveBlocksAggregate(
+    article: Article,
+    expectedUpdatedAt: string,
+    blocks: ContentBlock[],
+    assets: ImageAsset[],
+    removedAssetIds: readonly string[] = []
+  ): { kind: "saved"; article: Article; assets: ImageAsset[] } {
     const updatedAt = nextTimestamp(article.updatedAt);
     const updatedArticle: Article = {
       ...article,
-      blocks: mergeImageBlocks(article.blocks, assets, removedAssetIds),
+      blocks: mergeImageBlocks(blocks, assets, removedAssetIds),
       updatedAt
     };
     const result = this.db
@@ -803,10 +872,11 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
     article: Article,
     expectedUpdatedAt: string,
     assets: ImageAsset[],
-    removedFilePath: string | null
+    removedFilePath: string | null,
+    blocks: ContentBlock[] = article.blocks
   ): ImageGenerationMutationResult {
     return {
-      ...this.saveAggregate(article, expectedUpdatedAt, assets),
+      ...this.saveBlocksAggregate(article, expectedUpdatedAt, blocks, assets),
       removedFilePath
     };
   }

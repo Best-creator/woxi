@@ -65,6 +65,7 @@ export function migrateDatabase(db: DatabaseSync) {
       placeholder_url TEXT,
       file_path TEXT,
       public_url TEXT,
+      consumed_blocks TEXT,
       manually_edited INTEGER NOT NULL DEFAULT 0,
       position INTEGER NOT NULL,
       created_at TEXT NOT NULL,
@@ -180,6 +181,11 @@ export function migrateDatabase(db: DatabaseSync) {
     const imageAssetColumns = db
       .prepare("PRAGMA table_info(image_assets)")
       .all() as unknown as Array<{ name: string }>;
+    // 漫画长图靠它带着「被自己替换掉的正文快照」，取消长图时才能把原文原样放回去。
+    // 老行是 NULL，读出来按「没有替换过正文」处理，语义上等于普通配图。
+    if (!imageAssetColumns.some((column) => column.name === "consumed_blocks")) {
+      db.exec("ALTER TABLE image_assets ADD COLUMN consumed_blocks TEXT");
+    }
     if (!imageAssetColumns.some((column) => column.name === "position")) {
       db.exec(
         "ALTER TABLE image_assets ADD COLUMN position INTEGER NOT NULL DEFAULT 0"

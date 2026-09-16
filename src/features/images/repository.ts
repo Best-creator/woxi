@@ -1,5 +1,7 @@
 import type { Article } from "@/features/articles/domain";
 import type {
+  ComicStripMode,
+  ConsumedContent,
   ImageAspectRatio,
   ImageAsset,
   ImageGeneration,
@@ -39,6 +41,24 @@ export interface CompleteGenerationInput {
   /** 版本 id 由编排层先生成：落盘文件名要用它，不能等落库时才拿到。 */
   generationId: string;
   model?: string;
+}
+
+/**
+ * 落库一张漫画长图。
+ *
+ * 图已经在磁盘上了（拼图是 CPU 活，不能塞进事务里），这里只做三件事：
+ * 记一条长图资产、记一条生成版本、把「被它替换掉的正文快照」写进资产，
+ * 这样取消长图时原文还能原样回来。
+ */
+export interface SaveComicStripInput {
+  assetId: string;
+  generationId: string;
+  mode: ComicStripMode;
+  anchorBlockId: string;
+  consumedContent: ConsumedContent;
+  altText: string;
+  purpose: string;
+  filePath: string;
 }
 
 export interface ImageAssetRepository {
@@ -113,6 +133,24 @@ export interface ImageAssetRepository {
     articleId: string,
     assetId: string,
     generationId: string,
+    expectedUpdatedAt: string
+  ): Promise<ImageGenerationMutationResult>;
+  /**
+   * 落库一张漫画长图。被它替换掉的正文块随之从正文里隐去；
+   * 只新增不覆盖，替换旧长图由编排层先调用 removeComicStrip。
+   */
+  saveComicStrip(
+    articleId: string,
+    expectedUpdatedAt: string,
+    input: SaveComicStripInput
+  ): Promise<ImagePlanMutationResult>;
+  /**
+   * 取消长图：删掉资产、清掉磁盘文件，并把当初替换掉的正文原样放回去。
+   * 原文一直是随身带着的快照，所以这里能完整还原，不依赖任何版本历史。
+   */
+  removeComicStrip(
+    articleId: string,
+    assetId: string,
     expectedUpdatedAt: string
   ): Promise<ImageGenerationMutationResult>;
 }
