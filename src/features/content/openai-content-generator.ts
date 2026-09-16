@@ -12,7 +12,7 @@ export const CONTENT_GENERATOR_SYSTEM_PROMPT = `你是公众号知识类图文�
 4. 章节之间要有自然承接，不要写成互相独立的片段；禁止通过重复、空泛总结或无关案例凑字数。
 5. 人物语言风格只改变措辞、句式、节奏、称呼和开场，不得改变事实、知识边界、章节顺序和必须解释的关键概念。
 6. 不允许输出图片块；配图由独立流程负责。
-7. 允许的块类型只有 heading、paragraph、quote、callout、knowledge_card。
+7. 允许的块类型只有 heading、paragraph、quote、knowledge_card；禁止输出 callout（提示）块——需要提醒读者时直接写成 paragraph 正文。
 8. 标题必须给出具体的信息或结论，读标题就知道这篇讲什么。禁止悬念式标题、禁止「90% 的人都不知道」「不看就晚了」这类夸大或施压句式、禁止促销引流措辞。
 9. 字数是硬约束：全篇正文（含标题块、不含 JSON 结构）总字数不得超过 recommendedTotalWords，宁可略短也不要超长；每个章节以 outline 给出的 recommendedWords 为篇幅基准，上下浮动不超过 15%。写完在脑内数一遍字数再输出——超出上限与遗漏章节同为不合格。`;
 

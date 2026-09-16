@@ -34,7 +34,7 @@ export class DemoContentGenerator implements ContentGenerator {
       ));
     }
     if (blocks.length && input.brief.oneSentence) {
-      blocks.push(demoBlock(input.outline[0].id, "callout", `一句话记住：${input.brief.oneSentence}`));
+      blocks.push(demoBlock(input.outline[0].id, "paragraph", `一句话记住：${input.brief.oneSentence}`));
     }
     // 与旧版演示生成器保持一致的成稿标题，方便本地与 E2E 断言。
     return { title: `用大白话讲清楚：${input.topic}`, blocks };

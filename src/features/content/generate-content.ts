@@ -33,12 +33,11 @@ export type GenerateContentResult =
   | { kind: "generator_error"; message: string }
   | { kind: "save_error"; message: string };
 
-/** 正文生成的块类型白名单；图片由独立配图流程负责。 */
+/** 正文生成的块类型白名单；图片由独立配图流程负责，callout（提示）已停止生成。 */
 const ALLOWED_BLOCK_TYPES: ReadonlySet<BlockType> = new Set<BlockType>([
   "heading",
   "paragraph",
   "quote",
-  "callout",
   "knowledge_card"
 ]);
 

@@ -5,7 +5,6 @@ export const CONTENT_BLOCK_TYPES = [
   "heading",
   "paragraph",
   "quote",
-  "callout",
   "knowledge_card"
 ] as const;
 

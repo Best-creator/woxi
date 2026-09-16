@@ -36,7 +36,8 @@ export const styleProfileSchema = z.object({
 
 export const generatedContentBlockSchema = z.object({
   sectionKey: z.string().trim().min(1).max(64),
-  type: z.enum(["heading", "paragraph", "quote", "callout", "knowledge_card"]),
+  // callout（提示）不再生成：历史文章仍可编辑保存，但新正文一律不产出。
+  type: z.enum(["heading", "paragraph", "quote", "knowledge_card"]),
   content: z.string().trim().min(1).max(5_000),
   level: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional()
 });
