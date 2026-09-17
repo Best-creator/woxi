@@ -1,5 +1,56 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getPublicLlmConfig, parseServerConfig, toPublicLlmConfig } from "./config";
+
+const settingsState = vi.hoisted(() => ({
+  overrides: null as Record<string, unknown> | null
+}));
+
+vi.mock("./settings-store", () => ({
+  loadProviderOverrides: () => settingsState.overrides
+}));
+
+describe("getServerConfig with panel overrides", () => {
+  beforeEach(() => {
+    settingsState.overrides = null;
+  });
+
+  it("merges panel LLM settings over the env defaults", async () => {
+    settingsState.overrides = {
+      llm: {
+        baseUrl: "https://panel-llm.example.test",
+        apiKey: "panel-key",
+        model: "panel-model",
+        models: "panel-a, panel-b",
+        researchModel: "panel-research",
+        reviewModel: "",
+        visualModel: "",
+        visionModel: ""
+      }
+    };
+    const { getServerConfig } = await import("./config");
+    const config = getServerConfig();
+
+    expect(config.llm).toMatchObject({
+      baseUrl: "https://panel-llm.example.test",
+      apiKey: "panel-key",
+      model: "panel-model",
+      availableModels: expect.arrayContaining(["panel-a", "panel-b", "panel-model"]),
+      researchModel: "panel-research"
+    });
+  });
+
+  it("keeps env providers when the override row is absent", async () => {
+    const { getServerConfig } = await import("./config");
+    const config = getServerConfig();
+    expect(config.llm === null || typeof config.llm.apiKey === "string").toBe(true);
+  });
+
+  it("drops env extra image sites when the panel saves an empty list", async () => {
+    settingsState.overrides = { extraImageSites: [] };
+    const { getServerConfig } = await import("./config");
+    expect(getServerConfig().extraImageSites).toEqual([]);
+  });
+});
 
 describe("parseServerConfig", () => {
   it("keeps external providers disabled when keys are empty", () => {

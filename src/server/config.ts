@@ -2,6 +2,9 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { loadEnvFile } from "node:process";
 import { z } from "zod";
+import { collectEnvExtraImageSites, withProviderOverrides } from "@/features/settings/provider-settings";
+import { loadProviderOverrides } from "./settings-store";
+import { DEFAULT_IMAGE_BASE_URL, DEFAULT_IMAGE_MODEL, DEFAULT_LLM_BASE_URL, DEFAULT_LLM_MODEL } from "@/features/settings/provider-settings";
 
 export interface ProviderConfig {
   baseUrl: string;
@@ -39,21 +42,18 @@ export interface PublicLlmConfig {
 
 const envSchema = z.object({
   CONTENT_DB_PATH: z.string().min(1).default(".data/content-platform.db"),
-  LLM_BASE_URL: z.url().default("https://yelan.xiaobupao.cn"),
+  LLM_BASE_URL: z.url().default(DEFAULT_LLM_BASE_URL),
   LLM_API_KEY: z.string().default(""),
   // 全场景默认模型：正文/大纲/审核/视觉规划/研究/看图统一走它；各 LLM_*_MODEL 可单独覆盖。
-  LLM_MODEL: z.string().default("gemini-3.8-flash"),
+  LLM_MODEL: z.string().default(DEFAULT_LLM_MODEL),
   LLM_MODELS: z.string().default(""),
   LLM_RESEARCH_MODEL: z.string().default(""),
   LLM_REVIEW_MODEL: z.string().default(""),
   LLM_VISUAL_MODEL: z.string().default(""),
   LLM_VISION_MODEL: z.string().default(""),
-  IMAGE_BASE_URL: z.url().default("https://image2.xiaobupao.cn"),
+  IMAGE_BASE_URL: z.url().default(DEFAULT_IMAGE_BASE_URL),
   IMAGE_API_KEY: z.string().default(""),
-  IMAGE_MODEL: z.string().default("gpt-image-2"),
-  IMAGE2_BASE_URL: z.url().optional(),
-  IMAGE2_API_KEY: z.string().default(""),
-  IMAGE2_MODEL: z.string().default(""),
+  IMAGE_MODEL: z.string().default(DEFAULT_IMAGE_MODEL),
   WECHAT_APPID: z.string().default(""),
   WECHAT_APPSECRET: z.string().default("")
 });
@@ -141,16 +141,11 @@ export function parseServerConfig(
       value.LLM_VISION_MODEL
     ),
     image: provider(value.IMAGE_BASE_URL, value.IMAGE_API_KEY, value.IMAGE_MODEL, "IMAGE"),
-    extraImageSites: value.IMAGE2_BASE_URL && value.IMAGE2_API_KEY.trim()
-      ? [
-          provider(
-            value.IMAGE2_BASE_URL,
-            value.IMAGE2_API_KEY,
-            value.IMAGE2_MODEL || value.IMAGE_MODEL,
-            "IMAGE2"
-          )!
-        ]
-      : [],
+    // 额外生图站点（IMAGE2_/IMAGE3_/…）从原始 env 动态扫描：面板可增删任意数量，
+    // zod schema 只声明主站三键，避免与扫描结果双算。model 缺省时已回落 IMAGE_MODEL。
+    extraImageSites: collectEnvExtraImageSites(env).map((site, index) =>
+      provider(site.baseUrl, site.apiKey, site.model, `IMAGE${index + 2}`)!
+    ),
     wechat:
       value.WECHAT_APPID.trim() && value.WECHAT_APPSECRET.trim()
         ? { appId: value.WECHAT_APPID.trim(), appSecret: value.WECHAT_APPSECRET.trim() }
@@ -160,7 +155,14 @@ export function parseServerConfig(
 
 export function getServerConfig() {
   loadWorkspaceEnv();
-  return parseServerConfig(process.env);
+  // 设置面板覆盖层（app_settings 表）优先于 env 默认层；读取失败或无覆盖行时 env 原样生效。
+  return parseServerConfig(withProviderOverrides(process.env, loadProviderOverrides()));
+}
+
+/** 设置面板 API 用的 env 快照：确保 workspace env 文件已加载后返回 process.env。 */
+export function getWorkspaceEnv(): NodeJS.ProcessEnv {
+  loadWorkspaceEnv();
+  return process.env;
 }
 
 export function toPublicLlmConfig(config: ServerConfig): PublicLlmConfig {

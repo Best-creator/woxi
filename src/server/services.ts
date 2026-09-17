@@ -298,6 +298,24 @@ export function resetImageModelCatalogForTest() {
   imageGenerator = undefined;
 }
 
+/**
+ * 设置面板保存配置后的热生效钩子：丢弃全部按旧配置构建的适配器单例与生图模型目录缓存，
+ * 下一次 getXxx() 按新配置重建。不影响仓储类单例（与 provider 配置无关）。
+ */
+export function resetProviderAdapters() {
+  openAiJsonClient = undefined;
+  storyboardDesigner = undefined;
+  contentReviewer = undefined;
+  visualPlanner = undefined;
+  outlineGenerator = undefined;
+  outlineReviewer = undefined;
+  comicStripModeRouter = undefined;
+  characterDescriber = undefined;
+  imageGenerator = undefined;
+  wechatDraftPublisher = undefined;
+  imageCatalogCache = null;
+}
+
 let wechatDraftPublisher: WechatDraftPublisher | undefined;
 
 /**

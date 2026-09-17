@@ -11,6 +11,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </Link>
         <nav aria-label="主导航">
           <Link className="nav-link" href="/">文章</Link>
+          <Link className="nav-link" href="/settings">设置</Link>
         </nav>
       </header>
       <main className="main-content">{children}</main>

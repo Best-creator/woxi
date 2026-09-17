@@ -12,8 +12,16 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock("@/server/config", async () => ({
+  // config 保留真实实现，但 mock 掉它的 settings-store 依赖（node:sqlite 无法被
+  // jsdom 环境打包）——覆盖层读取按「无覆盖行」处理，getServerConfig 返回测试配置。
   ...(await vi.importActual<typeof import("@/server/config")>("@/server/config")),
   getServerConfig: () => state.config
+}));
+
+vi.mock("@/server/settings-store", () => ({
+  loadProviderOverrides: () => null,
+  loadProviderOverridesUpdatedAt: () => null,
+  saveProviderOverrides: () => ""
 }));
 
 describe("GET /api/llm/models", () => {

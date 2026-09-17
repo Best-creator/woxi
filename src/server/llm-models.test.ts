@@ -2,6 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 import { parseServerConfig } from "./config";
 import { discoverLlmModels, getPublicLlmConfigWithDiscovery, pickPreferredModel } from "./llm-models";
 
+// config 经 settings-store 依赖 node:sqlite，jsdom 无法打包该内建模块——
+// mock 掉存取通道（返回「无覆盖行」）即可让真实 config 正常加载。
+vi.mock("./settings-store", () => ({
+  loadProviderOverrides: () => null,
+  loadProviderOverridesUpdatedAt: () => null,
+  saveProviderOverrides: () => ""
+}));
+
 const config = {
   baseUrl: "https://llm.example.test",
   apiKey: "secret",

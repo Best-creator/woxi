@@ -163,6 +163,12 @@ export function migrateDatabase(db: DatabaseSync) {
       created_at TEXT NOT NULL,
       FOREIGN KEY (revision_id) REFERENCES article_revisions(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
     `);
 
     const columns = db
