@@ -330,6 +330,67 @@ describe("image asset contracts", () => {
     expect(removed.article.blocks.some((block) => block.assetId === retained.id)).toBe(false);
     expect(await images.findById(article.id, retained.id)).toBeNull();
   });
+
+  it("disables superseded generated assets on replanning but spares manual edits and comic strips", async () => {
+    const { images, article } = await createArticleWithBlocks();
+
+    const first = await images.applyPlan(article.id, article.updatedAt, [cover, concept]);
+    if (first.kind !== "saved") throw new Error("first plan should save");
+    const conceptAsset = first.assets.find((item) => item.type === "concept");
+    if (!conceptAsset) throw new Error("concept asset should exist");
+
+    const begin = await images.beginGeneration(
+      article.id,
+      conceptAsset.id,
+      first.article.updatedAt
+    );
+    if (begin.kind !== "saved") throw new Error("begin should save");
+    const completed = await images.completeGeneration(
+      article.id,
+      conceptAsset.id,
+      begin.article.updatedAt,
+      {
+        publicUrl: "https://cdn.example.test/frame.png",
+        filePath: null,
+        generationId: "gen-superseded-1"
+      }
+    );
+    if (completed.kind !== "saved") throw new Error("complete should save");
+
+    const strip = await images.saveComicStrip(article.id, completed.article.updatedAt, {
+      assetId: "strip-asset-1",
+      generationId: "gen-strip-1",
+      mode: "text_image",
+      anchorBlockId: "block-paragraph-2",
+      consumedContent: {
+        blocks: twoBlocks().filter((block) => block.id === "block-paragraph-2"),
+        resumeBeforeBlockId: "block-paragraph-2"
+      },
+      altText: "漫画长图",
+      purpose: "漫画长图｜3 格",
+      filePath: "strip-1.png"
+    });
+    if (strip.kind !== "saved") throw new Error("strip should save");
+
+    const replanned = await images.applyPlan(article.id, strip.article.updatedAt, [cover]);
+    if (replanned.kind !== "saved") throw new Error("replan should save");
+
+    // 重规划新建的封面（placeholder），与幸存的旧帧、长图并列在全量列表里。
+    const freshCovers = replanned.assets.filter(
+      (item) => item.type === "cover" && item.status === "placeholder"
+    );
+    expect(freshCovers).toHaveLength(1);
+
+    const after = await images.list(article.id);
+    // 生成过的旧帧被新计划取代：禁用（不是删除），版本历史仍在。
+    expect(after.find((item) => item.id === conceptAsset.id)?.status).toBe("disabled");
+    // 长图是作者手动拼的：重规划不得碰它。
+    expect(after.find((item) => item.id === "strip-asset-1")?.status).toBe("generated");
+    // 旧计划的封面（placeholder 未手动）按既有规则直接删除。
+    expect(
+      after.find((item) => item.type === "cover" && item.id !== freshCovers[0]?.id)
+    ).toBeUndefined();
+  });
 });
 
 describe("image generation state machine", () => {

@@ -225,6 +225,20 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
       for (const asset of disposable) {
         this.db.prepare("DELETE FROM image_assets WHERE id = ?").run(asset.id);
       }
+      // 重新规划是对整篇配图的完整重做：旧计划生成/失败过的资产让位——禁用而非删除，
+      // 版本历史与文件仍在素材库可查可恢复。长图（consumedContent 非空）与手动编辑过的
+      // 资产是作者亲手定的，批量重规划不得顶替；generating 中的不碰，避免与生成任务竞态。
+      const superseded = existing.filter(
+        (asset) =>
+          asset.consumedContent === null &&
+          !asset.manuallyEdited &&
+          (asset.status === "generated" || asset.status === "failed")
+      );
+      for (const asset of superseded) {
+        this.db
+          .prepare("UPDATE image_assets SET status = 'disabled', updated_at = ? WHERE id = ?")
+          .run(nextTimestamp(asset.updatedAt), asset.id);
+      }
 
       let assetTimestamp = article.updatedAt;
       let position = this.nextPosition(articleId);
@@ -477,11 +491,14 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
         .prepare("UPDATE image_asset_generations SET selected = 1 WHERE id = ?")
         .run(generationId);
       // 选用即把该版镜像到资产上：正文块、content 路由、发布链路都只看资产。
+      // manuallyEdited 一并置位：作者亲手选定/挪动的版本是钦点，
+      // 之后的批量重规划不得把它当自动资产清掉或禁用。
       this.updateAsset({
         ...asset,
         status: "generated",
         publicUrl: target.public_url,
         filePath: target.file_path,
+        manuallyEdited: true,
         updatedAt: nextTimestamp(asset.updatedAt)
       });
 

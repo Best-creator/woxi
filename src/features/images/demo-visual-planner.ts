@@ -49,8 +49,11 @@ export class DemoVisualPlanner implements VisualPlanner {
         {
           type: "cover",
           anchorBlockId: null,
-          purpose: `概览${input.topic}`,
-          prompt: `${input.topic}：围绕「${input.title || input.topic}」绘制日系动漫画风公众号封面，清晰线条、赛璐璐上色，无水印。`,
+          purpose: `${input.topic}封面钩子（与首格分镜错开）`,
+          prompt:
+            `${input.topic}：以悬念式封面构图绘制日系动漫画风公众号封面——` +
+            `放大该主题最具反差的符号元素作视觉焦点，不复述文章标题，` +
+            `与第一格分镜（问题起点）错开场景与母题，清晰线条、赛璐璐上色，无水印。`,
           altText: `${input.topic}封面图`,
           aspectRatio: "cover"
         },

@@ -80,4 +80,122 @@ describe("mergeImageBlocks", () => {
       "/api/image-assets/asset-1/content"
     );
   });
+
+  it("renders only the latest cover when multiple cover assets exist", () => {
+    const blocks = mergeImageBlocks(twoBlocks(), [
+      asset({
+        id: "cover-old",
+        type: "cover",
+        anchorBlockId: null,
+        aspectRatio: "cover",
+        createdAt: "2026-09-16T00:00:00.000Z"
+      }),
+      asset({
+        id: "cover-new",
+        type: "cover",
+        anchorBlockId: null,
+        aspectRatio: "cover",
+        createdAt: "2026-09-17T00:00:00.000Z"
+      })
+    ]);
+
+    const imageBlocks = blocks.filter((block) => block.type === "image");
+    expect(imageBlocks).toHaveLength(1);
+    expect(imageBlocks[0]?.assetId).toBe("cover-new");
+  });
+
+  it("renders only the latest frame per anchor and type", () => {
+    const blocks = mergeImageBlocks(twoBlocks(), [
+      asset({ id: "frame-old", createdAt: "2026-09-16T00:00:00.000Z" }),
+      asset({ id: "frame-new", createdAt: "2026-09-17T00:00:00.000Z" })
+    ]);
+
+    const imageBlocks = blocks.filter((block) => block.type === "image");
+    expect(imageBlocks).toHaveLength(1);
+    expect(imageBlocks[0]?.assetId).toBe("frame-new");
+  });
+
+  it("keeps assets of different types at the same anchor (dedupe only within the same slot)", () => {
+    const blocks = mergeImageBlocks(twoBlocks(), [
+      asset({ id: "frame-storyboard", type: "storyboard" }),
+      asset({ id: "frame-concept", type: "concept" })
+    ]);
+
+    const imageBlocks = blocks.filter((block) => block.type === "image");
+    expect(imageBlocks.map((block) => block.assetId).sort()).toEqual([
+      "frame-concept",
+      "frame-storyboard"
+    ]);
+  });
+
+  it("falls back to the older version when the latest one is disabled", () => {
+    const blocks = mergeImageBlocks(twoBlocks(), [
+      asset({
+        id: "cover-old",
+        type: "cover",
+        anchorBlockId: null,
+        aspectRatio: "cover",
+        createdAt: "2026-09-16T00:00:00.000Z"
+      }),
+      asset({
+        id: "cover-new",
+        type: "cover",
+        anchorBlockId: null,
+        aspectRatio: "cover",
+        createdAt: "2026-09-17T00:00:00.000Z",
+        status: "disabled"
+      })
+    ]);
+
+    const imageBlocks = blocks.filter((block) => block.type === "image");
+    expect(imageBlocks).toHaveLength(1);
+    expect(imageBlocks[0]?.assetId).toBe("cover-old");
+  });
+
+  it("breaks a createdAt tie deterministically by id", () => {
+    const blocks = mergeImageBlocks(twoBlocks(), [
+      asset({ id: "frame-a" }),
+      asset({ id: "frame-b" })
+    ]);
+
+    const imageBlocks = blocks.filter((block) => block.type === "image");
+    expect(imageBlocks).toHaveLength(1);
+    expect(imageBlocks[0]?.assetId).toBe("frame-b");
+  });
+
+  it("keeps a manually edited asset over a newer automatic one in the same slot", () => {
+    const blocks = mergeImageBlocks(twoBlocks(), [
+      asset({ id: "frame-manual", createdAt: "2026-09-16T00:00:00.000Z", manuallyEdited: true }),
+      asset({ id: "frame-newer", createdAt: "2026-09-17T00:00:00.000Z" })
+    ]);
+
+    const imageBlocks = blocks.filter((block) => block.type === "image");
+    expect(imageBlocks).toHaveLength(1);
+    expect(imageBlocks[0]?.assetId).toBe("frame-manual");
+  });
+
+  it("picks the latest among multiple manually edited versions", () => {
+    const blocks = mergeImageBlocks(twoBlocks(), [
+      asset({
+        id: "cover-manual-old",
+        type: "cover",
+        anchorBlockId: null,
+        aspectRatio: "cover",
+        createdAt: "2026-09-16T00:00:00.000Z",
+        manuallyEdited: true
+      }),
+      asset({
+        id: "cover-manual-new",
+        type: "cover",
+        anchorBlockId: null,
+        aspectRatio: "cover",
+        createdAt: "2026-09-17T00:00:00.000Z",
+        manuallyEdited: true
+      })
+    ]);
+
+    const imageBlocks = blocks.filter((block) => block.type === "image");
+    expect(imageBlocks).toHaveLength(1);
+    expect(imageBlocks[0]?.assetId).toBe("cover-manual-new");
+  });
 });
