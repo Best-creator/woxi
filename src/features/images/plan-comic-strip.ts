@@ -14,7 +14,7 @@ import type { ComicStripMode, ConsumedContent, ImageAsset } from "./domain";
  * knowledge_card 故意不在其中：它是收尾的行动清单，是可被复制、被引用的文本，
  * 烘进像素图里反而没法用了——所以它留在正文里，跟在长图后面。
  */
-const CONSUMABLE_BLOCK_TYPES: ReadonlySet<BlockType> = new Set<BlockType>([
+export const CONSUMABLE_BLOCK_TYPES: ReadonlySet<BlockType> = new Set<BlockType>([
   "heading",
   "paragraph",
   "quote",

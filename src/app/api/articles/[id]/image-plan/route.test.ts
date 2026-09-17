@@ -132,6 +132,7 @@ describe("image plan route", () => {
       selectGeneration: images.selectGeneration.bind(images),
       deleteGeneration: images.deleteGeneration.bind(images),
       saveComicStrip: images.saveComicStrip.bind(images),
+      saveComicStripsBatch: images.saveComicStripsBatch.bind(images),
       removeComicStrip: images.removeComicStrip.bind(images),
       applyStoryboardPlan: images.applyStoryboardPlan.bind(images)
     };

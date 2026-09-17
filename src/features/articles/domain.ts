@@ -34,6 +34,11 @@ export interface ArticlePlanning {
    * 分段拼接（每段一张段图进公众号）按这里的路由消费。
    */
   storyboardSegments?: StoryboardSegment[] | null;
+  /**
+   * 分段拼接的字体选择（images 域 STORYBOARD_FONT_OPTIONS 里的 id）。
+   * 文案烘进段图后字体就是像素，成稿观感由这里决定；空值/未知 id 在拼接时回落默认字体。
+   */
+  storyboardFontId?: string | null;
 }
 
 /**

@@ -189,6 +189,18 @@ export interface ImageAssetRepository {
     input: SaveComicStripInput
   ): Promise<ImagePlanMutationResult>;
   /**
+   * 一次落库一批段图（分段拼接：每段一张）。
+   *
+   * 相邻段之间没有间隔块，逐张落库时前一张的「插回位置」会落在后一张要吃的块上，
+   * 合并顺序就会错乱——批量插入后只合并一次，段图锚点在正文里的先后即成图顺序，
+   * 且整批只推进一次 updatedAt。
+   */
+  saveComicStripsBatch(
+    articleId: string,
+    expectedUpdatedAt: string,
+    strips: SaveComicStripInput[]
+  ): Promise<ImagePlanMutationResult>;
+  /**
    * 取消长图：删掉资产、清掉磁盘文件，并把当初替换掉的正文原样放回去。
    * 原文一直是随身带着的快照，所以这里能完整还原，不依赖任何版本历史。
    */

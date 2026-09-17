@@ -118,3 +118,65 @@ export interface ImageLibraryItem extends ImageGeneration {
   assetPurpose: string;
 }
 
+/**
+ * 分段拼接的内置字体选项。
+ *
+ * 文案烘进段图后就是像素，字体必须在**本机渲染时**命中——所以只列 Windows / macOS
+ * 自带、librsvg 能找到的中文系统字体，每个选项都带跨平台回落链。
+ * 微信侧不再参与渲染：读者看到的就是这张图，所见即所得。
+ */
+export interface StoryboardFontOption {
+  id: string;
+  label: string;
+  fontFamily: string;
+}
+
+export const DEFAULT_STORYBOARD_FONT_ID = "sans_default";
+
+export const STORYBOARD_FONT_OPTIONS: readonly StoryboardFontOption[] = [
+  {
+    id: "sans_default",
+    label: "默认黑体",
+    fontFamily: "'PingFang SC','Microsoft YaHei','Noto Sans CJK SC',sans-serif"
+  },
+  {
+    id: "yahei",
+    label: "微软雅黑",
+    fontFamily: "'Microsoft YaHei','PingFang SC','Noto Sans CJK SC',sans-serif"
+  },
+  {
+    id: "dengxian",
+    label: "等线",
+    fontFamily: "'DengXian','PingFang SC','Microsoft YaHei',sans-serif"
+  },
+  {
+    id: "simhei",
+    label: "黑体",
+    fontFamily: "'SimHei','PingFang SC','Microsoft YaHei',sans-serif"
+  },
+  {
+    id: "simsun",
+    label: "宋体",
+    fontFamily: "'SimSun','Songti SC','Noto Serif CJK SC',serif"
+  },
+  {
+    id: "kaiti",
+    label: "楷体",
+    fontFamily: "'KaiTi','Kaiti SC','STKaiti',serif"
+  },
+  {
+    id: "fangsong",
+    label: "仿宋",
+    fontFamily: "'FangSong','STFangsong','FangSong_GB2312',serif"
+  }
+];
+
+/** 解析字体选择：空值/未知 id 一律回落默认黑体，拼接不因一个字体 id 卡住。 */
+export function resolveStoryboardFont(fontId?: string | null): StoryboardFontOption {
+  const normalized = fontId?.trim() ?? "";
+  return (
+    STORYBOARD_FONT_OPTIONS.find((option) => option.id === normalized) ??
+    (STORYBOARD_FONT_OPTIONS[0] as StoryboardFontOption)
+  );
+}
+

@@ -58,7 +58,9 @@ export const articlePlanningSchema = z.object({
   comicStripMode: z.string().nullable().optional(),
   comicStripReason: z.string().nullable().optional(),
   // 正文分镜设计（第三步写入）：原样透传，拼接阶段按段路由消费。
-  storyboardSegments: z.array(storyboardSegmentSchema).nullable().optional()
+  storyboardSegments: z.array(storyboardSegmentSchema).nullable().optional(),
+  // 分段拼接字体 id：原样透传，拼接时用 resolveStoryboardFont 解析（未知 id 回落默认字体）。
+  storyboardFontId: z.string().trim().max(64).nullable().optional()
 });
 
 export const knowledgeBriefSchema = z.object({

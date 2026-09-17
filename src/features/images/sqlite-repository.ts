@@ -18,7 +18,7 @@ import type {
   ImagePlanSuggestion
 } from "./domain";
 import { imageContentUrl, mergeImageBlocks } from "./merge-image-blocks";
-import { restoreConsumedBlocks } from "./consumed-content";
+import { restoreConsumedBlocks, withStripsRestored } from "./consumed-content";
 import type { ComicStripModeDecision } from "./comic-strip-mode-router";
 import { parseImageAssetRow as parseAsset, type ImageAssetRow } from "./asset-row";
 import type {
@@ -695,53 +695,93 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
     return this.inTransaction(() => {
       const article = this.currentArticle(articleId, expectedUpdatedAt);
       if (!article) return this.missingOrConflict(articleId, expectedUpdatedAt);
-      if (!input.consumedContent.blocks.length) {
-        return { kind: "invalid_state", message: "长图没有要替换的正文，无法落库" };
-      }
-      // 锚点必须真的存在：它决定长图插在正文的哪一段，落错位置比不落更糟。
-      const anchorExists = article.blocks.some(
-        (block) => block.type !== "image" && block.id === input.anchorBlockId
-      );
-      if (!anchorExists) return { kind: "invalid_anchor", anchorBlockId: input.anchorBlockId };
+      const invalid = this.validateComicStripInput(article, input);
+      if (invalid) return invalid;
 
       const timestamp = nextTimestamp(article.updatedAt);
-      this.insertAsset(
-        {
-          id: input.assetId,
-          articleId,
-          anchorBlockId: input.anchorBlockId,
-          type: "comic_strip",
-          purpose: input.purpose,
-          prompt: `漫画长图｜${input.mode}｜${input.consumedContent.blocks.length} 块`,
-          altText: input.altText,
-          aspectRatio: "portrait",
-          status: "generated",
-          placeholderUrl: imageContentUrl(input.assetId),
-          filePath: input.filePath,
-          publicUrl: null,
-          // 长图是作者手动拼出来的，不该被后续「重新规划配图」当占位图清掉。
-          manuallyEdited: true,
-          consumedContent: {
-            blocks: input.consumedContent.blocks.map((block) => ({ ...block })),
-            resumeBeforeBlockId: input.consumedContent.resumeBeforeBlockId
-          },
-          createdAt: timestamp,
-          updatedAt: timestamp
-        },
-        this.nextPosition(articleId)
-      );
-      this.insertGeneration({
-        id: input.generationId,
+      this.insertComicStripRows(input, articleId, timestamp);
+      return this.saveAggregate(article, expectedUpdatedAt, this.listSync(articleId));
+    });
+  }
+
+  async saveComicStripsBatch(
+    articleId: string,
+    expectedUpdatedAt: string,
+    strips: SaveComicStripInput[]
+  ): Promise<ImagePlanMutationResult> {
+    return this.inTransaction(() => {
+      const article = this.currentArticle(articleId, expectedUpdatedAt);
+      if (!article) return this.missingOrConflict(articleId, expectedUpdatedAt);
+      if (!strips.length) {
+        return { kind: "invalid_state", message: "没有要落库的段图" };
+      }
+      for (const input of strips) {
+        const invalid = this.validateComicStripInput(article, input);
+        if (invalid) return invalid;
+      }
+
+      // 整批一个时间戳、一次合并：段图锚点在正文里的先后就是成图顺序。
+      const timestamp = nextTimestamp(article.updatedAt);
+      for (const input of strips) {
+        this.insertComicStripRows(input, articleId, timestamp);
+      }
+      return this.saveAggregate(article, expectedUpdatedAt, this.listSync(articleId));
+    });
+  }
+
+  /** 长图/段图共用的落库前校验：必须有要替换的正文，且锚点块真的存在。 */
+  private validateComicStripInput(
+    article: Article,
+    input: SaveComicStripInput
+  ): ImagePlanMutationResult | null {
+    if (!input.consumedContent.blocks.length) {
+      return { kind: "invalid_state", message: "长图没有要替换的正文，无法落库" };
+    }
+    // 锚点必须真的存在：它决定长图插在正文的哪一段，落错位置比不落更糟。
+    const anchorExists = article.blocks.some(
+      (block) => block.type !== "image" && block.id === input.anchorBlockId
+    );
+    if (!anchorExists) return { kind: "invalid_anchor", anchorBlockId: input.anchorBlockId };
+    return null;
+  }
+
+  /** 插入长图资产行与它的生成版本行；文件已由编排层写好盘，这里只记元数据。 */
+  private insertComicStripRows(input: SaveComicStripInput, articleId: string, timestamp: string) {
+    this.insertAsset(
+      {
+        id: input.assetId,
         articleId,
-        assetId: input.assetId,
-        prompt: `漫画长图｜${input.mode}`,
-        model: null,
+        anchorBlockId: input.anchorBlockId,
+        type: "comic_strip",
+        purpose: input.purpose,
+        prompt: `漫画长图｜${input.mode}｜${input.consumedContent.blocks.length} 块`,
+        altText: input.altText,
+        aspectRatio: "portrait",
+        status: "generated",
+        placeholderUrl: imageContentUrl(input.assetId),
         filePath: input.filePath,
         publicUrl: null,
-        selected: true,
-        createdAt: timestamp
-      });
-      return this.saveAggregate(article, expectedUpdatedAt, this.listSync(articleId));
+        // 长图是作者手动拼出来的，不该被后续「重新规划配图」当占位图清掉。
+        manuallyEdited: true,
+        consumedContent: {
+          blocks: input.consumedContent.blocks.map((block) => ({ ...block })),
+          resumeBeforeBlockId: input.consumedContent.resumeBeforeBlockId
+        },
+        createdAt: timestamp,
+        updatedAt: timestamp
+      },
+      this.nextPosition(articleId)
+    );
+    this.insertGeneration({
+      id: input.generationId,
+      articleId,
+      assetId: input.assetId,
+      prompt: `漫画长图｜${input.mode}`,
+      model: null,
+      filePath: input.filePath,
+      publicUrl: null,
+      selected: true,
+      createdAt: timestamp
     });
   }
 
@@ -972,7 +1012,10 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
     const updatedAt = nextTimestamp(article.updatedAt);
     const updatedArticle: Article = {
       ...article,
-      blocks: mergeImageBlocks(blocks, assets, removedAssetIds),
+      // 合并前先虚拟还原所有长图吃掉的块：长图的锚点是它自己吃掉的第一个块，
+      // 那个块在上一次落库时已经从 blocks_json 里消失了——不还原的话，
+      // 这次合并会因为「锚点不在正文里」把已有长图悄悄丢掉（分段拼接首拼即暴露）。
+      blocks: mergeImageBlocks(withStripsRestored(blocks, assets), assets, removedAssetIds),
       updatedAt
     };
     const result = this.db
