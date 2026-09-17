@@ -1047,8 +1047,16 @@ export function ImagePlanningPanel({
                     <button
                       className="icon-button"
                       type="button"
-                      title={`重建占位图 ${index + 1}`}
-                      aria-label={`重建占位图 ${index + 1}`}
+                      title={
+                        asset.status === "generating"
+                          ? `生成卡住了？点此取消并恢复占位图 ${index + 1}`
+                          : `重建占位图 ${index + 1}`
+                      }
+                      aria-label={
+                        asset.status === "generating"
+                          ? `取消生成并恢复占位图 ${index + 1}`
+                          : `重建占位图 ${index + 1}`
+                      }
                       disabled={locked || busy || asset.status === "disabled" || !refreshPlaceholder}
                       onClick={() => refreshPlaceholder && void run(() => refreshPlaceholder(asset.id, article.updatedAt))}
                     >

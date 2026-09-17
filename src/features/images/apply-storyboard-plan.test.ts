@@ -126,7 +126,7 @@ describe("applyStoryboardPlan", () => {
 
     expect(result).toMatchObject({
       kind: "invalid_state",
-      message: "有分镜图正在生成，请等生成结束或失败后再重新设计分镜"
+      message: "有分镜图正在生成，请等生成结束或失败后再重新设计分镜；若长时间未动，可先在配图步骤点该帧的「取消生成并恢复占位图」"
     });
   });
 

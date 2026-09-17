@@ -457,6 +457,37 @@ describe("image generation state machine", () => {
     ).toMatchObject({ kind: "invalid_state" });
   });
 
+  it("auto-recovers a zombie generating asset once it exceeds the stale threshold", async () => {
+    const { db, articles, images, article } = await createArticleWithBlocks();
+    // 阈值 0：任何 generating 在读取时都视为僵死任务（模拟进程重启后的遗留状态）。
+    const staleImages = new SqliteImageAssetRepository(db, 0);
+
+    const planned = await images.applyPlan(article.id, article.updatedAt, [cover]);
+    if (planned.kind !== "saved") throw new Error("plan should save");
+    const asset = planned.assets[0];
+    if (!asset) throw new Error("asset should exist");
+
+    const begun = await images.beginGeneration(article.id, asset.id, planned.article.updatedAt);
+    if (begun.kind !== "saved") throw new Error("begin should save");
+    // 自愈前重试仍被拒：僵尸 generating 堵死所有推进路径。
+    expect(
+      await staleImages.beginGeneration(article.id, asset.id, begun.article.updatedAt)
+    ).toMatchObject({ kind: "invalid_state", message: "图片正在生成中" });
+
+    // 留出毫秒差，保证 updated_at 严格小于 cutoff。
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    // 读取即自愈：僵尸 generating 置为 failed，且不推进文章版本。
+    const recovered = await staleImages.list(article.id);
+    expect(recovered.find((item) => item.id === asset.id)?.status).toBe("failed");
+    expect((await articles.findById(article.id))?.updatedAt).toBe(begun.article.updatedAt);
+
+    // 解卡端到端：无需手动恢复即可重新生成。
+    expect(
+      await images.beginGeneration(article.id, asset.id, begun.article.updatedAt)
+    ).toMatchObject({ kind: "saved" });
+  });
+
   it("refuses completion when the asset is not generating", async () => {
     const { images, article } = await createArticleWithBlocks();
     const planned = await images.applyPlan(article.id, article.updatedAt, [cover]);

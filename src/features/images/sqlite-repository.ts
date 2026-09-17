@@ -121,10 +121,33 @@ function parseGeneration(row: ImageGenerationRow): ImageGeneration {
 }
 
 export class SqliteImageAssetRepository implements ImageAssetRepository {
-  constructor(private readonly db: DatabaseSync) {}
+  constructor(
+    private readonly db: DatabaseSync,
+    /** 「生成中」僵死判定阈值；默认 15 分钟（上游超时 180s × 最多 3 次冷却重试 ≈ 11 分钟，再留余量）。 */
+    private readonly staleGeneratingThresholdMs = 15 * 60 * 1000
+  ) {}
 
   async list(articleId: string): Promise<ImageAsset[]> {
+    this.recoverStaleGenerations(articleId);
     return this.listSync(articleId);
+  }
+
+  /**
+   * 自愈「生成中」僵死状态：进程重启/崩溃会让正在跑的生成任务凭空蒸发，
+   * 资产却永远停在 generating——不能重试、不能重规划、不能重设计分镜，整条链路被堵死。
+   * 超过阈值仍处于 generating 的必然是没有主人收尾的僵尸任务（正常生成最坏
+   * 180s×3 次冷却重试约 11 分钟内必然落地为 generated/failed），直接置为 failed，
+   * 占位图继续可用、可立即重试。UPDATE 按状态命中，并发读与重复执行都安全；
+   * generating/failed 对正文渲染都是占位图，无需重写 blocks_json。
+   */
+  private recoverStaleGenerations(articleId: string) {
+    const cutoff = new Date(Date.now() - this.staleGeneratingThresholdMs).toISOString();
+    this.db
+      .prepare(
+        "UPDATE image_assets SET status = 'failed', updated_at = ? " +
+          "WHERE article_id = ? AND status = 'generating' AND updated_at < ?"
+      )
+      .run(new Date().toISOString(), articleId, cutoff);
   }
 
   async findById(articleId: string, assetId: string): Promise<ImageAsset | null> {
@@ -621,7 +644,8 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
       if (oldStoryboards.some((asset) => asset.status === "generating")) {
         return {
           kind: "invalid_state",
-          message: "有分镜图正在生成，请等生成结束或失败后再重新设计分镜"
+          message:
+            "有分镜图正在生成，请等生成结束或失败后再重新设计分镜；若长时间未动，可先在配图步骤点该帧的「取消生成并恢复占位图」"
         };
       }
 

@@ -437,9 +437,14 @@ describe("ImagePlanningPanel", () => {
         assets={[imageAsset({ status: "generating" })]}
         onResult={vi.fn()}
         generateImage={generateImage}
+        refreshPlaceholder={vi.fn(async () => ({ article, assets: [imageAsset()] }))}
       />
     );
     expect(screen.getByRole("button", { name: "生成配图 1" })).toBeDisabled();
+    // 生成中提供明确的解卡入口：取消生成并恢复占位图。
+    expect(
+      screen.getByRole("button", { name: "取消生成并恢复占位图 1" })
+    ).toBeEnabled();
 
     // 正常状态可点击。
     rerender(
