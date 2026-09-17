@@ -25,7 +25,7 @@ test.describe("unified article workflow", () => {
     await expect(workflow.getByRole("button")).toHaveCount(4);
     await expect(workflow.getByRole("button", { name: /资料来源/ })).toBeEnabled();
     await expect(workflow.getByRole("button", { name: /文章大纲/ })).toHaveAttribute("aria-current", "step");
-    await expect(workflow.getByRole("button", { name: /正文文章/ })).toBeDisabled();
+    await expect(workflow.getByRole("button", { name: /设计分镜/ })).toBeDisabled();
     await expect(workflow.getByRole("button", { name: /配图/ })).toBeDisabled();
 
     await page.getByRole("button", { name: "生成理解与大纲" }).click();
@@ -33,7 +33,7 @@ test.describe("unified article workflow", () => {
     await expect(page.getByText("审核通过", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "确认大纲" }).click();
     await expect(page).toHaveURL(/\?step=article$/);
-    await expect(workflow.getByRole("button", { name: /正文文章/ })).toHaveAttribute("aria-current", "step");
+    await expect(workflow.getByRole("button", { name: /设计分镜/ })).toHaveAttribute("aria-current", "step");
     const generateResponse = page.waitForResponse(
       (response) =>
         response.request().method() === "POST" &&

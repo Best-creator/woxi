@@ -83,7 +83,7 @@ export function ComicStripControl({
       const firstStrip = result.strips?.[0];
       setDecision(
         firstStrip
-          ? { mode: firstStrip.mode as ComicStripMode, reason: firstStrip.reason }
+          ? { mode: firstStrip.mode as ComicStripMode, reason: firstStrip.reason ?? "" }
           : null
       );
       onResult(result);

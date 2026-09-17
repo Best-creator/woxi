@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { articleFixture, twoBlocks } from "../../../../../tests/fixtures/article";
 import { resolveStyleProfile } from "@/features/content/style-profile";
-import type { Article } from "@/features/articles/domain";
+import type { Article, ContentBlock, StoryboardSegment } from "@/features/articles/domain";
 import type { ArticleReview, ArticleRevision, ContentRevisionSnapshot } from "@/features/revisions/domain";
 import type { ContentReviewResult } from "@/features/content/ports";
 import { ContentWorkspace } from "./content-workspace";
@@ -38,6 +38,41 @@ const generatedArticle: Article = {
   status: "editing",
   blocks: twoBlocks(),
   planning: { ...readyArticle.planning, contentOutlineRevisionId: "revision-1" }
+};
+
+/** 已完成分镜设计的正文：每段 = 标题块 + 文案块，路由覆盖两种排法。 */
+const storyboardSegments: StoryboardSegment[] = [
+  {
+    id: "seg-1",
+    sectionKey: "section-1",
+    title: "开场",
+    route: "image_text",
+    copyBlockIds: ["seg1-h", "seg1-p"],
+    frameAssetIds: ["frame-1"],
+    order: 0
+  },
+  {
+    id: "seg-2",
+    sectionKey: "section-2",
+    title: "机制",
+    route: "text_image",
+    copyBlockIds: ["seg2-h", "seg2-p"],
+    frameAssetIds: ["frame-2"],
+    order: 1
+  }
+];
+
+const storyboardBlocks: ContentBlock[] = [
+  { id: "seg1-h", type: "heading", content: "开场", order: 0, level: 2, segmentId: "seg-1", version: 1 },
+  { id: "seg1-p", type: "paragraph", content: "第一段文案。", order: 1, segmentId: "seg-1", version: 1 },
+  { id: "seg2-h", type: "heading", content: "机制", order: 2, level: 2, segmentId: "seg-2", version: 1 },
+  { id: "seg2-p", type: "paragraph", content: "第二段文案。", order: 3, segmentId: "seg-2", version: 1 }
+];
+
+const storyboardArticle: Article = {
+  ...generatedArticle,
+  blocks: storyboardBlocks,
+  planning: { ...generatedArticle.planning, storyboardSegments }
 };
 
 function revision(overrides: Partial<ArticleRevision<ContentRevisionSnapshot>> = {}): ArticleRevision<ContentRevisionSnapshot> {
@@ -219,5 +254,54 @@ describe("ContentWorkspace", () => {
     expect(summary).toHaveTextContent("2 个内容块");
     expect(summary).toHaveTextContent("目标约 1200 字");
     expect(summary).toHaveTextContent("还差 99%");
+  });
+
+  it("renders storyboard segment cards once a design exists", async () => {
+    const user = userEvent.setup();
+    const onEditPlanning = vi.fn();
+    render(
+      <ContentWorkspace
+        article={storyboardArticle}
+        llmConfig={{ enabled: false, availableModels: [], defaultModel: null }}
+        prepareArticle={async () => storyboardArticle}
+        onArticleChange={vi.fn()}
+        onEditBlocks={vi.fn()}
+        onEditPlanning={onEditPlanning}
+      />
+    );
+
+    expect(screen.getByRole("region", { name: "正文工作台" })).toBeVisible();
+    // 中栏按段拆卡：卡标题可见、未分段组退场、块编号跨卡全页唯一。
+    // （卡内 textarea 的 textContent 与标题同文案，用 heading 角色精确定位。）
+    expect(screen.getByRole("heading", { name: "开场" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "机制" })).toBeVisible();
+    expect(screen.queryByText("未分段文案")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("正文块 1")).toHaveValue("第一段文案。");
+    expect(screen.getByLabelText("正文块 2")).toHaveValue("第二段文案。");
+
+    // 排法覆盖只改 planning 对应段，其余段原样保留。
+    await user.selectOptions(screen.getByLabelText("开场 排法"), "text_image");
+    expect(onEditPlanning).toHaveBeenCalledWith({
+      storyboardSegments: [
+        { ...storyboardSegments[0], route: "text_image" },
+        storyboardSegments[1]
+      ]
+    });
+  });
+
+  it("shows the unsegmented guide for articles without a storyboard design", () => {
+    render(
+      <ContentWorkspace
+        article={generatedArticle}
+        llmConfig={{ enabled: false, availableModels: [], defaultModel: null }}
+        prepareArticle={async () => generatedArticle}
+        onArticleChange={vi.fn()}
+        onEditBlocks={vi.fn()}
+      />
+    );
+
+    // 旧文兼容：一律用新 UI，但给旧文章一条明确的指引而不是静默装作没事。
+    expect(screen.getByText("未分段文案")).toBeVisible();
+    expect(screen.getByText("这篇正文还没有分镜设计")).toBeVisible();
   });
 });

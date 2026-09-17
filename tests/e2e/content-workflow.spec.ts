@@ -79,6 +79,13 @@ test.describe("content workflow", () => {
     await expect(
       page.getByRole("heading", { name: "用大白话讲清楚：什么是机会成本" })
     ).toBeVisible();
+    // 第三步重排为「设计正文分镜」：demo 设计器逐章一段，排法覆盖三种
+    // （首段 图+文 / 中段 图+文+图 / 末段 文+图）。
+    const segmentCards = page.locator(".storyboard-segment-card");
+    await expect(segmentCards).toHaveCount(3);
+    await expect(segmentCards.nth(0).getByRole("combobox")).toHaveValue("image_text");
+    await expect(segmentCards.nth(1).getByRole("combobox")).toHaveValue("image_text_image");
+    await expect(segmentCards.nth(2).getByRole("combobox")).toHaveValue("text_image");
     await expect(page.getByRole("button", { name: "查看正文 v1" })).toBeVisible();
     // 审核为可选步骤：未审核时确认按钮可用，文案为「直接确认（未审核）」。
     await expect(page.getByRole("button", { name: "直接确认（未审核）" })).toBeEnabled();
@@ -178,6 +185,13 @@ test.describe("content workflow", () => {
     await page.getByRole("button", { name: "根据正文设计动漫分镜" }).click();
     await expect(page.getByText("待生成").first()).toBeVisible();
     await expect(page.locator("img.image-plan-thumbnail").first()).toBeVisible();
+
+    // 有分镜设计的文章：第四步入口切换为「分段拼接」（每段一张段图进公众号）。
+    // E2E 无生图服务，帧停在待生成——按钮必须明确禁用并说明还差几帧。
+    await expect(page.getByRole("region", { name: "分段拼接" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "拼接段图" })).toBeDisabled();
+    await expect(page.getByText(/帧分镜没生成图片/)).toBeVisible();
+    await expect(page.getByRole("region", { name: "漫画长图" })).toHaveCount(0);
 
     const imageSaveResponse = page.waitForResponse(
       (response) =>

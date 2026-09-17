@@ -2634,6 +2634,163 @@ h2 {
   }
 }
 
+/* 分段拼接（第四步）：与漫画长图入口同族，横跨配图面板整行。 */
+.segment-strips-control {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+}
+
+.workflow-images-panel > .segment-strips-control {
+  grid-column: 1 / -1;
+}
+
+.segment-font-field {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.segment-font-field label {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.segment-font-field select {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  padding: 4px 8px;
+}
+
+.segment-strips-summary {
+  color: var(--text);
+  font-size: 12px;
+  margin: 0;
+}
+
+/* 第三步分镜设计视图：正文按段拆卡。 */
+.storyboard-segment-list {
+  display: grid;
+  gap: 12px;
+}
+
+.storyboard-segment-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+}
+
+.storyboard-segment-head {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.storyboard-segment-title {
+  flex: 1;
+  font-size: 15px;
+  margin: 0;
+}
+
+.storyboard-segment-route-label {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.storyboard-segment-route {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  padding: 4px 8px;
+}
+
+.storyboard-segment-warning {
+  background: #fff7e6;
+  border: 1px solid #f5d9a8;
+  border-radius: var(--radius-sm);
+  color: #7a4d12;
+  font-size: 12px;
+  margin: 0;
+  padding: 6px 10px;
+}
+
+.storyboard-segment-frames {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.storyboard-segment-frame {
+  display: grid;
+  gap: 4px;
+}
+
+.storyboard-segment-frame img {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  display: block;
+  height: 96px;
+  object-fit: cover;
+  width: 96px;
+}
+
+.storyboard-frame-placeholder {
+  align-items: center;
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  display: flex;
+  font-size: 12px;
+  height: 96px;
+  justify-content: center;
+  width: 96px;
+}
+
+.storyboard-frame-caption {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.storyboard-segment-lock {
+  background: #eef3ff;
+  border: 1px solid #c3d0f5;
+  border-radius: var(--radius-sm);
+  color: #2c4a9a;
+  font-size: 12px;
+  margin: 0;
+  padding: 6px 10px;
+}
+
+.storyboard-empty-guide {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  color: var(--muted);
+  display: grid;
+  font-size: 13px;
+  gap: 4px;
+  margin-top: 10px;
+  padding: 12px 14px;
+}
+
+.storyboard-empty-guide strong {
+  color: var(--text);
+}
+
 @media (max-width: 1080px) {
   .content-workspace-grid {
     grid-template-columns: minmax(0, 1fr);

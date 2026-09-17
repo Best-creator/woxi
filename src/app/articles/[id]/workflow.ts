@@ -14,7 +14,8 @@ export interface WorkflowStepState {
 const labels: Record<WorkflowStep, string> = {
   sources: "资料来源",
   outline: "文章大纲",
-  article: "正文文章",
+  // 第三步的实质是「设计正文分镜」：生成即分段，路由与帧在设计期确定。
+  article: "设计分镜",
   images: "配图"
 };
 

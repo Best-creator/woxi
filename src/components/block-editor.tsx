@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { ContentBlock } from "@/features/articles/domain";
+import type { BlockType, ContentBlock } from "@/features/articles/domain";
 import type { ImageAsset } from "@/features/images/domain";
 
 export interface BlockEditorProps {
@@ -10,6 +10,14 @@ export interface BlockEditorProps {
   readOnly?: boolean;
   imageAssets?: ImageAsset[];
   highlightedBlockIds?: readonly string[];
+  /**
+   * 「标题块 N / 正文块 N」的编号种子：分镜设计视图把正文按段拆成多张卡片渲染，
+   * 每张卡各有一个 BlockEditor，用上一张卡的累计数做种子才能保证块编号全页唯一。
+   * 不传时从零起算，行为与旧的单编辑器完全一致。
+   */
+  initialTypeCounts?: Partial<Record<BlockType, number>>;
+  /** 整体禁用（段图拼接后锁定文案）：比 readOnly 更强的「不可编辑」语义。 */
+  disabled?: boolean;
 }
 
 const imageAspectRatios: Record<ImageAsset["aspectRatio"], number> = {
@@ -33,9 +41,16 @@ export function BlockEditor({
   onChange,
   readOnly = false,
   imageAssets = [],
-  highlightedBlockIds = []
+  highlightedBlockIds = [],
+  initialTypeCounts,
+  disabled = false
 }: BlockEditorProps) {
-  const typeCounts = new Map<ContentBlock["type"], number>();
+  const typeCounts = new Map<ContentBlock["type"], number>(
+    Object.entries(initialTypeCounts ?? {}).map(([type, count]) => [
+      type as ContentBlock["type"],
+      count ?? 0
+    ])
+  );
   const [failedImageIds, setFailedImageIds] = useState<Set<string>>(new Set());
   const highlighted = new Set(highlightedBlockIds);
 
@@ -97,7 +112,8 @@ export function BlockEditor({
               className={`block-input block-input-${block.type}`}
               value={block.content}
               rows={block.type === "heading" ? 1 : Math.max(2, block.content.split("\n").length)}
-              readOnly={readOnly}
+              readOnly={readOnly || disabled}
+              disabled={disabled}
               onChange={(event) => updateBlock(block.id, event.target.value)}
             />
           </div>

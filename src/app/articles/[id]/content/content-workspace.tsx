@@ -7,10 +7,17 @@ import { ContentReviewPanel } from "@/components/content-review-panel";
 import { ModelSelect } from "@/components/model-select";
 import { StyleProfileControl } from "@/components/style-profile-control";
 import { VersionHistory } from "@/components/version-history";
-import type { Article, ContentBlock } from "@/features/articles/domain";
+import { StoryboardSegmentList } from "@/components/storyboard-segment-list";
+import type {
+  Article,
+  ArticlePlanning,
+  ContentBlock,
+  StoryboardRoute
+} from "@/features/articles/domain";
 import { textBlocksOf } from "@/features/content/content-version";
 import type { ContentReviewResult } from "@/features/content/ports";
 import type { StyleProfile } from "@/features/content/style-profile";
+import { withStripsRestored } from "@/features/images/consumed-content";
 import type { ImageAsset } from "@/features/images/domain";
 import type {
   ArticleReview,
@@ -72,6 +79,11 @@ export interface ContentWorkspaceProps {
   /** 正文确认成功后触发：工作台借此自动进入下一步（配图）。 */
   onContentApproved?: () => void;
   onEditBlocks: (blocks: ContentBlock[]) => void;
+  /**
+   * 分镜设计相关的 planning 局部修改（路由覆盖、分段重排等）。
+   * 由工作台合并进当前 planning 后走统一的脏标记 + 自动保存 + 乐观锁。
+   */
+  onEditPlanning?: (patch: Partial<ArticlePlanning>) => void;
   onHistoryChange?: (
     versions: ArticleRevision<ContentRevisionSnapshot>[],
     review: ContentWorkspaceReview,
@@ -139,6 +151,7 @@ export function ContentWorkspace({
   onArticleChange,
   onContentApproved,
   onEditBlocks,
+  onEditPlanning,
   onHistoryChange,
   generateContent,
   reviewContent,
@@ -166,6 +179,27 @@ export function ContentWorkspace({
 
   const isBusy = operation !== "idle";
   const textBlocks = useMemo(() => textBlocksOf(article.blocks), [article.blocks]);
+  // 分镜设计视图（第三步中栏）：正文按段拆卡渲染。拼过段图后 copyBlockIds 指向的块
+  // 已从 article.blocks 消失，必须先在 withStripsRestored 的还原视图上解析；
+  // 字数统计同源，避免拼图后字数突然塌掉。审核/存版本的门禁仍读原始 blocks——
+  // 段图挂着时正文在库里的形态是「被替换后的」，不该再对它做审核或快照。
+  const segments = useMemo(
+    () =>
+      [...(article.planning.storyboardSegments ?? [])].sort(
+        (left, right) => left.order - right.order
+      ),
+    [article.planning.storyboardSegments]
+  );
+  const hasSegments = segments.length > 0;
+  const stripsComposed = useMemo(
+    () => imageAssets.some((asset) => asset.type === "comic_strip"),
+    [imageAssets]
+  );
+  const restoredBlocks = useMemo(
+    () => withStripsRestored(article.blocks, imageAssets),
+    [article.blocks, imageAssets]
+  );
+  const restoredTextBlocks = useMemo(() => textBlocksOf(restoredBlocks), [restoredBlocks]);
   const staleOutline = !(
     article.planning.confirmedOutlineRevisionId &&
     article.planning.contentOutlineRevisionId === article.planning.confirmedOutlineRevisionId
@@ -182,7 +216,8 @@ export function ContentWorkspace({
   const canSaveVersion = textBlocks.length > 0 && !staleOutline;
   const previewVersion = versions.find((version) => version.id === previewVersionId) ?? null;
   const isPreviewing = previewVersion !== null;
-  const displayedBlocks = isPreviewing ? previewVersion.snapshot.textBlocks : textBlocks;
+  // 字数与中栏展示走还原视图（见上）；历史版本预览仍读版本快照本身。
+  const displayedBlocks = isPreviewing ? previewVersion.snapshot.textBlocks : restoredTextBlocks;
   const displayedReview = isPreviewing
     ? reviewForContentVersion(previewVersion, versions, versionReviews)
     : currentReview?.review ?? null;
@@ -223,6 +258,15 @@ export function ContentWorkspace({
       document.getElementById(`block-${first}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
     }
     window.setTimeout(() => setHighlightedBlockIds([]), 2_400);
+  }
+
+  /** 段卡里的排法下拉：只改 planning 的路由字段，不碰正文块，也不受段图锁定影响。 */
+  function handleRouteChange(segmentId: string, route: StoryboardRoute) {
+    onEditPlanning?.({
+      storyboardSegments: segments.map((segment) =>
+        segment.id === segmentId ? { ...segment, route } : segment
+      )
+    });
   }
 
   const run = useCallback(async (
@@ -386,15 +430,39 @@ export function ContentWorkspace({
                 ) : null}
                 {isPreviewing ? " · 当前为历史版本" : null}
               </p>
-              <div className="article-canvas">
-                <BlockEditor
-                  blocks={isPreviewing ? displayedBlocks : article.blocks}
-                  onChange={onEditBlocks}
-                  readOnly={readOnly || isPreviewing}
+              {hasSegments && !isPreviewing ? (
+                // 设计视图：按分镜段拆卡渲染，块取自还原视图（段图烘走的文案要放回来才能编辑）。
+                <StoryboardSegmentList
+                  segments={segments}
+                  blocks={restoredBlocks}
                   imageAssets={imageAssets}
-                  highlightedBlockIds={isPreviewing ? [] : highlightedBlockIds}
+                  stripsComposed={stripsComposed}
+                  readOnly={readOnly}
+                  onEditBlocks={onEditBlocks}
+                  onRouteChange={handleRouteChange}
                 />
-              </div>
+              ) : (
+                <div className="article-canvas">
+                  {!isPreviewing && !hasSegments ? <h2 className="panel-label">未分段文案</h2> : null}
+                  <BlockEditor
+                    blocks={isPreviewing ? displayedBlocks : article.blocks}
+                    onChange={onEditBlocks}
+                    readOnly={readOnly || isPreviewing}
+                    imageAssets={imageAssets}
+                    highlightedBlockIds={isPreviewing ? [] : highlightedBlockIds}
+                  />
+                  {!isPreviewing && !hasSegments ? (
+                    // 旧文兼容：一律用新 UI。没有 segments 的文章给出明确指引而不是静默装作没事。
+                    <aside className="storyboard-empty-guide" role="note">
+                      <strong>这篇正文还没有分镜设计</strong>
+                      <span>
+                        点击右侧「生成完整正文」重新生成，正文会按大纲章节自动分成一个个分镜段；
+                        之后在第四步即可按段拼接成段图。
+                      </span>
+                    </aside>
+                  ) : null}
+                </div>
+              )}
             </>
           ) : (
             <p className="panel-empty">还没有正文。确认大纲后点击「生成完整正文」。</p>

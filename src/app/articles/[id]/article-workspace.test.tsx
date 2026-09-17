@@ -90,7 +90,7 @@ describe("ArticleWorkspace", () => {
     expect(screen.getByRole("navigation", { name: "文章工作流" })).toBeVisible();
     expect(screen.getByRole("button", { name: /资料来源.*当前/ })).toBeVisible();
     expect(screen.getByRole("button", { name: /文章大纲/ })).toBeVisible();
-    expect(screen.getByRole("button", { name: /正文文章/ })).toBeVisible();
+    expect(screen.getByRole("button", { name: /设计分镜/ })).toBeVisible();
     expect(screen.getByRole("button", { name: /配图/ })).toBeVisible();
   });
 
@@ -106,7 +106,7 @@ describe("ArticleWorkspace", () => {
       />
     );
 
-    await user.click(screen.getByRole("button", { name: /正文文章.*已锁定/ }));
+    await user.click(screen.getByRole("button", { name: /设计分镜.*已锁定/ }));
     await user.click(screen.getByRole("button", { name: /配图.*已锁定/ }));
 
     expect(generateContent).not.toHaveBeenCalled();
@@ -365,7 +365,7 @@ describe("ArticleWorkspace", () => {
     await user.click(screen.getByRole("button", { name: "确认大纲" }));
 
     expect(await screen.findByRole("button", { name: "生成完整正文" })).toBeVisible();
-    expect(screen.getByRole("button", { name: /正文文章.*当前/ })).toHaveAttribute("aria-current", "step");
+    expect(screen.getByRole("button", { name: /设计分镜.*当前/ })).toHaveAttribute("aria-current", "step");
     expect(window.location.search).toContain("step=article");
     fetchSpy.mockRestore();
   });
@@ -468,7 +468,7 @@ describe("ArticleWorkspace", () => {
     await user.type(screen.getByLabelText("资料内容"), "新资料");
     await user.click(screen.getByRole("button", { name: "保存资料" }));
 
-    expect(await screen.findByRole("button", { name: /正文文章.*已锁定/ })).toBeDisabled();
+    expect(await screen.findByRole("button", { name: /设计分镜.*已锁定/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: /配图.*已锁定/ })).toBeDisabled();
     expect(screen.queryByLabelText("正文块 1")).not.toBeInTheDocument();
     fetchSpy.mockRestore();

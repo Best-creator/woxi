@@ -7,6 +7,7 @@ import { ComicStripControl } from "@/components/comic-strip-control";
 import { GenerationPanel } from "@/components/generation-panel";
 import type { ImageMutationPayload } from "@/components/image-planning-panel";
 import { KnowledgeBriefEditor } from "@/components/knowledge-brief-editor";
+import { SegmentStripsControl } from "@/components/segment-strips-control";
 import { SourcePanel } from "@/components/source-panel";
 import { WechatPreview } from "@/components/wechat-preview";
 import { WorkflowStepper } from "@/components/workflow-stepper";
@@ -84,6 +85,12 @@ type RemoveComicStrip = (
   expectedUpdatedAt: string
 ) => Promise<ImageMutationPayload>;
 
+type ComposeSegmentStrips = (
+  articleId: string,
+  expectedUpdatedAt: string,
+  fontId?: string
+) => Promise<ImageMutationPayload>;
+
 async function publishWechatRequest(
   articleId: string,
   themeId: "ink" | "clear" | "warm",
@@ -118,6 +125,8 @@ export interface ArticleWorkspaceProps {
   composeComicStrip?: ComposeComicStrip;
   /** 取消长图，正文回到原来的分镜图文。 */
   removeComicStrip?: RemoveComicStrip;
+  /** 分段拼接：第三步分镜设计的每段各拼一张段图（fontId 随请求持久化）。 */
+  composeSegmentStrips?: ComposeSegmentStrips;
   /** 服务端配置了图片生成能力时为 true，控制生成入口显隐。 */
   imageGenerationEnabled?: boolean;
   /** 服务端配置了公众号凭据时为 true，控制「推送到草稿箱」入口显隐。 */
@@ -171,13 +180,20 @@ async function imageMutationRequest(
     article?: Article;
     assets?: ImageAsset[];
     strips?: ImageMutationPayload["strips"];
+    fontFamily?: ImageMutationPayload["fontFamily"];
     batch?: ImageMutationPayload["batch"];
     error?: string;
   };
   if (!response.ok || !result.article || !result.assets) {
     throw new Error(result.error ?? "配图操作失败，请稍后重试");
   }
-  return { article: result.article, assets: result.assets, strips: result.strips, batch: result.batch };
+  return {
+    article: result.article,
+    assets: result.assets,
+    strips: result.strips,
+    fontFamily: result.fontFamily,
+    batch: result.batch
+  };
 }
 
 function planImagesRequest(
@@ -284,6 +300,18 @@ function removeComicStripRequest(articleId: string, expectedUpdatedAt: string) {
   );
 }
 
+function composeSegmentStripsRequest(
+  articleId: string,
+  expectedUpdatedAt: string,
+  fontId?: string
+) {
+  // 字体可选：传了就由后端在校验全过之后持久化进 planning.storyboardFontId。
+  return imageMutationRequest(`/api/articles/${articleId}/segment-strips`, "POST", {
+    expectedUpdatedAt,
+    ...(fontId ? { fontId } : {})
+  });
+}
+
 export function ArticleWorkspace({
   initialArticle,
   initialSources = [],
@@ -299,6 +327,7 @@ export function ArticleWorkspace({
   deleteImageGeneration = deleteGenerationRequest,
   composeComicStrip = composeComicStripRequest,
   removeComicStrip = removeComicStripRequest,
+  composeSegmentStrips = composeSegmentStripsRequest,
   imageGenerationEnabled = false,
   wechatPublishEnabled = false,
   autosaveDelayMs = 2_000,
@@ -650,7 +679,7 @@ export function ArticleWorkspace({
           />
         ) : null}
         {activeStep === "article" ? (
-          <section className="workflow-panel workflow-article-panel" aria-label="正文文章">
+          <section className="workflow-panel workflow-article-panel" aria-label="设计分镜">
             <ContentWorkspace
               article={article}
               sources={sources}
@@ -664,6 +693,9 @@ export function ArticleWorkspace({
               onArticleChange={markPersisted}
               onContentApproved={() => selectStep("images")}
               onEditBlocks={updateBlocks}
+              onEditPlanning={(patch) =>
+                updateArticle({ planning: { ...articleRef.current.planning, ...patch } })
+              }
               onHistoryChange={handleContentHistoryChange}
               generateContent={generateContent}
               reviewContent={reviewContent}
@@ -675,23 +707,45 @@ export function ArticleWorkspace({
         ) : null}
         {activeStep === "images" ? (
           <section className="workflow-panel workflow-images-panel" aria-label="配图">
-            <ComicStripControl
-              article={article}
-              assets={imageAssets}
-              readOnly={isNarrowViewport}
-              disabled={isDirty || autosaveBlocked || saveState === "saving"}
-              onResult={applyImageResult}
-              composeComicStrip={(expectedUpdatedAt) =>
-                beginImageOperation(() =>
-                  composeComicStrip(articleRef.current.id, expectedUpdatedAt)
-                )
-              }
-              removeComicStrip={(expectedUpdatedAt) =>
-                beginImageOperation(() =>
-                  removeComicStrip(articleRef.current.id, expectedUpdatedAt)
-                )
-              }
-            />
+            {article.planning.storyboardSegments?.length ? (
+              // 第三步做过分镜设计的文章一律走分段拼接（每段一张段图进公众号）；
+              // 旧文章没有 segments，保留整篇一条的漫画长图入口。
+              <SegmentStripsControl
+                article={article}
+                assets={imageAssets}
+                readOnly={isNarrowViewport}
+                disabled={isDirty || autosaveBlocked || saveState === "saving"}
+                onResult={applyImageResult}
+                composeSegmentStrips={(expectedUpdatedAt, fontId) =>
+                  beginImageOperation(() =>
+                    composeSegmentStrips(articleRef.current.id, expectedUpdatedAt, fontId)
+                  )
+                }
+                removeSegmentStrips={(expectedUpdatedAt) =>
+                  beginImageOperation(() =>
+                    removeComicStrip(articleRef.current.id, expectedUpdatedAt)
+                  )
+                }
+              />
+            ) : (
+              <ComicStripControl
+                article={article}
+                assets={imageAssets}
+                readOnly={isNarrowViewport}
+                disabled={isDirty || autosaveBlocked || saveState === "saving"}
+                onResult={applyImageResult}
+                composeComicStrip={(expectedUpdatedAt) =>
+                  beginImageOperation(() =>
+                    composeComicStrip(articleRef.current.id, expectedUpdatedAt)
+                  )
+                }
+                removeComicStrip={(expectedUpdatedAt) =>
+                  beginImageOperation(() =>
+                    removeComicStrip(articleRef.current.id, expectedUpdatedAt)
+                  )
+                }
+              />
+            )}
             <div className="article-canvas">
               <BlockEditor blocks={article.blocks} onChange={updateBlocks} readOnly={isNarrowViewport} imageAssets={imageAssets} />
             </div>

@@ -37,15 +37,25 @@ export interface ImageBatchSummary {
 export interface ImageMutationPayload {
   article: Article;
   assets: ImageAsset[];
-  /** 漫画长图接口的附加回执：实际使用的排法与选择理由（其他配图接口不返回）。 */
+  /**
+   * 长图类接口的附加回执（其他配图接口不返回）。
+   * 旧漫画长图（comic-strip）返回排法与理由；分段拼接（segment-strips）返回
+   * 每段的 segmentId/title/route 与帧数。两类条目形状不同，字段全部可选共用一条类型。
+   */
   strips?: Array<{
     assetId: string;
     width: number;
     height: number;
-    panels: number;
-    mode: string;
-    reason: string;
+    panels?: number;
+    mode?: string;
+    reason?: string;
+    segmentId?: string;
+    title?: string;
+    route?: string;
+    frames?: number;
   }>;
+  /** 分段拼接接口的附加回执：本次拼接实际使用的字体族（映射回选项名回显）。 */
+  fontFamily?: string;
   /** 批量生成接口的附加回执（单张生成不返回）。 */
   batch?: ImageBatchSummary;
 }
