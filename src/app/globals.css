@@ -2955,6 +2955,38 @@ h2 {
   font-size: 13px;
 }
 
+/* 模型下拉选择（ModelSelect）与其刷新按钮 */
+.form-field select {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  padding: 9px 10px;
+  width: 100%;
+}
+
+.form-field select:focus {
+  border-color: var(--focus);
+}
+
+.model-field-row {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.model-field-row select,
+.model-field-row input {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
+.model-refresh {
+  flex-shrink: 0;
+  padding: 7px 9px;
+}
+
 @media (max-width: 900px) {
   .site-row {
     grid-template-columns: 1fr;

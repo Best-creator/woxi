@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Check, Loader2, Plus, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Check, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
 import type {
   ImageSettings,
   LlmSettings,
@@ -82,6 +82,37 @@ function readError(payload: unknown, fallback: string): string {
   return fallback;
 }
 
+interface ModelSelectProps {
+  id: string;
+  value: string;
+  onChange: (next: string) => void;
+  /** 可选模型候选（不含空值）。 */
+  options: string[];
+  /** 存在时渲染 value="" 的首位选项（如分工字段的「跟随默认模型」）。 */
+  emptyOptionLabel?: string;
+  /** 回落 input 模式的占位文案。 */
+  placeholder?: string;
+}
+
+/** 模型选择控件：有候选时渲染下拉（当前值始终并入选项，不丢值），否则回落文本输入。 */
+function ModelSelect({ id, value, onChange, options, emptyOptionLabel, placeholder }: ModelSelectProps) {
+  const hasEmptyOption = Boolean(emptyOptionLabel) || value === "";
+  const pickable = options.length + (hasEmptyOption ? 1 : 0) >= 2;
+  if (!pickable) {
+    return (
+      <input id={id} type="text" value={value} placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)} />
+    );
+  }
+  const merged = Array.from(new Set([...(value ? [value] : []), ...options])).filter(Boolean);
+  return (
+    <select id={id} value={value} onChange={(event) => onChange(event.target.value)}>
+      {hasEmptyOption && <option value="">{emptyOptionLabel ?? "请选择模型"}</option>}
+      {merged.map((model) => <option key={model} value={model}>{model}</option>)}
+    </select>
+  );
+}
+
 /** LLM 模型分工字段：字段名 → 展示说明。 */
 const LLM_ROLE_FIELDS = [
   { name: "researchModel", label: "资料搜集模型", hint: "联网搜集资料等深度研究任务" },
@@ -113,6 +144,8 @@ export function ProviderSettingsPanel({
   const [imageTest, setImageTest] = useState<TestOutcome>({ status: "idle" });
   const [discoveredLlmModels, setDiscoveredLlmModels] = useState<string[]>([]);
   const [discoveredImageModels, setDiscoveredImageModels] = useState<string[]>([]);
+  const [siteModels, setSiteModels] = useState<Record<number, string[]>>({});
+  const [siteTests, setSiteTests] = useState<Record<number, TestOutcome>>({});
   const [statusMessage, setStatusMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -133,6 +166,11 @@ export function ProviderSettingsPanel({
     });
     const payload: unknown = await response.json().catch(() => ({}));
     return { status: response.status, ok: response.ok, payload };
+  }
+
+  function applyDiscovered(scope: "llm" | "image", models: string[]) {
+    if (scope === "llm") setDiscoveredLlmModels(models);
+    else setDiscoveredImageModels(models);
   }
 
   async function saveProvider(patch: Record<string, unknown>) {
@@ -160,6 +198,11 @@ export function ProviderSettingsPanel({
       setImageTest({ status: "idle" });
       setStatusMessage({ tone: "ok", text: "配置已保存并即时生效" });
       onSaved?.();
+      // 保存后用刚生效的配置重拉模型列表（掩码 key 由服务端解析回真值）。
+      const savedLlm = success.settings.llm ? llmFromMasked(success.settings.llm) : emptyLlm;
+      const savedImage = success.settings.image ? imageFromMasked(success.settings.image) : emptyImage;
+      if (savedLlm.baseUrl && savedLlm.apiKey) void testConnection("llm", savedLlm);
+      if (savedImage.baseUrl && savedImage.apiKey) void testConnection("image", savedImage);
     } catch {
       setStatusMessage({ tone: "error", text: "网络异常，保存失败" });
     } finally {
@@ -178,8 +221,7 @@ export function ProviderSettingsPanel({
       if (ok && (payload as { ok?: boolean })?.ok) {
         const models = (payload as { models?: unknown }).models;
         const list = Array.isArray(models) ? models.filter((m): m is string => typeof m === "string") : [];
-        if (scope === "llm") setDiscoveredLlmModels(list);
-        else setDiscoveredImageModels(list);
+        applyDiscovered(scope, list);
         setOutcome({ status: "ok", models: list });
       } else {
         setOutcome({ status: "error", message: readError(payload, "连接失败") });
@@ -188,6 +230,51 @@ export function ProviderSettingsPanel({
       setOutcome({ status: "error", message: "网络异常，连接测试失败" });
     }
   }
+
+  async function testSiteConnection(index: number, site: { baseUrl: string; apiKey: string }) {
+    setSiteTests((prev) => ({ ...prev, [index]: { status: "testing" } }));
+    try {
+      const { ok, payload } = await request("/test", {
+        method: "POST",
+        body: JSON.stringify({ scope: "image", baseUrl: site.baseUrl, apiKey: site.apiKey })
+      });
+      if (ok && (payload as { ok?: boolean })?.ok) {
+        const models = (payload as { models?: unknown }).models;
+        const list = Array.isArray(models) ? models.filter((m): m is string => typeof m === "string") : [];
+        setSiteModels((prev) => ({ ...prev, [index]: list }));
+        setSiteTests((prev) => ({ ...prev, [index]: { status: "ok", models: list } }));
+      } else {
+        setSiteTests((prev) => ({ ...prev, [index]: { status: "error", message: readError(payload, "连接失败") } }));
+      }
+    } catch {
+      setSiteTests((prev) => ({ ...prev, [index]: { status: "error", message: "网络异常，连接测试失败" } }));
+    }
+  }
+
+  function removeExtraSite(index: number) {
+    setExtraSites(extraSites.filter((_, i) => i !== index));
+    // 站点按数组下标索引，删除后下标移位，直接清空缓存避免错位。
+    setSiteModels({});
+    setSiteTests({});
+  }
+
+  // 挂载时用初始快照自动拉取一次模型列表（掩码 key 由服务端解析回真值）。
+  useEffect(() => {
+    if (initialSettings.llm?.baseUrl && initialSettings.llm.apiKey) {
+      void testConnection("llm", {
+        baseUrl: initialSettings.llm.baseUrl,
+        apiKey: initialSettings.llm.apiKey
+      });
+    }
+    if (initialSettings.image?.baseUrl && initialSettings.image.apiKey) {
+      void testConnection("image", {
+        baseUrl: initialSettings.image.baseUrl,
+        apiKey: initialSettings.image.apiKey
+      });
+    }
+    // 仅挂载时执行一次；故意只依赖初始快照。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function renderTestOutcome(outcome: TestOutcome) {
     if (outcome.status === "idle") return null;
@@ -198,6 +285,27 @@ export function ProviderSettingsPanel({
       return <span className="provider-test ok"><Check size={14} aria-hidden="true" /> 连接成功 · 发现 {outcome.models.length} 个模型</span>;
     }
     return <span className="provider-test error" role="alert">{outcome.message}</span>;
+  }
+
+  function renderSiteOutcome(index: number) {
+    const outcome = siteTests[index];
+    if (!outcome || outcome.status === "idle") return null;
+    if (outcome.status === "testing") {
+      return <span className="provider-test testing"><Loader2 size={12} className="spin" aria-hidden="true" /> 拉取中…</span>;
+    }
+    if (outcome.status === "ok") {
+      return <span className="provider-test ok">站点可用 · {outcome.models.length} 个模型</span>;
+    }
+    return <span className="provider-test error" role="alert">{outcome.message}</span>;
+  }
+
+  function renderRefreshButton(label: string, onClick: () => void, testing: boolean) {
+    return (
+      <button className="button button-secondary model-refresh" type="button" aria-label={label}
+        title={label} onClick={onClick} disabled={testing}>
+        <RefreshCw size={13} className={testing ? "spin" : undefined} aria-hidden="true" />
+      </button>
+    );
   }
 
   return (
@@ -214,7 +322,7 @@ export function ProviderSettingsPanel({
       </div>
       <p className="settings-intro">
         面板保存的配置优先于 <code>env/.env.local</code>；「环境变量」徽章表示该项当前由环境文件生效。
-        保存后立即生效，无需重启；把某项清空并配合「恢复环境变量默认」可回落到环境文件。
+        打开页面会自动从网关拉取可用模型列表供下拉选择；保存后立即生效并重新拉取。
       </p>
       {statusMessage && (
         <p className={`settings-status ${statusMessage.tone}`} role="status">{statusMessage.text}</p>
@@ -252,11 +360,12 @@ export function ProviderSettingsPanel({
           </div>
           <div className="form-field">
             <label htmlFor="llm-model">默认模型</label>
-            <input id="llm-model" list="llm-model-options" value={llm.model}
-              onChange={(event) => setLlm({ ...llm, model: event.target.value })} />
-            <datalist id="llm-model-options">
-              {llmModelOptions.map((model) => <option key={model} value={model} />)}
-            </datalist>
+            <div className="model-field-row">
+              <ModelSelect id="llm-model" value={llm.model} options={llmModelOptions}
+                placeholder="如 gemini-3.8-flash"
+                onChange={(model) => setLlm({ ...llm, model })} />
+              {renderRefreshButton("拉取 LLM 模型列表", () => void testConnection("llm", llm), llmTest.status === "testing")}
+            </div>
             <p className="field-hint">正文/大纲生成等主任务的模型；其余分工留空时回落到它。</p>
           </div>
           <div className="form-field">
@@ -264,13 +373,15 @@ export function ProviderSettingsPanel({
             <input id="llm-models" value={llm.models}
               onChange={(event) => setLlm({ ...llm, models: event.target.value })}
               placeholder="逗号分隔，如 gemini-3.8-flash, grok-4.6" />
+            <p className="field-hint">这里填写的模型会并入上方所有下拉选项。</p>
           </div>
           <div className="provider-role-grid">
             {LLM_ROLE_FIELDS.map((field) => (
               <div className="form-field" key={field.name}>
                 <label htmlFor={`llm-${field.name}`}>{field.label}</label>
-                <input id={`llm-${field.name}`} list="llm-model-options" value={llm[field.name]}
-                  onChange={(event) => setLlm({ ...llm, [field.name]: event.target.value })} />
+                <ModelSelect id={`llm-${field.name}`} value={llm[field.name]} options={llmModelOptions}
+                  emptyOptionLabel="跟随默认模型"
+                  onChange={(next) => setLlm({ ...llm, [field.name]: next })} />
                 <p className="field-hint">{field.hint}</p>
               </div>
             ))}
@@ -311,11 +422,13 @@ export function ProviderSettingsPanel({
           </div>
           <div className="form-field">
             <label htmlFor="image-model">生成模型</label>
-            <input id="image-model" list="image-model-options" value={image.model}
-              onChange={(event) => setImage({ ...image, model: event.target.value })} />
-            <datalist id="image-model-options">
-              {imageModelOptions.map((model) => <option key={model} value={model} />)}
-            </datalist>
+            <div className="model-field-row">
+              <ModelSelect id="image-model" value={image.model} options={imageModelOptions}
+                placeholder="如 gpt-image-2"
+                onChange={(model) => setImage({ ...image, model })} />
+              {renderRefreshButton("拉取生图模型列表", () => void testConnection("image", image), imageTest.status === "testing")}
+            </div>
+            <p className="field-hint">下拉选项由网关实时拉取；生成时按模型归属自动路由站点。</p>
           </div>
           <div className="provider-actions">
             <button className="button button-secondary" type="button"
@@ -348,16 +461,26 @@ export function ProviderSettingsPanel({
                   }} />
               </div>
               <div className="form-field">
-                <label htmlFor={`site-${index}-model`}>默认模型</label>
-                <input id={`site-${index}-model`} value={site.model}
-                  onChange={(event) => {
-                    const next = [...extraSites];
-                    next[index] = { ...site, model: event.target.value };
-                    setExtraSites(next);
-                  }} />
+                <label htmlFor={`site-${index}-model`}>站点 {index + 1} 默认模型</label>
+                <div className="model-field-row">
+                  <ModelSelect id={`site-${index}-model`} value={site.model}
+                    options={Array.from(new Set([site.model, ...(siteModels[index] ?? [])].filter(Boolean)))}
+                    placeholder="如 gpt-image-2"
+                    onChange={(model) => {
+                      const next = [...extraSites];
+                      next[index] = { ...site, model };
+                      setExtraSites(next);
+                    }} />
+                  {renderRefreshButton(
+                    `拉取站点 ${index + 1} 模型列表`,
+                    () => void testSiteConnection(index, site),
+                    siteTests[index]?.status === "testing"
+                  )}
+                </div>
+                {renderSiteOutcome(index)}
               </div>
               <button className="button button-secondary site-remove" type="button" aria-label={`删除额外生图站点 ${index + 1}`}
-                onClick={() => setExtraSites(extraSites.filter((_, i) => i !== index))}>
+                onClick={() => removeExtraSite(index)}>
                 <Trash2 size={14} aria-hidden="true" /> 移除
               </button>
             </div>

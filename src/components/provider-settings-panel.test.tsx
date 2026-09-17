@@ -5,6 +5,8 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { ProviderSettingsPanel } from "./provider-settings-panel";
 import type { MaskedProviderSettings } from "@/features/settings/provider-settings";
 
+const API_URL = "/api/settings/providers";
+
 const envSettings: MaskedProviderSettings = {
   llm: {
     baseUrl: "https://env-llm.example.test",
@@ -54,6 +56,26 @@ function lastBody(stub: ReturnType<typeof createFetchStub>) {
   return JSON.parse(String(call[1]?.body));
 }
 
+/** PUT 保存请求体（精确匹配面板根路径，排除 /test）。 */
+function putBodies(stub: ReturnType<typeof createFetchStub>) {
+  return stub.mock.calls
+    .filter(([url]) => String(url) === API_URL)
+    .map((call) => JSON.parse(String(call[1]?.body)));
+}
+
+/** /test 拉取请求体（按 scope 过滤）。 */
+function testBodies(stub: ReturnType<typeof createFetchStub>, scope?: "llm" | "image") {
+  return stub.mock.calls
+    .filter(([url]) => String(url).endsWith("/test"))
+    .map((call) => JSON.parse(String(call[1]?.body)))
+    .filter((body) => !scope || body.scope === scope);
+}
+
+function selectOptions(element: HTMLSelectElement | HTMLInputElement) {
+  if (!(element instanceof HTMLSelectElement)) return null;
+  return Array.from(element.options).map((option) => option.value);
+}
+
 describe("ProviderSettingsPanel", () => {
   it("renders masked env-sourced settings with source badges", () => {
     render(
@@ -101,11 +123,11 @@ describe("ProviderSettingsPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "保存全部" }));
     await waitFor(() => expect(screen.getByRole("status").textContent).toContain("已保存"));
 
-    const body = lastBody(fetchStub);
-    expect(body.expectedUpdatedAt).toBe("2026-09-17T07:00:00.000Z");
-    expect(body.llm.apiKey).toBe("••••1111");
-    expect(body.image.apiKey).toBe("••••2222");
-    expect(fetchStub.mock.calls[0][0]).toBe("/api/settings/providers");
+    const bodies = putBodies(fetchStub);
+    expect(bodies.length).toBe(1);
+    expect(bodies[0].expectedUpdatedAt).toBe("2026-09-17T07:00:00.000Z");
+    expect(bodies[0].llm.apiKey).toBe("••••1111");
+    expect(bodies[0].image.apiKey).toBe("••••2222");
     expect(onSaved).toHaveBeenCalledTimes(1);
   });
 
@@ -126,7 +148,7 @@ describe("ProviderSettingsPanel", () => {
     await waitFor(() => expect(screen.getByRole("status").textContent).toContain("已被其他窗口修改"));
   });
 
-  it("tests the LLM connection and reports the discovered models", async () => {
+  it("auto-pulls model lists on mount and renders selects with discovered options", async () => {
     const fetchStub = createFetchStub((url) => {
       if (url.endsWith("/test")) return { status: 200, payload: { ok: true, models: ["grok-4.6", "glm-5.3-flash"] } };
       return { status: 200, payload: {} };
@@ -139,9 +161,139 @@ describe("ProviderSettingsPanel", () => {
       />
     );
 
+    // 挂载即自动拉取：等发现的模型真正进入下拉选项（而非仅 fetch 已调用）
+    await waitFor(() => {
+      const modelSelect = screen.getByLabelText("默认模型") as HTMLSelectElement;
+      expect(selectOptions(modelSelect)).toContain("grok-4.6");
+    });
+    await waitFor(() => {
+      const imageSelect = screen.getByLabelText("生成模型") as HTMLSelectElement;
+      expect(selectOptions(imageSelect)).toContain("grok-4.6");
+    });
+
+    // 拉取请求：LLM 与生图各一次，掩码 key 原样提交由服务端解析
+    expect(testBodies(fetchStub, "llm")[0]).toMatchObject({
+      baseUrl: "https://env-llm.example.test",
+      apiKey: "••••1111"
+    });
+    expect(testBodies(fetchStub, "image")[0]).toMatchObject({
+      baseUrl: "https://env-image.example.test",
+      apiKey: "••••2222"
+    });
+
+    // 默认模型变为下拉，发现模型与当前值合并（不丢值）
+    const modelSelect = screen.getByLabelText("默认模型") as HTMLSelectElement;
+    expect(modelSelect.tagName).toBe("SELECT");
+    const values = selectOptions(modelSelect)!;
+    expect(values).toContain("grok-4.6");
+    expect(values).toContain("glm-5.3-flash");
+    expect(values).toContain("env-model");
+
+    // 分工字段带「跟随默认模型」空选项
+    const reviewSelect = screen.getByLabelText("审核模型") as HTMLSelectElement;
+    expect(reviewSelect.tagName).toBe("SELECT");
+    const reviewValues = selectOptions(reviewSelect)!;
+    expect(reviewValues[0]).toBe("");
+    expect(within(reviewSelect).getByText("跟随默认模型")).toBeDefined();
+  });
+
+  it("edits a role model through its labelled select", async () => {
+    render(
+      <ProviderSettingsPanel
+        initialSettings={envSettings}
+        initialUpdatedAt={null}
+        fetchImpl={createFetchStub(() => ({ status: 200, payload: {} }))}
+      />
+    );
+
+    const reviewSelect = screen.getByLabelText("审核模型") as HTMLSelectElement;
+    expect(reviewSelect.tagName).toBe("SELECT");
+    expect(reviewSelect.value).toBe("");
+    fireEvent.change(reviewSelect, { target: { value: "env-b" } });
+    expect(reviewSelect.value).toBe("env-b");
+  });
+
+  it("keeps text inputs and skips pulling when no provider is configured", () => {
+    const fetchStub = createFetchStub(() => ({ status: 200, payload: {} }));
+    render(
+      <ProviderSettingsPanel
+        initialSettings={noneSettings}
+        initialUpdatedAt={null}
+        fetchImpl={fetchStub}
+      />
+    );
+
+    expect(fetchStub).not.toHaveBeenCalled();
+    const modelInput = screen.getByLabelText("默认模型") as HTMLInputElement;
+    expect(modelInput.tagName).toBe("INPUT");
+    fireEvent.change(modelInput, { target: { value: "custom-model" } });
+    expect(modelInput.value).toBe("custom-model");
+  });
+
+  it("re-pulls the llm model list from the refresh button with the edited base url", async () => {
+    const fetchStub = createFetchStub((url) => {
+      if (url.endsWith("/test")) return { status: 200, payload: { ok: true, models: ["m-1", "m-2"] } };
+      return { status: 200, payload: {} };
+    });
+    render(
+      <ProviderSettingsPanel
+        initialSettings={envSettings}
+        initialUpdatedAt={null}
+        fetchImpl={fetchStub}
+      />
+    );
+    await waitFor(() => expect(testBodies(fetchStub, "llm").length).toBe(1));
+
+    fireEvent.change(screen.getByLabelText("服务地址"), {
+      target: { value: "https://new-llm.example.test" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "拉取 LLM 模型列表" }));
+
+    await waitFor(() => {
+      const pulled = testBodies(fetchStub, "llm").filter(
+        (body) => body.baseUrl === "https://new-llm.example.test"
+      );
+      expect(pulled.length).toBe(1);
+    });
+  });
+
+  it("re-pulls model lists after a successful save", async () => {
+    const fetchStub = createFetchStub((url) => {
+      if (url.endsWith("/test")) return { status: 200, payload: { ok: true, models: ["m-1", "m-2"] } };
+      return { status: 200, payload: { updatedAt: "2026-09-17T08:00:00.000Z", settings: envSettings } };
+    });
+    render(
+      <ProviderSettingsPanel
+        initialSettings={envSettings}
+        initialUpdatedAt="2026-09-17T07:00:00.000Z"
+        fetchImpl={fetchStub}
+      />
+    );
+    await waitFor(() => expect(testBodies(fetchStub, "llm").length).toBe(1));
+
+    fireEvent.click(screen.getByRole("button", { name: "保存全部" }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("已保存"));
+    await waitFor(() => expect(testBodies(fetchStub, "llm").length).toBe(2));
+    expect(testBodies(fetchStub, "image").length).toBe(2);
+  });
+
+  it("tests the LLM connection and reports the discovered models", async () => {
+    const fetchStub = createFetchStub((url) => {
+      if (url.endsWith("/test")) return { status: 200, payload: { ok: true, models: ["grok-4.6", "glm-5.3-flash"] } };
+      return { status: 200, payload: {} };
+    });
+    render(
+      <ProviderSettingsPanel
+        initialSettings={envSettings}
+        initialUpdatedAt={null}
+        fetchImpl={fetchStub}
+      />
+    );
+    await waitFor(() => expect(testBodies(fetchStub, "llm").length).toBe(1));
+
     const llmCard = screen.getByRole("group", { name: "LLM 网关" });
     fireEvent.click(within(llmCard).getByRole("button", { name: "测试连接" }));
-    await waitFor(() => expect(llmCard.textContent).toContain("连接成功 · 发现 2 个模型"));
+    await waitFor(() => expect(within(llmCard).getAllByText(/连接成功 · 发现 2 个模型/).length).toBeGreaterThan(0));
 
     const body = lastBody(fetchStub);
     expect(body).toMatchObject({ scope: "llm", baseUrl: "https://env-llm.example.test", apiKey: "••••1111" });
@@ -161,6 +313,7 @@ describe("ProviderSettingsPanel", () => {
     );
 
     const llmCard = screen.getByRole("group", { name: "LLM 网关" });
+    await waitFor(() => expect(within(llmCard).getByRole("alert").textContent).toContain("认证失败"));
     fireEvent.click(within(llmCard).getByRole("button", { name: "测试连接" }));
     await waitFor(() => expect(within(llmCard).getByRole("alert").textContent).toContain("认证失败"));
   });
@@ -184,8 +337,8 @@ describe("ProviderSettingsPanel", () => {
 
     expect(screen.getAllByRole("button", { name: "恢复环境变量默认" }).length).toBe(1);
     fireEvent.click(screen.getByRole("button", { name: "恢复环境变量默认" }));
-    await waitFor(() => expect(fetchStub).toHaveBeenCalled());
-    expect(lastBody(fetchStub).llm).toBeNull();
+    await waitFor(() => expect(putBodies(fetchStub).length).toBe(1));
+    expect(putBodies(fetchStub)[0].llm).toBeNull();
   });
 
   it("refreshes the source badge from the save response", async () => {
@@ -230,18 +383,38 @@ describe("ProviderSettingsPanel", () => {
     expect(screen.getByLabelText("站点 1 服务地址")).toBeDefined();
   });
 
-  it("edits role models through labelled inputs", () => {
+  it("pulls an extra site's model list via its own refresh button", async () => {
+    const siteSettings: MaskedProviderSettings = {
+      ...noneSettings,
+      extraImageSites: [
+        { baseUrl: "https://site-b.example.test", apiKey: "••••3333", model: "", source: "env" }
+      ]
+    };
+    const fetchStub = createFetchStub((url) => {
+      if (url.endsWith("/test")) return { status: 200, payload: { ok: true, models: ["gpt-image-2", "dall-e-4"] } };
+      return { status: 200, payload: {} };
+    });
     render(
       <ProviderSettingsPanel
-        initialSettings={envSettings}
+        initialSettings={siteSettings}
         initialUpdatedAt={null}
-        fetchImpl={createFetchStub(() => ({ status: 200, payload: {} }))}
+        fetchImpl={fetchStub}
       />
     );
 
-    const reviewModel = screen.getByLabelText("审核模型") as HTMLInputElement;
-    expect(reviewModel.value).toBe("");
-    fireEvent.change(reviewModel, { target: { value: "glm-5.3-flash" } });
-    expect(reviewModel.value).toBe("glm-5.3-flash");
+    // 站点不参与挂载自动拉取，走各自的刷新按钮
+    fireEvent.click(screen.getByRole("button", { name: "拉取站点 1 模型列表" }));
+    await waitFor(() => expect(testBodies(fetchStub).length).toBe(1));
+    expect(testBodies(fetchStub)[0]).toMatchObject({
+      scope: "image",
+      baseUrl: "https://site-b.example.test",
+      apiKey: "••••3333"
+    });
+
+    const siteSelect = screen.getByLabelText("站点 1 默认模型") as HTMLSelectElement;
+    expect(siteSelect.tagName).toBe("SELECT");
+    const values = selectOptions(siteSelect)!;
+    expect(values).toContain("gpt-image-2");
+    expect(within(siteSelect.parentElement!.parentElement!).getAllByText(/站点可用 · 2 个模型/).length).toBeGreaterThan(0);
   });
 });
