@@ -19,7 +19,7 @@ test.describe("outline workflow", () => {
     await expect(page).toHaveURL(/\?step=article$/);
     // 第 3 步内嵌正文工作台：确认大纲后就地生成正文，不再跳独立页面。
     await expect(page.getByRole("region", { name: "正文工作台" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "生成完整正文" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "生成分镜脚本" })).toBeVisible();
   });
 
   test("keeps the generated outline workspace within the mobile viewport", async ({ page }, testInfo) => {

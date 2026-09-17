@@ -801,6 +801,8 @@ export function ArticleWorkspace({
         <div className="preview-overlay" role="dialog" aria-modal="true" aria-label="公众号预览">
           <WechatPreview
             blocks={article.blocks}
+            assets={imageAssets}
+            stripFlow={Boolean(article.planning.storyboardSegments?.length)}
             onClose={() => setIsPreviewOpen(false)}
             publishDraft={
               wechatPublishEnabled

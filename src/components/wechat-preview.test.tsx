@@ -1,9 +1,32 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import type { ContentBlock } from "@/features/articles/domain";
+import type { ImageAsset } from "@/features/images/domain";
 import { imageBlock, paragraphBlock } from "../../tests/fixtures/article";
 import { renderWechatHtml } from "@/features/publishing/render-wechat-html";
 import { buildPrintDocument, waitForPrintableImages, WechatPreview } from "./wechat-preview";
+
+function stripAsset(id: string): ImageAsset {
+  return {
+    id,
+    articleId: "article-1",
+    type: "comic_strip",
+    anchorBlockId: "anchor",
+    purpose: "分段长图",
+    prompt: "prompt",
+    altText: "段图",
+    aspectRatio: "landscape",
+    status: "generated",
+    placeholderUrl: null,
+    filePath: `.data/${id}.png`,
+    publicUrl: null,
+    manuallyEdited: false,
+    consumedContent: null,
+    createdAt: "2026-09-18T00:00:00.000Z",
+    updatedAt: "2026-09-18T00:00:00.000Z"
+  };
+}
 
 describe("WechatPreview", () => {
   it("copies the rendered article as rich text", async () => {
@@ -43,6 +66,38 @@ describe("WechatPreview", () => {
       expect.stringContaining('src="/api/image-assets/asset-1/content"'),
       "[配图：示例配图]"
     );
+  });
+
+  it("有分镜设计时按纯段图流渲染预览：段图无 figcaption，残留文本保留", async () => {
+    const user = userEvent.setup();
+    const copy = vi.fn().mockResolvedValue(undefined);
+    const blocks: ContentBlock[] = [
+      {
+        id: "s1",
+        type: "image",
+        content: "/api/image-assets/strip-1/content",
+        altText: "标题｜段图｜换挡",
+        order: 0,
+        version: 1
+      },
+      { id: "lead", type: "paragraph", content: "作者手加的导语", order: 1, version: 1 }
+    ];
+    render(
+      <WechatPreview
+        blocks={blocks}
+        assets={[stripAsset("strip-1")]}
+        stripFlow={true}
+        copy={copy}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "复制到公众号" }));
+
+    expect(copy).toHaveBeenCalledOnce();
+    const html = copy.mock.calls[0][0] as string;
+    expect(html).toContain('src="/api/image-assets/strip-1/content"');
+    expect(html).not.toContain("figcaption");
+    expect(html).toContain("作者手加的导语");
   });
 
   it("hands the rendered article to the print pipeline and explains the next step", async () => {

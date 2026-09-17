@@ -122,7 +122,7 @@ describe("ContentWorkspace", () => {
   it("generates the full article with the selected model and style", async () => {
     const user = userEvent.setup();
     const generateContent = vi.fn(async () => ({
-      article: generatedArticle,
+      article: storyboardArticle,
       revision: revision()
     }));
     render(
@@ -138,13 +138,15 @@ describe("ContentWorkspace", () => {
 
     await user.selectOptions(screen.getByLabelText("正文模型"), "writer-small");
     await user.selectOptions(screen.getByLabelText("人物语言风格"), "friend_chat");
-    await user.click(screen.getByRole("button", { name: "生成完整正文" }));
+    await user.click(screen.getByRole("button", { name: "生成分镜脚本" }));
 
     expect(generateContent).toHaveBeenCalledWith(expect.objectContaining({
       model: "writer-small",
       expectedUpdatedAt: "2026-09-09T00:00:00.000Z",
       styleProfile: expect.objectContaining({ preset: "friend_chat" })
     }));
+    // 生成成功后交代分镜结构：2 段、各 1 帧（storyboardSegments fixture 的帧数之和）。
+    expect(await screen.findByText("分镜脚本已生成：2 段，共 2 帧待生成")).toBeVisible();
   });
 
   it("saves the pending draft before reviewing", async () => {
@@ -163,7 +165,7 @@ describe("ContentWorkspace", () => {
       />
     );
 
-    await user.click(screen.getByRole("button", { name: "审核正文" }));
+    await user.click(screen.getByRole("button", { name: "审核文案" }));
 
     expect(prepareArticle).toHaveBeenCalledOnce();
     expect(reviewContent).toHaveBeenCalledWith({

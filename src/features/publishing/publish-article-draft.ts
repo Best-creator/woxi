@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import type { Article } from "@/features/articles/domain";
 import type { ImageAsset } from "@/features/images/domain";
-import { renderWechatHtml } from "./render-wechat-html";
+import { inspectPublishReadiness } from "./inspect-publish-readiness";
+import { renderWechatHtml, renderWechatStripFlowHtml } from "./render-wechat-html";
 import type { ThemeId } from "./themes";
 import type { WechatDraftImage, WechatDraftPublisher } from "./wechat-draft";
 
@@ -86,21 +87,54 @@ export type PublishArticleDraftResult =
   | { kind: "no_cover"; message: string }
   | { kind: "missing_files"; message: string }
   | { kind: "duplicate"; record: ArticleDraftPushRecord }
+  | { kind: "strips_not_ready"; message: string }
+  | { kind: "residual_text"; message: string }
   | { kind: "publisher_error"; message: string };
 
 /**
- * 把文章推送到公众号草稿箱：
- * 服务端用当前 blocks + 指定主题渲染 HTML（不信任客户端拼好的文案）→
- * 封面取第一个 generated 的 cover 资产 → 正文图取 blocks 里 image block 引用的资产 →
- * 调 publisher 四步链路 → 记录推送历史（内容指纹防重）。
+ * 把文章推送到公众号草稿箱，按「有无分镜设计」走两条路：
+ *
+ * - 纯段图流（有 planning.storyboardSegments）：正文必须全部拼成段图，
+ *   推送内容 = 封面 + 段图序列（无可复制正文文字）；残留块默认拒推，
+ *   作者 force 确认后保留为段图之间的图文；digest 取第一段文案开头显式传入。
+ * - 旧混合流（无分镜设计的文章）：行为与历史完全一致——hasText 门 +
+ *   通用块渲染，digest 留空由微信抓取正文。
+ *
+ * 共同点：封面取第一个 generated 的 cover 资产 → 正文图取 blocks 里 image block
+ * 引用的资产 → 调 publisher 四步链路 → 记录推送历史（内容指纹防重）。
  */
 export async function publishArticleDraft(
   input: { article: Article; assets: ImageAsset[]; themeId: ThemeId; force?: boolean },
   dependencies: PublishArticleDraftDependencies
 ): Promise<PublishArticleDraftResult> {
   const { article, assets, themeId, force } = input;
-  const hasText = article.blocks.some((block) => block.type !== "image");
-  if (!hasText) return { kind: "no_content" };
+  const readiness = inspectPublishReadiness(article, assets);
+  const stripFlow = readiness.mode === "strip_flow";
+
+  if (stripFlow) {
+    if (readiness.missingStrips.length) {
+      const titles = readiness.missingStrips
+        .map((segment) => `「${segment.title}」`)
+        .join("、");
+      return {
+        kind: "strips_not_ready",
+        message: `还有 ${readiness.missingStrips.length} 段没拼段图（${titles}）；先在配图步骤把全部段图拼好，再来推送`
+      };
+    }
+    if (readiness.residualBlocks.length && !force) {
+      const previews = readiness.residualBlocks
+        .slice(0, 3)
+        .map((block) => `「${block.content.slice(0, 20)}」`)
+        .join("、");
+      return {
+        kind: "residual_text",
+        message: `有 ${readiness.residualBlocks.length} 个块不属于任何分镜段（${previews}${readiness.residualBlocks.length > 3 ? " 等" : ""}）；把它们并入分镜文案或删除后再推，或勾选「强制重新推送」将其保留为段图之间的图文`
+      };
+    }
+  } else {
+    const hasText = article.blocks.some((block) => block.type !== "image");
+    if (!hasText) return { kind: "no_content" };
+  }
 
   const coverAsset = assets.find(
     (asset) => asset.type === "cover" && asset.status === "generated" && asset.filePath
@@ -124,7 +158,14 @@ export async function publishArticleDraft(
       imageBlockIds.has(`/api/image-assets/${asset.id}/content`)
   );
 
-  const contentHtml = renderWechatHtml(article.blocks, themeId);
+  const contentHtml = stripFlow
+    ? renderWechatStripFlowHtml(article.blocks, assets, themeId, {
+        // 走到这里时 residualBlocks 非空必然是 force 放行：残留块按作者意愿保留。
+        includeResidualText: readiness.residualBlocks.length > 0
+      })
+    : renderWechatHtml(article.blocks, themeId);
+  // 纯段图正文没有文字可让微信抓摘要，必须显式给；旧流留空维持微信默认行为。
+  const digest = stripFlow && readiness.suggestedDigest ? readiness.suggestedDigest : undefined;
   const contentHash = articleDraftHash(article.id, contentHtml);
   const history = await dependencies.records.listByArticle(article.id);
   const duplicate = force ? undefined : history.find((record) => record.contentHash === contentHash);
@@ -140,7 +181,8 @@ export async function publishArticleDraft(
       title: article.title,
       contentHtml,
       cover,
-      inlineImages
+      inlineImages,
+      ...(digest ? { digest } : {})
     });
     const record: ArticleDraftPushRecord = {
       id: crypto.randomUUID(),

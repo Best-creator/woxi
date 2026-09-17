@@ -73,7 +73,7 @@ test.describe("content workflow", () => {
         response.request().method() === "POST" &&
         /\/content\/generate$/.test(new URL(response.url()).pathname)
     );
-    await page.getByRole("button", { name: "生成完整正文" }).click();
+    await page.getByRole("button", { name: "生成分镜脚本" }).click();
     await expect((await generateResponse).ok()).toBe(true);
 
     await expect(
@@ -95,7 +95,7 @@ test.describe("content workflow", () => {
         response.request().method() === "POST" &&
         /\/content\/review$/.test(new URL(response.url()).pathname)
     );
-    await page.getByRole("button", { name: "审核正文" }).click();
+    await page.getByRole("button", { name: "审核文案" }).click();
     await expect((await reviewResponse).ok()).toBe(true);
     await expect(page.getByText("审核通过", { exact: true })).toBeVisible();
 
@@ -125,7 +125,7 @@ test.describe("content workflow", () => {
     test.skip(testInfo.project.name !== "desktop-chromium");
 
     await setupArticle(page, { topic: "为什么复利需要时间" });
-    await page.getByRole("button", { name: "生成完整正文" }).click();
+    await page.getByRole("button", { name: "生成分镜脚本" }).click();
     await expect(page.getByRole("button", { name: "查看正文 v1" })).toBeVisible();
 
     await page.getByLabel("正文块 1").fill("机会成本是放弃的最佳替代方案。");
@@ -163,7 +163,7 @@ test.describe("content workflow", () => {
         content: "机会成本，是选择一个方案时放弃的最佳替代方案。"
       }
     });
-    await page.getByRole("button", { name: "生成完整正文" }).click();
+    await page.getByRole("button", { name: "生成分镜脚本" }).click();
     await expect(
       page.getByRole("heading", { name: "用大白话讲清楚：什么是机会成本" })
     ).toBeVisible();
@@ -256,7 +256,7 @@ test.describe("content workflow", () => {
 
     await expect(page.getByRole("region", { name: "正文工作台" })).toBeVisible();
     await expect(page.getByRole("button", { name: "查看正文 v1" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "生成完整正文" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "生成分镜脚本" })).toBeDisabled();
 
     const blocks = page.locator(".block-input");
     await expect(blocks.first()).toBeVisible();

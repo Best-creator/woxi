@@ -3,9 +3,11 @@
 import { Check, Clipboard, FileDown, MousePointer2, Send, X } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import type { ContentBlock } from "@/features/articles/domain";
+import type { ImageAsset } from "@/features/images/domain";
 import {
   blocksToPlainText,
-  renderWechatHtml
+  renderWechatHtml,
+  renderWechatStripFlowHtml
 } from "@/features/publishing/render-wechat-html";
 import { WECHAT_THEMES, type ThemeId } from "@/features/publishing/themes";
 
@@ -108,12 +110,18 @@ export function exportPreviewAsPdf(html: string) {
 
 export function WechatPreview({
   blocks,
+  assets = [],
+  stripFlow = false,
   copy = copyRichText,
   publishDraft,
   exportPdf = exportPreviewAsPdf,
   onClose
 }: {
   blocks: ContentBlock[];
+  /** 段图流渲染需要资产列表来识别段图 image 块；旧混合流可以不传。 */
+  assets?: ImageAsset[];
+  /** 有分镜设计的文章走纯段图流渲染，与推送侧共用同一份判定与渲染器。 */
+  stripFlow?: boolean;
   copy?: RichCopy;
   /** 服务端配置了公众号凭据时提供；未提供则隐藏推送入口（只能复制粘贴）。 */
   publishDraft?: PublishWechatDraft;
@@ -130,7 +138,13 @@ export function WechatPreview({
   const [forcePush, setForcePush] = useState(false);
   const [pdfMessage, setPdfMessage] = useState("");
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const html = useMemo(() => renderWechatHtml(blocks, themeId), [blocks, themeId]);
+  const html = useMemo(
+    () =>
+      stripFlow
+        ? renderWechatStripFlowHtml(blocks, assets, themeId, { includeResidualText: true })
+        : renderWechatHtml(blocks, themeId),
+    [blocks, assets, themeId, stripFlow]
+  );
   const plainText = useMemo(() => blocksToPlainText(blocks), [blocks]);
 
   async function handleCopy() {

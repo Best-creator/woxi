@@ -39,7 +39,7 @@ test.describe("unified article workflow", () => {
         response.request().method() === "POST" &&
         /\/api\/articles\/[0-9a-f-]+\/content\/generate$/.test(new URL(response.url()).pathname)
     );
-    await page.getByRole("button", { name: "生成完整正文" }).click();
+    await page.getByRole("button", { name: "生成分镜脚本" }).click();
     await expect((await generateResponse).ok()).toBe(true);
     await expect(
       page.getByRole("heading", { name: "用大白话讲清楚：什么是机会成本" })

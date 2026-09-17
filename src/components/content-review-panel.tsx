@@ -75,7 +75,7 @@ export function ContentReviewPanel({
       <div className="outline-panel-heading">
         <div>
           <p className="panel-label">审核与确认</p>
-          <h2 id="content-review-heading">正文审核</h2>
+          <h2 id="content-review-heading">分镜文案审核</h2>
         </div>
         {result && !isStale ? (
           <span className={`review-status review-status-${result.status}`}>{statusCopy[result.status]}</span>
@@ -159,7 +159,7 @@ export function ContentReviewPanel({
           onClick={onReview}
         >
           <Sparkles size={15} aria-hidden="true" />
-          {isReviewing ? "审核中..." : "审核正文"}
+          {isReviewing ? "审核中..." : "审核文案"}
         </button>
         <button
           className="button button-primary"

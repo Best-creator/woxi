@@ -26,7 +26,7 @@ test.describe("foundation content workflow", () => {
     // 确认大纲后落到第 3 步正文工作台；正文、配图与预览的断言在 content-workflow.spec.ts。
     await expect(page).toHaveURL(/\?step=article$/);
     await expect(page.getByRole("region", { name: "正文工作台" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "生成完整正文" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "生成分镜脚本" })).toBeVisible();
   });
 
   test("falls back to skipping web research when the offline search returns nothing", async ({ page }, testInfo) => {

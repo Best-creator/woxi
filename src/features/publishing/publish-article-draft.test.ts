@@ -3,7 +3,8 @@
 import { describe, expect, it } from "vitest";
 import { createTestDatabase } from "../../../tests/helpers/test-db";
 import { SqliteArticleRepository } from "@/features/articles/sqlite-repository";
-import type { Article } from "@/features/articles/domain";
+import type { Article, ContentBlock } from "@/features/articles/domain";
+import { articleFixture } from "../../../tests/fixtures/article";
 import type { ImageAsset } from "@/features/images/domain";
 import type { WechatDraftImage, WechatDraftInput } from "./wechat-draft";
 import { replaceImageUrls } from "./wechat-draft";
@@ -183,5 +184,169 @@ describe("wechat draft helpers", () => {
     expect(a).toBe(b);
     expect(a).not.toBe(c);
     expect(a).not.toBe(d);
+  });
+});
+
+function stripImage(assetId: string, order: number): ContentBlock {
+  return {
+    id: `block-image-${assetId}`,
+    type: "image",
+    content: `/api/image-assets/${assetId}/content`,
+    altText: "段图",
+    assetId,
+    order,
+    version: 1
+  };
+}
+
+function composedStripAsset(id: string, blockId: string, segmentId: string, content: string): ImageAsset {
+  return {
+    id,
+    articleId: "article-1",
+    type: "comic_strip",
+    anchorBlockId: blockId,
+    purpose: "分段长图",
+    prompt: "prompt",
+    altText: "段图",
+    aspectRatio: "landscape",
+    status: "generated",
+    placeholderUrl: null,
+    filePath: `.data/${id}.png`,
+    publicUrl: null,
+    manuallyEdited: false,
+    consumedContent: {
+      blocks: [
+        { id: blockId, type: "paragraph", content, order: 0, version: 1, segmentId }
+      ],
+      resumeBeforeBlockId: null
+    },
+    createdAt: "2026-09-18T00:00:00.000Z",
+    updatedAt: "2026-09-18T00:00:00.000Z"
+  };
+}
+
+function stripFlowArticle(extraBlocks: ContentBlock[] = []): Article {
+  return articleFixture({
+    title: "血糖换挡",
+    blocks: [
+      stripImage("strip-1", 0),
+      ...extraBlocks.map((block, index) => ({ ...block, order: index + 1 })),
+      stripImage("strip-2", extraBlocks.length + 1)
+    ],
+    planning: {
+      lengthPreset: "standard",
+      recommendedTotalWords: null,
+      confirmedOutlineRevisionId: null,
+      contentOutlineRevisionId: null,
+      storyboardSegments: [
+        {
+          id: "seg-1",
+          sectionKey: "s1",
+          title: "换挡",
+          route: "image_text",
+          copyBlockIds: ["c-1p"],
+          frameAssetIds: [],
+          order: 0
+        },
+        {
+          id: "seg-2",
+          sectionKey: "s2",
+          title: "适应",
+          route: "image_text",
+          copyBlockIds: ["c-2p"],
+          frameAssetIds: [],
+          order: 1
+        }
+      ]
+    }
+  });
+}
+
+const SEG1_COPY = "血糖塌下去的那段时间，其实是身体在悄悄换挡。";
+const SEG2_COPY = "第二天身体就适应了。";
+
+function stripFlowAssets(): ImageAsset[] {
+  return [
+    asset("cover-1"),
+    composedStripAsset("strip-1", "c-1p", "seg-1", SEG1_COPY),
+    composedStripAsset("strip-2", "c-2p", "seg-2", SEG2_COPY)
+  ];
+}
+
+describe("publishArticleDraft · 纯段图流", () => {
+  it("全部段拼好即推：正文 HTML 为段图序列（无 figcaption），摘要显式传入", async () => {
+    const { records, article } = await setup();
+    const calls: WechatDraftInput[] = [];
+    const result = await publishArticleDraft(
+      { article: { ...stripFlowArticle(), id: article.id }, assets: stripFlowAssets(), themeId: "ink" },
+      { publisher: publisher(calls), records, readAssetFile }
+    );
+
+    expect(result.kind).toBe("saved");
+    expect(calls).toHaveLength(1);
+    expect(calls[0].digest).toBe(SEG1_COPY);
+    expect(calls[0].contentHtml).toContain('src="/api/image-assets/strip-1/content"');
+    expect(calls[0].contentHtml).toContain('src="/api/image-assets/strip-2/content"');
+    expect(calls[0].contentHtml).not.toContain("figcaption");
+    expect(calls[0].inlineImages.map((image) => image.filename)).toEqual([
+      "strip-1.png",
+      "strip-2.png"
+    ]);
+  });
+
+  it("还有段没拼段图时拒推，不触碰推送器", async () => {
+    const { records } = await setup();
+    const calls: WechatDraftInput[] = [];
+    const assets = stripFlowAssets().filter((item) => item.id !== "strip-2");
+    const result = await publishArticleDraft(
+      { article: stripFlowArticle(), assets, themeId: "ink" },
+      { publisher: publisher(calls), records, readAssetFile }
+    );
+
+    expect(result.kind).toBe("strips_not_ready");
+    if (result.kind !== "strips_not_ready") return;
+    expect(result.message).toContain("「适应」");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("残留块默认拒推；force 放行后保留为段图之间的图文", async () => {
+    const { records, article: persisted } = await setup();
+    const calls: WechatDraftInput[] = [];
+    const dependencies = { publisher: publisher(calls), records, readAssetFile };
+    const article = {
+      ...stripFlowArticle([
+        { id: "block-lead", type: "paragraph", content: "作者手加的导语", order: 99, version: 1 }
+      ]),
+      id: persisted.id
+    };
+
+    const blocked = await publishArticleDraft(
+      { article, assets: stripFlowAssets(), themeId: "ink" },
+      dependencies
+    );
+    expect(blocked.kind).toBe("residual_text");
+    if (blocked.kind !== "residual_text") return;
+    expect(blocked.message).toContain("作者手加的导语");
+    expect(calls).toHaveLength(0);
+
+    const forced = await publishArticleDraft(
+      { article, assets: stripFlowAssets(), themeId: "ink", force: true },
+      dependencies
+    );
+    expect(forced.kind).toBe("saved");
+    expect(calls[0].contentHtml).toContain("作者手加的导语");
+    expect(calls[0].contentHtml).toContain('src="/api/image-assets/strip-1/content"');
+    expect(calls[0].digest).toBe(SEG1_COPY);
+  });
+
+  it("有段设计但全都没拼时，不再走 no_content 旧门", async () => {
+    const { records } = await setup();
+    const article = stripFlowArticle();
+    const result = await publishArticleDraft(
+      { article, assets: [asset("cover-1")], themeId: "ink" },
+      { publisher: publisher(), records, readAssetFile }
+    );
+
+    expect(result.kind).toBe("strips_not_ready");
   });
 });

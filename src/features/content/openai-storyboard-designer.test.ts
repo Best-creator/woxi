@@ -143,6 +143,11 @@ describe("OpenAiStoryboardDesigner", () => {
     });
   });
 
+  it("anchors the ending instruction in the system prompt (D1：收尾烘进末段，不输出知识卡片)", async () => {
+    expect(STORYBOARD_DESIGNER_SYSTEM_PROMPT).toContain("末段必须自然收尾");
+    expect(STORYBOARD_DESIGNER_SYSTEM_PROMPT).toContain("知识卡片");
+  });
+
   it("surfaces schema violations as design failures", async () => {
     const designer = new OpenAiStoryboardDesigner({
       complete: async () => {

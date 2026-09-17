@@ -141,6 +141,6 @@ describe("ContentReviewPanel", () => {
     );
 
     expect(screen.getByText("当前正文基于旧大纲")).toBeVisible();
-    expect(screen.getByRole("button", { name: "审核正文" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "审核文案" })).toBeDisabled();
   });
 });

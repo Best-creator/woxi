@@ -1,4 +1,5 @@
 import type { ContentBlock } from "@/features/articles/domain";
+import type { ImageAsset } from "@/features/images/domain";
 import { WECHAT_THEMES, type ThemeId, type WechatTheme } from "./themes";
 
 function escapeHtml(value: string) {
@@ -85,4 +86,42 @@ export function blocksToPlainText(blocks: readonly ContentBlock[]) {
       block.type === "image" ? `[配图：${block.altText || "文章配图"}]` : block.content
     )
     .join("\n\n");
+}
+
+/**
+ * 纯段图流渲染：正文 = 一串段图（每段一张，文字已烘进图里），没有可复制的正文文本。
+ *
+ * 与 renderWechatHtml 的差异：
+ * - 只输出「指向已生成段图资产」的 image 块，且**不带 figcaption**——
+ *   段图的 altText（「文章标题｜段图｜段标题」）是给无障碍用的，不该印在读者眼前；
+ * - 不属于任何段的残留块默认不渲染（推送门会先拦下并要求作者处理）；
+ *   作者确认保留（force）后按通用块渲染，插在段图之间。
+ * 预览与推送共用本函数，保证所见即所推。
+ */
+export function renderWechatStripFlowHtml(
+  blocks: readonly ContentBlock[],
+  assets: readonly ImageAsset[],
+  themeId: ThemeId,
+  options: { includeResidualText?: boolean } = {}
+) {
+  const theme = WECHAT_THEMES[themeId];
+  const stripUrls = new Set(
+    assets
+      .filter((asset) => asset.type === "comic_strip" && asset.status === "generated")
+      .map((asset) => `/api/image-assets/${asset.id}/content`)
+  );
+  const content = [...blocks]
+    .sort((left, right) => left.order - right.order)
+    .map((block) => {
+      if (block.type === "image" && stripUrls.has(block.content)) {
+        const url = validImageSource(block.content);
+        const alt = escapeHtml(block.altText || "段图");
+        return url
+          ? `<section style="margin:0;"><img src="${escapeHtml(url)}" alt="${alt}" loading="lazy" style="display:block;width:100%;max-width:100%;height:auto;"></section>`
+          : "";
+      }
+      return options.includeResidualText ? renderBlock(block, theme) : "";
+    })
+    .join("");
+  return `<section style="box-sizing:border-box;margin:0 auto;max-width:677px;padding:24px 18px;background:${theme.background};font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;letter-spacing:0;">${content}</section>`;
 }

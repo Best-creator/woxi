@@ -71,6 +71,9 @@ export function createPublishWechatRouteHandler(
     if (result.kind === "no_content") {
       return Response.json({ error: "文章没有可推送的正文内容" }, { status: 400 });
     }
+    if (result.kind === "strips_not_ready" || result.kind === "residual_text") {
+      return Response.json({ error: result.message }, { status: 400 });
+    }
     if (result.kind === "no_cover") {
       return Response.json({ error: result.message }, { status: 400 });
     }

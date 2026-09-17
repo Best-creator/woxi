@@ -132,7 +132,7 @@ describe("ArticleWorkspace", () => {
     );
 
     await user.selectOptions(screen.getByLabelText("正文模型"), "writer-large");
-    await user.click(screen.getByRole("button", { name: "生成完整正文" }));
+    await user.click(screen.getByRole("button", { name: "生成分镜脚本" }));
 
     expect(generateContent).toHaveBeenCalledWith(expect.objectContaining({
       model: "writer-large",
@@ -167,8 +167,8 @@ describe("ArticleWorkspace", () => {
       />
     );
 
-    expect(screen.getByRole("button", { name: "生成完整正文" })).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "生成完整正文" }));
+    expect(screen.getByRole("button", { name: "生成分镜脚本" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "生成分镜脚本" }));
     expect(generateContent).toHaveBeenCalledWith(expect.objectContaining({
       model: "writer-large",
       expectedUpdatedAt: "2026-09-09T00:00:00.000Z"
@@ -364,7 +364,7 @@ describe("ArticleWorkspace", () => {
 
     await user.click(screen.getByRole("button", { name: "确认大纲" }));
 
-    expect(await screen.findByRole("button", { name: "生成完整正文" })).toBeVisible();
+    expect(await screen.findByRole("button", { name: "生成分镜脚本" })).toBeVisible();
     expect(screen.getByRole("button", { name: /设计分镜.*当前/ })).toHaveAttribute("aria-current", "step");
     expect(window.location.search).toContain("step=article");
     fetchSpy.mockRestore();
@@ -445,7 +445,7 @@ describe("ArticleWorkspace", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("当前大纲尚未审核或审核已过期");
     expect(screen.getByRole("button", { name: "确认大纲" })).toBeVisible();
-    expect(screen.queryByRole("button", { name: "生成完整正文" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "生成分镜脚本" })).not.toBeInTheDocument();
     expect(window.location.search).toContain("step=outline");
     fetchSpy.mockRestore();
   });
@@ -506,7 +506,7 @@ describe("ArticleWorkspace", () => {
       />
     );
 
-    await user.click(screen.getByRole("button", { name: "生成完整正文" }));
+    await user.click(screen.getByRole("button", { name: "生成分镜脚本" }));
 
     expect(
       await screen.findByRole("heading", { name: "用大白话讲清楚：机会成本" })

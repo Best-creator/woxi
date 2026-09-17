@@ -312,6 +312,14 @@ export function ContentWorkspace({
       onArticleChange(result.article);
       setVersions((items) => addVersion(items, result.revision));
       setCurrentReview(null);
+      // 生成即分镜设计：成功提示直接交代段落与帧数，衔接第四步的拼图任务。
+      const designed = result.article.planning.storyboardSegments ?? [];
+      const frameCount = designed.reduce((total, segment) => total + segment.frameAssetIds.length, 0);
+      setMessage(
+        designed.length
+          ? `分镜脚本已生成：${designed.length} 段，共 ${frameCount} 帧待生成`
+          : "分镜脚本已生成"
+      );
     }, "generating");
   }
 
@@ -456,7 +464,7 @@ export function ContentWorkspace({
                     <aside className="storyboard-empty-guide" role="note">
                       <strong>这篇正文还没有分镜设计</strong>
                       <span>
-                        点击右侧「生成完整正文」重新生成，正文会按大纲章节自动分成一个个分镜段；
+                        点击右侧「生成分镜脚本」重新生成，正文会按大纲章节自动分成一个个分镜段；
                         之后在第四步即可按段拼接成段图。
                       </span>
                     </aside>
@@ -465,11 +473,11 @@ export function ContentWorkspace({
               )}
             </>
           ) : (
-            <p className="panel-empty">还没有正文。确认大纲后点击「生成完整正文」。</p>
+            <p className="panel-empty">还没有分镜脚本。确认大纲后点击「生成分镜脚本」。</p>
           )}
         </main>
 
-        <aside className="content-actions-column" aria-label="正文审核">
+        <aside className="content-actions-column" aria-label="分镜文案审核">
           <section className="content-generation-settings" aria-labelledby="content-generation-heading">
             <div className="outline-panel-heading">
               <div>
@@ -500,7 +508,7 @@ export function ContentWorkspace({
               onClick={handleGenerate}
             >
               {operation === "generating" ? <RefreshCw size={15} aria-hidden="true" /> : <Sparkles size={15} aria-hidden="true" />}
-              {operation === "generating" ? "生成中..." : "生成完整正文"}
+              {operation === "generating" ? "生成中..." : "生成分镜脚本"}
             </button>
           </section>
 
