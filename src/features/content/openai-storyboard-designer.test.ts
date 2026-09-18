@@ -149,6 +149,13 @@ describe("OpenAiStoryboardDesigner", () => {
     expect(STORYBOARD_DESIGNER_SYSTEM_PROMPT).toContain("知识卡片");
   });
 
+  it("anchors the short-card rhythm discipline in both prompts（copy 空行分块）", () => {
+    expect(STORYBOARD_DESIGNER_SYSTEM_PROMPT).toContain("空行拆成 2-4 个小块");
+    expect(STORYBOARD_DESIGNER_SYSTEM_PROMPT).toContain("每块只讲一件事");
+    // 修订时重写的段同样要守分块节奏（写进「初版规则继续生效」的枚举里）。
+    expect(STORYBOARD_REVISER_SYSTEM_PROMPT).toContain("copy 用空行拆成 2-4 个小块");
+  });
+
   it("tells the reviser how to locate segments when review issues carry no block ids", () => {
     // 审核意见被净化后 blockIds 可能全空：修订器必须能从意见文本自行定位。
     expect(STORYBOARD_REVISER_SYSTEM_PROMPT).toContain("flaggedSectionKeys 为空");

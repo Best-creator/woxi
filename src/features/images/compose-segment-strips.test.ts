@@ -9,7 +9,7 @@ import type { ContentBlock } from "@/features/articles/domain";
 import { SqliteArticleRepository } from "@/features/articles/sqlite-repository";
 import { createTestDatabase } from "../../../tests/helpers/test-db";
 import { DEFAULT_COMIC_STRIP_METRICS } from "./comic-strip";
-import { composeSegmentStrips } from "./compose-segment-strips";
+import { composeSegmentStrips, stripTextBandsOf } from "./compose-segment-strips";
 import {
   DEFAULT_STORYBOARD_FONT_ID,
   STORYBOARD_FONT_OPTIONS,
@@ -112,20 +112,29 @@ function frameGenerator(index: number): ImageGenerator {
   };
 }
 
-async function storyboardFixture(options: { generateFrames?: boolean } = {}) {
+async function storyboardFixture(
+  options: {
+    generateFrames?: boolean;
+    blocks?: ContentBlock[];
+    plans?: StoryboardSegmentPlan[];
+  } = {}
+) {
   const db = createTestDatabase();
   const articles = new SqliteArticleRepository(db);
   const images = new SqliteImageAssetRepository(db);
   const storageDir = await mkdtemp(join(tmpdir(), "wo-xi-segment-"));
 
   const created = await articles.create({ topic: "护眼" });
-  const saved = await articles.save({ ...created, blocks: SEGMENT_COPY }, created.updatedAt);
+  const saved = await articles.save(
+    { ...created, blocks: options.blocks ?? SEGMENT_COPY },
+    created.updatedAt
+  );
   if (saved.kind !== "saved") throw new Error("fixture article should save");
 
   const planned = await images.applyStoryboardPlan(
     saved.article.id,
     saved.article.updatedAt,
-    segmentPlans()
+    options.plans ?? segmentPlans()
   );
   if (planned.kind !== "saved") throw new Error("storyboard plan should save");
 
@@ -309,6 +318,114 @@ describe("composeSegmentStrips", () => {
       { articles: fixture.articles, images: fixture.images }
     );
     expect(result).toEqual({ kind: "conflict" });
+  });
+
+  it("consumes every copy block of a multi-paragraph segment into one strip", async () => {
+    const blocks: ContentBlock[] = [
+      {
+        id: "multi-heading",
+        type: "heading",
+        content: "多块段落",
+        order: 0,
+        level: 2,
+        segmentId: "segment-1",
+        version: 1
+      },
+      {
+        id: "multi-copy-1",
+        type: "paragraph",
+        content: "第一块：先说大白话结论。",
+        order: 1,
+        segmentId: "segment-1",
+        version: 1
+      },
+      {
+        id: "multi-copy-2",
+        type: "paragraph",
+        content: "第二块：再补一句为什么，保持短卡节奏。",
+        order: 2,
+        segmentId: "segment-1",
+        version: 1
+      }
+    ];
+    const plans: StoryboardSegmentPlan[] = [
+      {
+        id: "segment-1",
+        sectionKey: "section-1",
+        title: "多块段落",
+        route: "image_text",
+        copyBlockIds: ["multi-heading", "multi-copy-1", "multi-copy-2"],
+        frames: [{ prompt: "全景。主角讲解，纯白背景", altText: "讲解" }]
+      }
+    ];
+    const fixture = await storyboardFixture({ blocks, plans });
+    const result = await composeSegmentStrips(
+      { articleId: fixture.articleId, expectedUpdatedAt: fixture.expectedUpdatedAt },
+      { articles: fixture.articles, images: fixture.images, storageDir: fixture.storageDir }
+    );
+    if (result.kind !== "composed") throw new Error(`expected composed, got ${JSON.stringify(result)}`);
+
+    expect(result.strips).toHaveLength(1);
+    const strip = result.assets.find((asset) => asset.id === result.strips[0]!.assetId);
+    expect(strip?.consumedContent?.blocks.map((block) => block.id)).toEqual([
+      "multi-heading",
+      "multi-copy-1",
+      "multi-copy-2"
+    ]);
+    const metadata = await sharp(await readFile(strip!.filePath!)).metadata();
+    expect(metadata.format).toBe("png");
+    expect(metadata.width).toBe(DEFAULT_COMIC_STRIP_METRICS.width);
+  });
+});
+
+describe("stripTextBandsOf", () => {
+  const segment: Parameters<typeof stripTextBandsOf>[0] = {
+    id: "segment-1",
+    sectionKey: "section-1",
+    title: "设计期标题",
+    route: "image_text",
+    copyBlockIds: [],
+    frameAssetIds: [],
+    order: 0
+  };
+  const heading: ContentBlock = {
+    id: "h",
+    type: "heading",
+    content: "正文标题",
+    order: 0,
+    level: 2,
+    segmentId: "segment-1",
+    version: 1
+  };
+  const paragraph = (id: string, content: string, order: number): ContentBlock => ({
+    id,
+    type: "paragraph",
+    content,
+    order,
+    segmentId: "segment-1",
+    version: 1
+  });
+
+  it("gives each paragraph its own band and rides the heading on the first", () => {
+    const bands = stripTextBandsOf(segment, [
+      heading,
+      paragraph("p1", "第一块", 1),
+      paragraph("p2", "第二块", 2)
+    ]);
+    expect(bands).toEqual([
+      { kind: "text", title: "正文标题", body: "第一块" },
+      { kind: "text", body: "第二块" }
+    ]);
+  });
+
+  it("keeps a single band for legacy heading plus one paragraph segments", () => {
+    const bands = stripTextBandsOf(segment, [heading, paragraph("p1", "唯一一段", 1)]);
+    expect(bands).toEqual([{ kind: "text", title: "正文标题", body: "唯一一段" }]);
+  });
+
+  it("falls back to the design-time title when the heading block is missing", () => {
+    const bands = stripTextBandsOf(segment, [paragraph("p1", "只剩正文", 1)]);
+    expect(bands).toEqual([{ kind: "text", title: "设计期标题", body: "只剩正文" }]);
   });
 });
 

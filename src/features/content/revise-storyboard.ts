@@ -7,7 +7,7 @@ import { withStripsRestored } from "@/features/images/consumed-content";
 import type { ImageAsset } from "@/features/images/domain";
 import type { StoryboardRevisionSegmentPlan } from "@/features/images/repository";
 import type { ArticleRevision, ContentRevisionSnapshot } from "@/features/revisions/domain";
-import { contentIsReady } from "./generate-content";
+import { contentIsReady, splitStoryboardCopy } from "./generate-content";
 import { describeAudience } from "./audience";
 import { validateStoryboardDesign } from "./openai-storyboard-designer";
 import type {
@@ -75,11 +75,12 @@ export type ReviseStoryboardResult =
   | { kind: "designer_error"; message: string }
   | { kind: "save_error"; message: string };
 
-/** 段内容是否逐字未变：未变的段才能沿用旧段 id 与帧资产（保住已生成的图）。 */
+/** 段内容是否逐字未变：未变的段才能沿用旧段 id 与帧资产（保住已生成的图）。
+ *  copy 先归一化空行再比——分块落库后「还原视图」的空行数与模型原话可能有出入，内容一致就该算未变。 */
 function sameSegment(left: StoryboardDesignSegment, right: StoryboardDesignSegment): boolean {
   if (left.title.trim() !== right.title.trim()) return false;
   if (left.route !== right.route) return false;
-  if (left.copy.trim() !== right.copy.trim()) return false;
+  if (canonicalCopy(left.copy) !== canonicalCopy(right.copy)) return false;
   if (left.frames.length !== right.frames.length) return false;
   return left.frames.every((frame, index) => {
     const other = right.frames[index];
@@ -89,9 +90,15 @@ function sameSegment(left: StoryboardDesignSegment, right: StoryboardDesignSegme
   });
 }
 
+/** 归一化空行（≥2 个换行折叠成正好一个空行），与 splitStoryboardCopy 的分块口径一致。 */
+function canonicalCopy(copy: string): string {
+  return copy.trim().replace(/\n{2,}/g, "\n\n");
+}
+
 /**
  * 把当前 planning 段还原成完整分镜设计（文案取自正文块、帧取自资产）。
  * 返回 planning 段与设计段的配对，diff 时按 sectionKey 队列对齐。
+ * 分块落库的段把各文案块用空行拼回整段 copy——与设计器的分块口径互为逆操作。
  */
 function restoreCurrentDesign(
   article: Article,
@@ -112,7 +119,7 @@ function restoreCurrentDesign(
     const copy = copyBlocks
       .filter((block) => block.type !== "heading")
       .map((block) => block.content)
-      .join("\n");
+      .join("\n\n");
     const frames = plan.frameAssetIds.flatMap((id) => {
       const asset = assetById.get(id);
       return asset ? [{ prompt: asset.prompt, altText: asset.altText }] : [];
@@ -272,32 +279,33 @@ export async function reviseStoryboard(
     replacedSegments += 1;
     const segmentId = randomUUID();
     const headingId = randomUUID();
-    const copyId = randomUUID();
-    textBlocks.push(
-      {
-        id: headingId,
-        type: "heading",
-        content: segment.title,
-        order: textBlocks.length,
-        level: 2,
-        segmentId,
-        version: 1
-      },
-      {
-        id: copyId,
+    const copyParts = splitStoryboardCopy(segment.copy);
+    const copyIds = copyParts.map(() => randomUUID());
+    textBlocks.push({
+      id: headingId,
+      type: "heading",
+      content: segment.title,
+      order: textBlocks.length,
+      level: 2,
+      segmentId,
+      version: 1
+    });
+    copyParts.forEach((part, index) => {
+      textBlocks.push({
+        id: copyIds[index]!,
         type: "paragraph",
-        content: segment.copy,
+        content: part,
         order: textBlocks.length,
         segmentId,
         version: 1
-      }
-    );
+      });
+    });
     plans.push({
       id: segmentId,
       sectionKey: segment.sectionKey,
       title: segment.title,
       route: segment.route,
-      copyBlockIds: [headingId, copyId],
+      copyBlockIds: [headingId, ...copyIds],
       frames: segment.frames.map((frame) => ({
         prompt: frame.prompt,
         altText: frame.altText

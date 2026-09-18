@@ -14,7 +14,8 @@ import {
   DEFAULT_COMIC_STRIP_METRICS,
   composeComicStrip,
   type ComicStripBlock,
-  type ComicStripMetrics
+  type ComicStripMetrics,
+  type ComicStripTextBlock
 } from "./comic-strip";
 import { withStripsRestored } from "./consumed-content";
 import { resolveStoryboardFont, type ImageAsset } from "./domain";
@@ -82,22 +83,29 @@ function byOrder(left: ContentBlock, right: ContentBlock): number {
   return left.order - right.order;
 }
 
-/** 段图标题取正文标题块的内容（作者可能改过措辞），没有标题块时回落设计期的段标题。 */
-function stripTitleOf(
+/**
+ * 段内文案拆成文字带：每个文案块一条带（标题块当首条带的 title），块与块之间由
+ * 渲染器的 gap 自然隔开——短卡节奏，读者一眼一行。历史文章（标题 + 单段落）
+ * 切出来还是一条带，视觉与旧版完全一致。
+ */
+export function stripTextBandsOf(
   segment: StoryboardSegment,
   copyBlocks: readonly ContentBlock[]
-): string | null {
+): ComicStripTextBlock[] {
   const heading = copyBlocks.find((block) => block.type === "heading");
-  return heading?.content.trim() || segment.title.trim() || null;
-}
-
-/** 文案正文 = 该段可烘进图的非标题文案块，按正文顺序用空行分隔。 */
-function stripBodyOf(copyBlocks: readonly ContentBlock[]): string {
-  return copyBlocks
+  const title = heading?.content.trim() || segment.title.trim() || "";
+  const bodies = copyBlocks
     .filter((block) => block.type !== "heading" && CONSUMABLE_BLOCK_TYPES.has(block.type))
     .map((block) => block.content.trim())
-    .filter(Boolean)
-    .join("\n");
+    .filter(Boolean);
+  if (!bodies.length) {
+    return title ? [{ kind: "text", title, body: "" }] : [];
+  }
+  return bodies.map((body, index) => ({
+    kind: "text" as const,
+    ...(index === 0 && title ? { title } : {}),
+    body
+  }));
 }
 
 /** 数一遍所有段还差几帧真实图片（资产缺失 / 未生成 / 无落盘文件都算差）。 */
@@ -164,8 +172,7 @@ export async function composeSegmentStrips(
     frameAssets: ImageAsset[];
     consumedBlocks: ContentBlock[];
     resumeBeforeBlockId: string | null;
-    title: string | null;
-    body: string;
+    textBands: ComicStripTextBlock[];
   }
 
   // 所有段会被吃掉的块先并成一个大集合：相邻段的「插回位置」必须落在
@@ -211,8 +218,7 @@ export async function composeSegmentStrips(
       frameAssets,
       consumedBlocks,
       resumeBeforeBlockId,
-      title: stripTitleOf(segment, consumedBlocks),
-      body: stripBodyOf(consumedBlocks)
+      textBands: stripTextBandsOf(segment, consumedBlocks)
     });
   }
 
@@ -260,22 +266,18 @@ export async function composeSegmentStrips(
         binaries.push(await readFile(frame.filePath!));
       }
 
-      const textPiece: ComicStripBlock = {
-        kind: "text",
-        ...(entry.title ? { title: entry.title } : {}),
-        body: entry.body
-      };
       // 段内路由在设计期就定了：图+文 / 文+图 / 图+文+图，两图夹一文时帧序即设计序。
+      // 文案按块拆成多条文字带——每块一条短卡，不再是一整段长文。
       const stripBlocks: ComicStripBlock[] =
         entry.segment.route === "text_image"
-          ? [textPiece, { kind: "image", binary: binaries[0]! }]
+          ? [...entry.textBands, { kind: "image", binary: binaries[0]! }]
           : entry.segment.route === "image_text_image"
             ? [
                 { kind: "image", binary: binaries[0]! },
-                textPiece,
+                ...entry.textBands,
                 { kind: "image", binary: binaries[1]! }
               ]
-            : [{ kind: "image", binary: binaries[0]! }, textPiece];
+            : [{ kind: "image", binary: binaries[0]! }, ...entry.textBands];
 
       const { buffer, width, height } = await composeComicStrip(stripBlocks, metrics);
 

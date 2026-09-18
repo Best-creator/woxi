@@ -16,8 +16,9 @@ export class DemoStoryboardDesigner implements StoryboardDesigner {
   async design(input: GenerateContentInput): Promise<StoryboardDesign> {
     const segments: StoryboardDesignSegment[] = input.outline.map((section, index) => {
       const goal = section.goal?.trim() || section.title;
+      // 与真实设计器同一分块口径：copy 用空行分成短块，落库时每块一个段落块。
       const copy =
-        `先从一个具体场景说起：${goal}。把这件事放到日常里看，它并不抽象。` +
+        `先从一个具体场景说起：${goal}。把这件事放到日常里看，它并不抽象。\n\n` +
         `说清楚${section.title}之后，下一步就能自然地接到后面的内容。`;
       const route = demoRouteFor(index, input.outline.length);
       return {
@@ -30,7 +31,7 @@ export class DemoStoryboardDesigner implements StoryboardDesigner {
     });
     const last = segments[segments.length - 1];
     if (last && input.brief.oneSentence) {
-      last.copy = `${last.copy}一句话记住：${input.brief.oneSentence}`;
+      last.copy = `${last.copy}\n\n一句话记住：${input.brief.oneSentence}`;
     }
     // 与旧版演示生成器保持一致的成稿标题，方便本地与 E2E 断言。
     return { title: `用大白话讲清楚：${input.topic}`, segments };
@@ -57,7 +58,7 @@ export class DemoStoryboardDesigner implements StoryboardDesigner {
       return {
         ...segment,
         copy:
-          `先从一个具体场景说起：${goal}。把这件事放到日常里看，它并不抽象。` +
+          `先从一个具体场景说起：${goal}。把这件事放到日常里看，它并不抽象。\n\n` +
           `${reason}之后，这一段补足了场景描绘与细节拆解，解释更具体了。`,
         frames: demoFrames(segment.route, segment.title, goal).map((frame, index) => ({
           ...frame,

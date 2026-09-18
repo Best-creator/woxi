@@ -216,18 +216,18 @@ describe("reviseStoryboard", () => {
       segments.slice(1).map((segment) => segment.frameAssetIds)
     );
 
-    // 正文块：改动段换了新块（旧块消失），保留段沿用旧块。
+    // 正文块：改动段换了新块（旧块消失；演示文案按空行分块 = 标题 + 2 段落），保留段沿用旧块。
     const blocks = result.article.blocks;
     expect(
       blocks.filter((block) => plannedSegments[0]!.copyBlockIds.includes(block.id))
-    ).toHaveLength(2);
+    ).toHaveLength(3);
     expect(
       blocks.some((block) => segments[0]!.copyBlockIds.includes(block.id))
     ).toBe(false);
     for (const kept of segments.slice(1)) {
       expect(
         blocks.filter((block) => kept.copyBlockIds.includes(block.id))
-      ).toHaveLength(2);
+      ).toHaveLength(kept.copyBlockIds.length);
     }
   });
 

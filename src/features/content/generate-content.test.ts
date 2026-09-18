@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import { describe, expect, it } from "vitest";
-import { generateContent } from "./generate-content";
+import { generateContent, splitStoryboardCopy } from "./generate-content";
 import { describeAudience } from "./audience";
 import { DEMO_CONTENT_MODEL } from "./model";
 import { resolveStyleProfile } from "./style-profile";
@@ -50,15 +50,18 @@ describe("generateContent", () => {
       revision: { scope: "content", version: 1, model: "writer-large", reason: "generated" }
     });
     if (result.kind !== "generated") throw new Error("expected generated");
-    // 每段 = 标题块 + 文案块；无图片块（分镜帧是独立资产，不进正文块）。
-    expect(result.article.blocks.length).toBe(fixture.article.outline.length * 2);
+    // 每段 = 标题块 + copy 按空行分块后的段落块；无图片块（分镜帧是独立资产，不进正文块）。
+    const plannedSegments = result.article.planning.storyboardSegments ?? [];
+    expect(result.article.blocks.length).toBe(
+      plannedSegments.reduce((total, segment) => total + segment.copyBlockIds.length, 0)
+    );
     expect(result.article.blocks.every((block) => block.type !== "image")).toBe(true);
     expect(result.article.blocks.map((block) => block.order)).toEqual(
       result.article.blocks.map((_, index) => index)
     );
 
     // 分镜设计落库：段数对齐大纲，帧资产真实存在，文案块互相咬合。
-    const segments = result.article.planning.storyboardSegments ?? [];
+    const segments = plannedSegments;
     expect(segments.map((segment) => segment.sectionKey)).toEqual(
       fixture.article.outline.map((section) => section.id)
     );
@@ -69,7 +72,15 @@ describe("generateContent", () => {
       const copyBlocks = result.article.blocks.filter((block) =>
         segment.copyBlockIds.includes(block.id)
       );
-      expect(copyBlocks.map((block) => block.segmentId)).toEqual([segment.id, segment.id]);
+      expect(copyBlocks.map((block) => block.segmentId)).toEqual(
+        segment.copyBlockIds.map(() => segment.id)
+      );
+      // 分块节奏：标题块打头，后面至少 2 个段落块（演示文案用空行分成短块）。
+      expect(copyBlocks[0]?.type).toBe("heading");
+      expect(copyBlocks.slice(1).map((block) => block.type)).toEqual(
+        copyBlocks.slice(1).map(() => "paragraph")
+      );
+      expect(copyBlocks.length).toBeGreaterThanOrEqual(3);
       for (const frameAssetId of segment.frameAssetIds) {
         const asset = await fixture.imageAssets.findById(result.article.id, frameAssetId);
         expect(asset).toMatchObject({ type: "storyboard", status: "placeholder" });
@@ -328,5 +339,26 @@ describe("generateContent", () => {
 
     expect(result).toEqual({ kind: "conflict" });
     expect((await fixture.articles.findById(fixture.article.id))?.blocks).toEqual([]);
+  });
+});
+
+describe("splitStoryboardCopy", () => {
+  it("splits copy on blank lines into trimmed short blocks", () => {
+    expect(splitStoryboardCopy("第一块。\n\n第二块。\n\n\n第三块。")).toEqual([
+      "第一块。",
+      "第二块。",
+      "第三块。"
+    ]);
+  });
+
+  it("keeps copy without blank lines as a single block (legacy articles)", () => {
+    expect(splitStoryboardCopy("一整段没有空行的旧文案")).toEqual(["一整段没有空行的旧文案"]);
+  });
+
+  it("drops whitespace-only chunks and keeps a hard line break inside a block", () => {
+    expect(splitStoryboardCopy("第一块第一行。\n第一块第二行。\n\n   \n第二块。")).toEqual([
+      "第一块第一行。\n第一块第二行。",
+      "第二块。"
+    ]);
   });
 });

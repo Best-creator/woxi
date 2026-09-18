@@ -66,8 +66,21 @@ export function contentIsReady(article: Article): boolean {
 }
 
 /**
+ * 段文案分块：模型被要求用空行把一段 copy 写成 2-4 个小块（每块只讲一件事），
+ * 落库时每个小块一个段落块——段图拼接按块渲染文字带，块短了才读得下去。
+ * 历史文章的 copy 没有空行，切完还是一块，行为不变。
+ */
+export function splitStoryboardCopy(copy: string): string[] {
+  const parts = copy
+    .split(/\n{2,}/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  return parts.length ? parts : [copy.trim()];
+}
+
+/**
  * 把设计稿展开成正文块（展开桥的前半段）：
- * 每段 = 标题块（段落小标题）+ 文案块（成稿文案），都带 segmentId。
+ * 每段 = 标题块（段落小标题）+ 若干文案块（copy 按空行分块，每块一个段落块），都带 segmentId。
  * 分镜帧不进正文块——它们是 image_assets 里的分镜资产，
  * 段图拼接阶段再按路由把文案烘进图里。
  */
@@ -80,7 +93,8 @@ function buildSegmentBlocks(design: StoryboardDesign): {
   for (const segment of design.segments) {
     const segmentId = randomUUID();
     const headingId = randomUUID();
-    const copyId = randomUUID();
+    const copyParts = splitStoryboardCopy(segment.copy);
+    const copyIds = copyParts.map(() => randomUUID());
     blocks.push({
       id: headingId,
       type: "heading",
@@ -90,20 +104,22 @@ function buildSegmentBlocks(design: StoryboardDesign): {
       segmentId,
       version: 1
     });
-    blocks.push({
-      id: copyId,
-      type: "paragraph",
-      content: segment.copy,
-      order: blocks.length,
-      segmentId,
-      version: 1
+    copyParts.forEach((part, index) => {
+      blocks.push({
+        id: copyIds[index]!,
+        type: "paragraph",
+        content: part,
+        order: blocks.length,
+        segmentId,
+        version: 1
+      });
     });
     plans.push({
       id: segmentId,
       sectionKey: segment.sectionKey,
       title: segment.title,
       route: segment.route,
-      copyBlockIds: [headingId, copyId],
+      copyBlockIds: [headingId, ...copyIds],
       frames: segment.frames.map((frame) => ({
         prompt: frame.prompt,
         altText: frame.altText
