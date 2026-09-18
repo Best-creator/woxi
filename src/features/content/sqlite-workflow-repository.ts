@@ -137,7 +137,7 @@ export class SqliteContentWorkflowRepository implements ContentWorkflowRepositor
         recommendedTotalWords: article.planning.recommendedTotalWords ?? textBlocks.length,
         sourceContextSnapshot: input.sourceContextSnapshot
       };
-      const revision = this.createRevision(input.articleId, snapshot, input.model, "generated");
+      const revision = this.createRevision(input.articleId, snapshot, input.model, input.reason ?? "generated");
       const updated = this.writeArticle(article, input.expectedUpdatedAt, {
         title: input.title,
         blocks: mergeImageBlocks(textBlocks, this.listImageAssets(article.id)),

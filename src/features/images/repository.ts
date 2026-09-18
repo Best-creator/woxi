@@ -44,6 +44,15 @@ export type StoryboardPlanMutationResult =
   | { kind: "invalid_state"; message: string };
 
 /**
+ * 分镜修订的一段落库输入。
+ * 未改动的段带 retainedFrameAssetIds：沿用既有帧资产（已生成的图不动）；
+ * 改动的段不带：由仓储新建占位帧，旧帧退役。
+ */
+export interface StoryboardRevisionSegmentPlan extends StoryboardSegmentPlan {
+  retainedFrameAssetIds?: string[];
+}
+
+/**
  * 版本选用/删除的结果。
  * `removedFilePath` 只在删除时有值：仓储不碰文件系统，把路径交回上层去清理磁盘。
  */
@@ -178,6 +187,16 @@ export interface ImageAssetRepository {
     articleId: string,
     expectedUpdatedAt: string,
     segments: StoryboardSegmentPlan[]
+  ): Promise<StoryboardPlanMutationResult>;
+  /**
+   * 分镜修订的外科手术式落库（与 applyStoryboardPlan 的全量重建相对）：
+   * 带 retainedFrameAssetIds 的段沿用既有帧资产，其余旧分镜帧退役，
+   * 只为改动段新建占位帧——按审核意见修订时，没被点名的段已生成的图不受影响。
+   */
+  applyStoryboardRevision(
+    articleId: string,
+    expectedUpdatedAt: string,
+    segments: StoryboardRevisionSegmentPlan[]
   ): Promise<StoryboardPlanMutationResult>;
   /**
    * 落库一张漫画长图。被它替换掉的正文块随之从正文里隐去；

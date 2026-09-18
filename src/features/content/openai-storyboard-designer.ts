@@ -4,6 +4,7 @@ import { storyboardDesignSchema } from "./schemas";
 import { describeStyleProfile } from "./style-profile";
 import type {
   GenerateContentInput,
+  ReviseStoryboardDesignInput,
   StoryboardDesign,
   StoryboardDesigner
 } from "./ports";
@@ -34,6 +35,18 @@ export const STORYBOARD_DESIGNER_SYSTEM_PROMPT = `你是公众号知识类漫画
 - 画面底色一律纯白（#FFFFFF）：不铺纸纹、不加渐变、不拍环境实景；若绘制风格里写到了背景，一律以纯白覆盖。理由：段图之后要竖向拼成一张长图，只有底色统一成白，一段一段才能连成一张纸。
 - 未指定绘制风格时，默认统一采用日系动漫画风：清晰线条、赛璐璐上色、明快配色、适当速度线与情绪符号。
 - altText 不超过 40 字。`;
+
+export const STORYBOARD_REVISER_SYSTEM_PROMPT = `你是公众号知识类漫画的「正文分镜修订师」。你会拿到一篇完整的分镜设计（currentDesign）和修订意图（审核意见 reviewFeedback / 作者补充要求 userInstructions），你的任务是输出一份修订后的完整分镜设计。只返回 JSON，不要 Markdown 代码块或解释。
+返回对象与初版设计完全同构：{"title":"最终标题","segments":[{"sectionKey":"输入中的章节 id","title":"段落小标题","route":"image_text|text_image|image_text_image","copy":"该段成稿文案","frames":[{"prompt":"完整生图提示词","altText":"中文替代文本"}]}]}。
+
+修订纪律（比写得好更重要的是改得准）：
+1. userInstructions 是最高优先级的意图来源；审核意见其次。两类要求同时存在时一次全部满足，互相冲突以 userInstructions 为准。
+2. 只改需要改的段：被 flaggedSectionKeys 点名的段必须按意见重写；没被点名、也不影响全局要求的段，title/copy/route/frames 必须与 currentDesign 里对应段逐字一致——这些段的分镜图可能已经生成，改动会作废已生成的图。
+3. 全局义务例外：如果修订意见涉及收尾、总字数、段间衔接这类全篇问题，允许连带改动受影响的相邻段，但要在满足意见的前提下尽量少动。
+4. 禁止顺手润色：不要因为「可以更好」就改动与意见无关的段；一处小改也会作废该段已生成的分镜图。
+5. sectionKey 只能取输入 outline 中已存在的 id；每个章节至少被一个段落覆盖；段顺序与 currentDesign 保持一致。
+6. 字数是硬约束：全部分段的 title 与 copy 总字数不得超过 recommendedTotalWords；被要求充实的段可以变长，但要靠压缩其他冗余或控制在总预算内。
+7. 初版设计的全部规则继续生效：route 与帧数硬性对应（image_text/text_image 各 1 帧，image_text_image 2 帧讲连续动作）；重写的段如果换了 route，帧数必须跟着换；画面底色一律纯白；prompt 是可直接交给生图模型的完整提示词（动作表情、场景道具、情绪层次、镜头景别 + 画面文字）；全篇共用同一主角同一画风；altText 不超过 40 字。`;
 
 type JsonClient = Pick<OpenAiJsonClient, "complete">;
 
@@ -104,6 +117,33 @@ export class OpenAiStoryboardDesigner implements StoryboardDesigner {
       // 一次要写全文案 + 逐帧分镜，深度推理模型实测可达 2 分钟以上，给足余量。
       timeoutMs: 300_000
     });
+    return validateStoryboardDesign(result, input);
+  }
+
+  async revise(input: ReviseStoryboardDesignInput): Promise<StoryboardDesign> {
+    const result = await this.client.complete({
+      model: input.model,
+      systemPrompt: STORYBOARD_REVISER_SYSTEM_PROMPT,
+      userPayload: {
+        topic: input.topic,
+        targetAudience: input.targetAudience,
+        brief: input.brief,
+        outline: input.outline,
+        recommendedTotalWords: input.recommendedTotalWords,
+        styleProfile: describeStyleProfile(input.styleProfile),
+        currentDesign: input.currentDesign,
+        flaggedSectionKeys: input.flaggedSectionKeys,
+        ...(input.reviewFeedback ? { reviewFeedback: input.reviewFeedback } : {}),
+        ...(input.userInstructions?.trim() ? { userInstructions: input.userInstructions.trim() } : {}),
+        ...(input.drawingStyle?.trim() ? { drawingStyle: input.drawingStyle.trim() } : {}),
+        ...(input.character ? { character: input.character } : {}),
+        ...(input.sourceContext ? { sourceContext: input.sourceContext } : {})
+      },
+      schema: storyboardDesignSchema,
+      // 修订同样要通读全篇再逐段重写，给与初版相同的超时余量。
+      timeoutMs: 300_000
+    });
+    // 修订稿与初稿共用同一道结构闸：章节覆盖、路由-帧数、总字数。
     return validateStoryboardDesign(result, input);
   }
 }

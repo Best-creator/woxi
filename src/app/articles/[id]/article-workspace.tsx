@@ -29,6 +29,7 @@ import {
   type GenerateContent,
   type RestoreVersion,
   type ReviewContent,
+  type ReviseContent,
   type SaveVersion
 } from "./content/content-workspace";
 
@@ -140,6 +141,7 @@ export interface ArticleWorkspaceProps {
   initialContentReview?: ContentWorkspaceReview;
   initialContentVersionReviews?: ContentVersionReviews;
   generateContent?: GenerateContent;
+  reviseContent?: ReviseContent;
   reviewContent?: ReviewContent;
   approveContent?: ApproveContent;
   saveContentVersion?: SaveVersion;
@@ -339,6 +341,7 @@ export function ArticleWorkspace({
   initialContentReview = null,
   initialContentVersionReviews = {},
   generateContent,
+  reviseContent,
   reviewContent,
   approveContent,
   saveContentVersion,
@@ -698,6 +701,7 @@ export function ArticleWorkspace({
               }
               onHistoryChange={handleContentHistoryChange}
               generateContent={generateContent}
+              reviseContent={reviseContent}
               reviewContent={reviewContent}
               approveContent={approveContent}
               saveVersion={saveContentVersion}

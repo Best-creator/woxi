@@ -38,6 +38,11 @@ type ContentMutationResult = {
   revision: ArticleRevision<ContentRevisionSnapshot>;
 };
 
+type ContentReviseMutationResult = ContentMutationResult & {
+  replacedSegments: number;
+  retainedSegments: number;
+};
+
 type ContentReviewMutationResult = {
   revision: ArticleRevision<ContentRevisionSnapshot>;
   review: ArticleReview<ContentReviewResult>;
@@ -50,6 +55,14 @@ export type GenerateContent = (input: {
   model?: string;
   styleProfile: StyleProfile;
 }) => Promise<ContentMutationResult>;
+
+export type ReviseContent = (input: {
+  expectedUpdatedAt: string;
+  model?: string;
+  styleProfile: StyleProfile;
+  /** 缺省 = 只按审核意见改；给了 = 按作者要求改（审核意见仍会带上）。 */
+  userInstructions?: string;
+}) => Promise<ContentReviseMutationResult>;
 
 export type ReviewContent = (input: {
   expectedUpdatedAt: string;
@@ -90,6 +103,7 @@ export interface ContentWorkspaceProps {
     versionReviews: ContentVersionReviews
   ) => void;
   generateContent?: GenerateContent;
+  reviseContent?: ReviseContent;
   reviewContent?: ReviewContent;
   approveContent?: ApproveContent;
   saveVersion?: SaveVersion;
@@ -109,6 +123,10 @@ async function requestJson<T>(url: string, body: object): Promise<T> {
 
 function generateContentRequest(articleId: string): GenerateContent {
   return (input) => requestJson<ContentMutationResult>(`/api/articles/${articleId}/content/generate`, input);
+}
+
+function reviseContentRequest(articleId: string): ReviseContent {
+  return (input) => requestJson<ContentReviseMutationResult>(`/api/articles/${articleId}/content/revise`, input);
 }
 
 function reviewContentRequest(articleId: string): ReviewContent {
@@ -154,6 +172,7 @@ export function ContentWorkspace({
   onEditPlanning,
   onHistoryChange,
   generateContent,
+  reviseContent,
   reviewContent,
   approveContent,
   saveVersion,
@@ -173,8 +192,10 @@ export function ContentWorkspace({
   const [styleProfile, setStyleProfile] = useState<StyleProfile>(article.styleProfile);
   const [highlightedBlockIds, setHighlightedBlockIds] = useState<readonly string[]>([]);
   const [operation, setOperation] = useState<
-    "idle" | "generating" | "reviewing" | "approving" | "saving" | "restoring"
+    "idle" | "generating" | "reviewing" | "revising" | "approving" | "saving" | "restoring"
   >("idle");
+  // 「按我的意见改分镜」的补充要求；两个修订入口共用同一条链路（对齐大纲工作台）。
+  const [instructions, setInstructions] = useState("");
   const [message, setMessage] = useState("");
 
   const isBusy = operation !== "idle";
@@ -321,6 +342,34 @@ export function ContentWorkspace({
           : "分镜脚本已生成"
       );
     }, "generating");
+  }
+
+  /**
+   * 两个入口共用一条链路（对齐大纲工作台）：不带 userInstructions 时是「按审核意见改」，
+   * 带了就是「按我的意见改」——后者不要求先有审核记录，闸门由服务端按参数决定。
+   * 服务端只重写内容有变化的段：没被点名的段连同已生成的分镜图原样保留。
+   */
+  function reviseStoryboard(userInstructions: string | undefined) {
+    void run(async () => {
+      setPreviewVersionId(null);
+      const saved = await prepareArticle();
+      const result = await (reviseContent ?? reviseContentRequest(saved.id))({
+        expectedUpdatedAt: saved.updatedAt,
+        ...(model ? { model } : {}),
+        styleProfile,
+        ...(userInstructions ? { userInstructions } : {})
+      });
+      onArticleChange(result.article);
+      setVersions((items) => addVersion(items, result.revision));
+      // 修订产生新版本：旧审核不再对应当前内容，清掉等重新审核。
+      setCurrentReview(null);
+      if (userInstructions) setInstructions("");
+      setMessage(
+        result.replacedSegments > 0
+          ? `分镜已修订：更新 ${result.replacedSegments} 段（该段配图已重置为待生成），其余 ${result.retainedSegments} 段连同已生成配图保持原样`
+          : "分镜未变化：模型没有改任何段落，配图保持原样"
+      );
+    }, "revising");
   }
 
   function handleReview() {
@@ -520,6 +569,13 @@ export function ContentWorkspace({
             canReview={canReview && !readOnly}
             isReviewing={operation === "reviewing"}
             isApproving={operation === "approving"}
+            isApplyingReview={operation === "revising"}
+            instructions={instructions}
+            canRevise={canReview && !readOnly && hasSegments}
+            isRevising={operation === "revising"}
+            onInstructionsChange={setInstructions}
+            onRevise={() => reviseStoryboard(instructions.trim() || undefined)}
+            onApplyReview={() => reviseStoryboard(undefined)}
             approved={approved && !isPreviewing}
             disabled={isBusy}
             modelSelect={{

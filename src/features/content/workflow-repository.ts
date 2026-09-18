@@ -21,6 +21,11 @@ export interface SaveGeneratedContentInput {
   textBlocks: ContentBlock[];
   styleProfile: StyleProfile;
   sourceContextSnapshot: string;
+  /**
+   * 版本原因；缺省 "generated"。按审核意见修订分镜时传 "review_applied"，
+   * 让版本历史能区分「全新生成」与「按意见修订」。
+   */
+  reason?: RevisionReason;
 }
 
 export interface ContentWorkflowRepository {

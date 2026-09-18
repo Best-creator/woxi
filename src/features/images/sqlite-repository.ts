@@ -29,6 +29,7 @@ import type {
   ImagePlanMutationResult,
   SaveComicStripInput,
   StoryboardPlanMutationResult,
+  StoryboardRevisionSegmentPlan,
   StoryboardSegmentPlan
 } from "./repository";
 
@@ -723,6 +724,128 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
         article.blocks,
         assets,
         oldStoryboards.map((asset) => asset.id)
+      );
+      return { ...saved, removedFilePaths };
+    });
+  }
+
+  async applyStoryboardRevision(
+    articleId: string,
+    expectedUpdatedAt: string,
+    segments: StoryboardRevisionSegmentPlan[]
+  ): Promise<StoryboardPlanMutationResult> {
+    return this.inTransaction(() => {
+      const article = this.currentArticle(articleId, expectedUpdatedAt);
+      if (!article) return this.missingOrConflict(articleId, expectedUpdatedAt);
+      if (!segments.length) {
+        return { kind: "invalid_state", message: "分镜修订为空，无法落库" };
+      }
+
+      const existing = this.listSync(articleId);
+      const oldStoryboards = existing.filter((asset) => asset.type === "storyboard");
+      if (oldStoryboards.some((asset) => asset.status === "generating")) {
+        return {
+          kind: "invalid_state",
+          message:
+            "有分镜图正在生成，请等生成结束或失败后再修订分镜；若长时间未动，可先在配图步骤点该帧的「取消生成并恢复占位图」"
+        };
+      }
+
+      const storyboardById = new Map(oldStoryboards.map((asset) => [asset.id, asset]));
+      const retainedIds = new Set<string>();
+      for (const segment of segments) {
+        for (const assetId of segment.retainedFrameAssetIds ?? []) {
+          if (!storyboardById.has(assetId)) {
+            return {
+              kind: "invalid_state",
+              message: "要保留的分镜帧不存在或已被重新设计，请刷新后重试"
+            };
+          }
+          retainedIds.add(assetId);
+        }
+      }
+
+      // 只退役改动段的旧帧：保留段的帧资产（连同已生成的图）原样不动。
+      const removedFilePaths: string[] = [];
+      const removedAssetIds: string[] = [];
+      for (const asset of oldStoryboards) {
+        if (retainedIds.has(asset.id)) continue;
+        const rows = this.generationRowsForAsset(asset.id);
+        for (const row of rows) {
+          if (row.file_path) removedFilePaths.push(row.file_path);
+        }
+        if (rows.length) {
+          this.db
+            .prepare("DELETE FROM image_asset_generations WHERE asset_id = ?")
+            .run(asset.id);
+        }
+        this.db.prepare("DELETE FROM image_assets WHERE id = ?").run(asset.id);
+        removedAssetIds.push(asset.id);
+      }
+
+      let assetTimestamp = article.updatedAt;
+      let position = this.nextPosition(articleId);
+      const persisted: StoryboardSegment[] = [];
+      for (const [index, segment] of segments.entries()) {
+        const retained = segment.retainedFrameAssetIds ?? [];
+        let frameAssetIds: string[];
+        if (retained.length) {
+          frameAssetIds = retained;
+        } else {
+          frameAssetIds = [];
+          for (const frame of segment.frames) {
+            assetTimestamp = nextTimestamp(assetTimestamp);
+            const id = randomUUID();
+            const asset: ImageAsset = {
+              id,
+              articleId,
+              type: "storyboard",
+              // 分镜帧归段落所有（frameAssetIds 关联），不挂正文锚点。
+              anchorBlockId: null,
+              purpose: `分镜「${segment.title}」第 ${frameAssetIds.length + 1} 帧`,
+              prompt: frame.prompt,
+              altText: frame.altText,
+              aspectRatio: frame.aspectRatio ?? "landscape",
+              status: "placeholder",
+              placeholderUrl: imageContentUrl(id),
+              filePath: null,
+              publicUrl: null,
+              manuallyEdited: false,
+              consumedContent: null,
+              createdAt: assetTimestamp,
+              updatedAt: assetTimestamp
+            };
+            this.insertAsset(asset, position);
+            position += 1;
+            frameAssetIds.push(id);
+          }
+        }
+        persisted.push({
+          id: segment.id,
+          sectionKey: segment.sectionKey,
+          title: segment.title,
+          route: segment.route,
+          copyBlockIds: [...segment.copyBlockIds],
+          frameAssetIds,
+          order: index
+        });
+      }
+
+      // planning 先行落库，saveBlocksAggregate 返回的文章带上新 planning，
+      // 让设计视图与拼接阶段立即可见。
+      const planning: ArticlePlanning = { ...article.planning, storyboardSegments: persisted };
+      this.db
+        .prepare("UPDATE articles SET planning_json = ? WHERE id = ?")
+        .run(JSON.stringify(planning), articleId);
+      const articleForSave = { ...article, planning };
+
+      const assets = this.listSync(articleId);
+      const saved = this.saveBlocksAggregate(
+        articleForSave,
+        expectedUpdatedAt,
+        article.blocks,
+        assets,
+        removedAssetIds
       );
       return { ...saved, removedFilePaths };
     });

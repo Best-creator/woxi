@@ -64,12 +64,46 @@ export interface StoryboardDesign {
   segments: StoryboardDesignSegment[];
 }
 
+/** 传给修订器的审核意见（与大纲修订同构：意见照传，由模型一次同时满足）。 */
+export interface StoryboardReviewFeedback {
+  status: ContentReviewStatus;
+  summary: string;
+  issues: ContentReviewIssue[];
+}
+
+/**
+ * 分镜修订输入：当前全篇设计 + 修订意图（审核意见 / 作者要求）。
+ * 修订器返回的仍是完整设计；被点名的段重写，未点名的段必须原样保留，
+ * 编排层按内容 diff 决定哪些段真正落库替换。
+ */
+export interface ReviseStoryboardDesignInput {
+  topic: string;
+  targetAudience: string;
+  brief: KnowledgeBrief;
+  outline: GenerateContentOutlineSection[];
+  recommendedTotalWords: number;
+  styleProfile: StyleProfile;
+  /** 当前分镜设计（由 planning.storyboardSegments + 正文块 + 帧资产还原）。 */
+  currentDesign: StoryboardDesign;
+  /** 审核点名的章节 id（由审核 issue 的 blockIds 映射而来）；空集 = 没有段被点名。 */
+  flaggedSectionKeys: string[];
+  reviewFeedback?: StoryboardReviewFeedback;
+  /** 作者自然语言修改要求；优先级最高，给了它就不再要求先有审核记录。 */
+  userInstructions?: string;
+  drawingStyle?: string;
+  character?: StoryboardCharacterBrief;
+  sourceContext?: string;
+  model?: string;
+}
+
 /**
  * 第三步「设计正文分镜」的生成器：一次产出全篇的分镜设计
  * （逐段 route + 成稿文案 + 完整生图 prompt 的分镜帧）。
  */
 export interface StoryboardDesigner {
   design(input: GenerateContentInput): Promise<StoryboardDesign>;
+  /** 按审核意见 / 作者要求修订分镜：返回完整设计，未点名的段保持原样。 */
+  revise(input: ReviseStoryboardDesignInput): Promise<StoryboardDesign>;
 }
 
 export type ContentReviewStatus = "passed" | "needs_revision" | "blocked";

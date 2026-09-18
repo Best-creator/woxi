@@ -3,6 +3,7 @@
 import { Check, CircleAlert, ShieldAlert, Sparkles } from "lucide-react";
 import { useState } from "react";
 import type { ContentReviewResult } from "@/features/content/ports";
+import { MAX_USER_INSTRUCTIONS_LENGTH } from "@/features/outlines/domain";
 import type { ArticleReview } from "@/features/revisions/domain";
 import { ModelSelect } from "./model-select";
 import type { ReviewModelSelect } from "./outline-review-panel";
@@ -18,6 +19,17 @@ export interface ContentReviewPanelProps {
   approved?: boolean;
   disabled?: boolean;
   modelSelect?: ReviewModelSelect;
+  /**
+   * 「按审核意见改分镜」与「按我的意见改分镜」两个入口（对齐大纲审核面板）：
+   * 只有传了 onApplyReview / onRevise 才渲染，老调用方不传就完全不受影响。
+   */
+  isApplyingReview?: boolean;
+  instructions?: string;
+  canRevise?: boolean;
+  isRevising?: boolean;
+  onInstructionsChange?: (value: string) => void;
+  onRevise?: () => void;
+  onApplyReview?: () => void;
   onReview: () => void;
   onApprove: (acknowledgeWarnings: boolean) => void;
   onLocateIssue?: (blockIds: string[]) => void;
@@ -50,6 +62,13 @@ export function ContentReviewPanel({
   approved = false,
   disabled = false,
   modelSelect,
+  isApplyingReview = false,
+  instructions = "",
+  canRevise,
+  isRevising = false,
+  onInstructionsChange,
+  onRevise,
+  onApplyReview,
   onReview,
   onApprove,
   onLocateIssue
@@ -64,11 +83,26 @@ export function ContentReviewPanel({
   const approvalBlocked =
     disabled ||
     isApproving ||
+    isApplyingReview ||
+    isRevising ||
     (actionResult ? isStale : false) ||
     staleOutline ||
     actionResult?.status === "blocked" ||
     (requiresAcknowledgement && !acknowledgeWarnings) ||
     approved;
+  // 能否修订只取决于「有没有可修订的正文」，与审核结论无关——这正是对话框存在的意义。
+  const canReviseNow = canRevise ?? canReview;
+  const hasInstructions = instructions.trim().length > 0;
+  const reviseDisabled = disabled || isRevising || !canReviseNow || !hasInstructions;
+  // 已经写了补充要求时不再显示「只按审核意见改」那个按钮：两个按钮看起来都能改分镜，
+  // 而其中一个是纯审核链路，容易让人以为自己的要求没生效。写下的要求由下面那个按钮统一带上。
+  const canApplyReview = Boolean(
+    onApplyReview &&
+    actionResult &&
+    !isStale &&
+    !hasInstructions &&
+    (actionResult.status === "needs_revision" || actionResult.status === "blocked")
+  );
 
   return (
     <section className="content-review-panel" aria-labelledby="content-review-heading">
@@ -139,6 +173,36 @@ export function ContentReviewPanel({
         />
       ) : null}
 
+      {onRevise && !staleOutline ? (
+        <div className="outline-revision-request">
+          <label className="field-label" htmlFor="content-revision-instructions">
+            补充要求
+            <textarea
+              id="content-revision-instructions"
+              className="field-control outline-revision-textarea"
+              value={instructions}
+              rows={3}
+              disabled={disabled || isRevising}
+              maxLength={MAX_USER_INSTRUCTIONS_LENGTH}
+              placeholder="例如：把第三部分的场景描绘展开；第二段换成校园场景；结尾补一个行动清单。"
+              onChange={(event) => onInstructionsChange?.(event.target.value)}
+            />
+          </label>
+          <button
+            className="button button-secondary outline-revision-button"
+            type="button"
+            disabled={reviseDisabled}
+            onClick={onRevise}
+          >
+            <Sparkles size={15} aria-hidden="true" />
+            {isRevising ? "修改中..." : "按我的意见改分镜"}
+          </button>
+          <p className="outline-revision-hint">
+            只重写需要改的段落，没点名的段和已生成的配图保持原样；审核未通过、甚至还没审核也能直接用。
+          </p>
+        </div>
+      ) : null}
+
       {requiresAcknowledgement ? (
         <label className="review-acknowledgement">
           <input
@@ -151,16 +215,27 @@ export function ContentReviewPanel({
         </label>
       ) : null}
 
-      <div className="review-actions">
+      <div className={`review-actions${canApplyReview ? " review-actions-three" : ""}`}>
         <button
           className="button button-secondary"
           type="button"
-          disabled={disabled || isReviewing || isApproving || !canReview || staleOutline}
+          disabled={disabled || isReviewing || isApproving || isRevising || !canReview || staleOutline}
           onClick={onReview}
         >
           <Sparkles size={15} aria-hidden="true" />
           {isReviewing ? "审核中..." : "审核文案"}
         </button>
+        {canApplyReview ? (
+          <button
+            className="button button-secondary"
+            type="button"
+            disabled={disabled || isApplyingReview || isRevising}
+            onClick={onApplyReview}
+          >
+            <Sparkles size={15} aria-hidden="true" />
+            {isApplyingReview ? "修改中..." : "按审核意见改分镜"}
+          </button>
+        ) : null}
         <button
           className="button button-primary"
           type="button"

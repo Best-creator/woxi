@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { ArticleReview } from "@/features/revisions/domain";
 import type { ContentReviewResult } from "@/features/content/ports";
@@ -142,5 +143,92 @@ describe("ContentReviewPanel", () => {
 
     expect(screen.getByText("当前正文基于旧大纲")).toBeVisible();
     expect(screen.getByRole("button", { name: "审核文案" })).toBeDisabled();
+  });
+
+  it("offers revising by review feedback when the review needs revision", async () => {
+    const onApplyReview = vi.fn();
+    render(
+      <ContentReviewPanel
+        review={reviewWith({ status: "needs_revision" })}
+        isStale={false}
+        canReview
+        isApplyingReview={false}
+        canRevise
+        onApplyReview={onApplyReview}
+        onReview={vi.fn()}
+        onApprove={vi.fn()}
+      />
+    );
+
+    const apply = screen.getByRole("button", { name: "按审核意见改分镜" });
+    expect(apply).toBeEnabled();
+
+    await userEvent.click(apply);
+
+    expect(onApplyReview).toHaveBeenCalledOnce();
+  });
+
+  it("hides the review-feedback entry for a passed or stale review", () => {
+    const { rerender } = render(
+      <ContentReviewPanel
+        review={reviewWith({ status: "passed" })}
+        isStale={false}
+        canReview
+        canRevise
+        onApplyReview={vi.fn()}
+        onReview={vi.fn()}
+        onApprove={vi.fn()}
+      />
+    );
+    expect(screen.queryByRole("button", { name: "按审核意见改分镜" })).not.toBeInTheDocument();
+
+    rerender(
+      <ContentReviewPanel
+        review={reviewWith({ status: "needs_revision" })}
+        isStale
+        canReview
+        canRevise
+        onApplyReview={vi.fn()}
+        onReview={vi.fn()}
+        onApprove={vi.fn()}
+      />
+    );
+    expect(screen.queryByRole("button", { name: "按审核意见改分镜" })).not.toBeInTheDocument();
+  });
+
+  it("converges personal instructions into the revise entry and hides the review-feedback one", async () => {
+    const onRevise = vi.fn();
+    // 面板的补充要求是受控输入：用带状态的包装组件承载，模拟真实工作台的用法。
+    function Harness() {
+      const [instructions, setInstructions] = useState("");
+      return (
+        <ContentReviewPanel
+          review={reviewWith({ status: "needs_revision" })}
+          isStale={false}
+          canReview
+          canRevise
+          instructions={instructions}
+          onInstructionsChange={setInstructions}
+          onRevise={onRevise}
+          onApplyReview={vi.fn()}
+          onReview={vi.fn()}
+          onApprove={vi.fn()}
+        />
+      );
+    }
+    render(<Harness />);
+
+    // 两个入口并存时，写了要求就只留「按我的意见改」这一个按钮。
+    expect(screen.getByRole("button", { name: "按审核意见改分镜" })).toBeVisible();
+    const revise = screen.getByRole("button", { name: "按我的意见改分镜" });
+    expect(revise).toBeDisabled();
+
+    await userEvent.type(screen.getByLabelText(/补充要求/), "把第三部分展开讲");
+    expect(screen.queryByRole("button", { name: "按审核意见改分镜" })).not.toBeInTheDocument();
+    expect(revise).toBeEnabled();
+
+    await userEvent.click(revise);
+
+    expect(onRevise).toHaveBeenCalledOnce();
   });
 });

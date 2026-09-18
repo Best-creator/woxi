@@ -9,6 +9,16 @@ import type { StoryboardDesigner } from "./ports";
 import { DemoStoryboardDesigner } from "./demo-storyboard-designer";
 import { articleWithConfirmedOutline } from "../../../tests/helpers/content-fixture";
 
+/** 只关心 design 的假设计器：revise 不该在生成链路里被调用。 */
+function fakeDesigner(design: StoryboardDesigner["design"]): StoryboardDesigner {
+  return {
+    design,
+    async revise() {
+      throw new Error("revise is not expected in generateContent tests");
+    }
+  };
+}
+
 describe("generateContent", () => {
   it("designs storyboard segments from the confirmed outline and records content v1", async () => {
     const fixture = await articleWithConfirmedOutline();
@@ -73,12 +83,10 @@ describe("generateContent", () => {
 
   it("adopts the title proposed by the designer", async () => {
     const fixture = await articleWithConfirmedOutline();
-    const titling: StoryboardDesigner = {
-      async design(input) {
-        const design = await new DemoStoryboardDesigner().design(input);
-        return { ...design, title: "  《机会成本》其实很简单  " };
-      }
-    };
+    const titling = fakeDesigner(async (input) => {
+      const design = await new DemoStoryboardDesigner().design(input);
+      return { ...design, title: "  《机会成本》其实很简单  " };
+    });
 
     const result = await generateContent(
       {
@@ -102,12 +110,10 @@ describe("generateContent", () => {
 
   it("keeps the current title when the designer returns a blank one", async () => {
     const fixture = await articleWithConfirmedOutline();
-    const untitled: StoryboardDesigner = {
-      async design(input) {
-        const design = await new DemoStoryboardDesigner().design(input);
-        return { ...design, title: "   " };
-      }
-    };
+    const untitled = fakeDesigner(async (input) => {
+      const design = await new DemoStoryboardDesigner().design(input);
+      return { ...design, title: "   " };
+    });
 
     const result = await generateContent(
       {
@@ -131,12 +137,10 @@ describe("generateContent", () => {
   it("hands every confirmed section to the designer in order", async () => {
     const fixture = await articleWithConfirmedOutline();
     let received: Parameters<StoryboardDesigner["design"]>[0] | undefined;
-    const designer: StoryboardDesigner = {
-      async design(input) {
-        received = input;
-        return new DemoStoryboardDesigner().design(input);
-      }
-    };
+    const designer = fakeDesigner(async (input) => {
+      received = input;
+      return new DemoStoryboardDesigner().design(input);
+    });
 
     await generateContent(
       {
@@ -157,12 +161,10 @@ describe("generateContent", () => {
   it("forwards drawing style and character into the design input", async () => {
     const fixture = await articleWithConfirmedOutline();
     let received: Parameters<StoryboardDesigner["design"]>[0] | undefined;
-    const designer: StoryboardDesigner = {
-      async design(input) {
-        received = input;
-        return new DemoStoryboardDesigner().design(input);
-      }
-    };
+    const designer = fakeDesigner(async (input) => {
+      received = input;
+      return new DemoStoryboardDesigner().design(input);
+    });
     const character = { name: "小知", persona: "科普讲解员", description: "圆框眼镜、蓝色马甲" };
 
     await generateContent(
@@ -183,12 +185,10 @@ describe("generateContent", () => {
   it("passes the chosen audience through as targetAudience", async () => {
     const fixture = await articleWithConfirmedOutline();
     let received: Parameters<StoryboardDesigner["design"]>[0] | undefined;
-    const designer: StoryboardDesigner = {
-      async design(input) {
-        received = input;
-        return new DemoStoryboardDesigner().design(input);
-      }
-    };
+    const designer = fakeDesigner(async (input) => {
+      received = input;
+      return new DemoStoryboardDesigner().design(input);
+    });
 
     await generateContent(
       {
@@ -249,11 +249,9 @@ describe("generateContent", () => {
 
   it("does not write a revision when the designer fails", async () => {
     const fixture = await articleWithConfirmedOutline();
-    const failing: StoryboardDesigner = {
-      async design() {
-        throw new Error("上游超时");
-      }
-    };
+    const failing = fakeDesigner(async () => {
+      throw new Error("上游超时");
+    });
 
     const failed = await generateContent(
       { articleId: fixture.article.id, expectedUpdatedAt: fixture.article.updatedAt, styleProfile: resolveStyleProfile("popular_science_teacher") },

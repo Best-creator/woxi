@@ -306,4 +306,69 @@ describe("ContentWorkspace", () => {
     expect(screen.getByText("未分段文案")).toBeVisible();
     expect(screen.getByText("这篇正文还没有分镜设计")).toBeVisible();
   });
+
+  describe("storyboard revision", () => {
+    const storyboardRevision = revision({
+      snapshot: {
+        title: storyboardArticle.title,
+        textBlocks: storyboardBlocks,
+        outlineRevisionId: "revision-1",
+        styleProfile: storyboardArticle.styleProfile,
+        recommendedTotalWords: 1200,
+        sourceContextSnapshot: ""
+      }
+    });
+
+    function reviseFixture(reviseContent: unknown) {
+      return render(
+        <ContentWorkspace
+          article={storyboardArticle}
+          llmConfig={{ enabled: false, availableModels: [], defaultModel: null }}
+          prepareArticle={async () => storyboardArticle}
+          onArticleChange={vi.fn()}
+          onEditBlocks={vi.fn()}
+          initialVersions={[storyboardRevision]}
+          initialReview={{ revision: storyboardRevision, review: reviewWith("needs_revision", ["seg1-p"]) }}
+          reviseContent={reviseContent as never}
+        />
+      );
+    }
+
+    it("applies review feedback through the converged entry and reports what was replaced", async () => {
+      const user = userEvent.setup();
+      const reviseContent = vi.fn(async () => ({
+        article: { ...storyboardArticle, updatedAt: "2026-09-10T00:00:09.000Z" },
+        revision: revision({ id: "content-revision-2", reason: "review_applied" }),
+        replacedSegments: 1,
+        retainedSegments: 1
+      }));
+      reviseFixture(reviseContent);
+
+      await user.click(screen.getByRole("button", { name: "按审核意见改分镜" }));
+
+      expect(reviseContent).toHaveBeenCalledWith(expect.objectContaining({
+        expectedUpdatedAt: storyboardArticle.updatedAt
+      }));
+      expect(await screen.findByText(/分镜已修订：更新 1 段/)).toBeVisible();
+      expect(screen.getByText(/其余 1 段连同已生成配图保持原样/)).toBeVisible();
+    });
+
+    it("sends personal instructions through the revise entry", async () => {
+      const user = userEvent.setup();
+      const reviseContent = vi.fn(async () => ({
+        article: storyboardArticle,
+        revision: revision({ id: "content-revision-2", reason: "review_applied" }),
+        replacedSegments: 2,
+        retainedSegments: 0
+      }));
+      reviseFixture(reviseContent);
+
+      await user.type(screen.getByLabelText(/补充要求/), "把开场换成校园场景");
+      await user.click(screen.getByRole("button", { name: "按我的意见改分镜" }));
+
+      expect(reviseContent).toHaveBeenCalledWith(expect.objectContaining({
+        userInstructions: "把开场换成校园场景"
+      }));
+    });
+  });
 });
