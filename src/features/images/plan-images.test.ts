@@ -84,6 +84,45 @@ describe("planImages", () => {
     expect(planner.calls).toBe(0);
   });
 
+  it("refuses to plan for articles that already designed storyboard segments in step 3", async () => {
+    const { articles, images, article } = await createArticleWithContent();
+    const designed = await articles.save(
+      {
+        ...article,
+        planning: {
+          ...article.planning,
+          storyboardSegments: [
+            {
+              id: "segment-1",
+              sectionKey: "section-1",
+              title: "第一段",
+              route: "image_text",
+              copyBlockIds: ["paragraph-1"],
+              frameAssetIds: [],
+              order: 0
+            }
+          ]
+        }
+      },
+      article.updatedAt
+    );
+    if (designed.kind !== "saved") throw new Error("storyboard fixture should save");
+    const planner = new Planner();
+
+    const result = await planImages(
+      article.id,
+      designed.article.updatedAt,
+      articles,
+      images,
+      planner
+    );
+
+    // 规划器的重规划会删掉/禁用第三步的帧资产——分镜文章直接拒绝，保护设计稿。
+    expect(result).toEqual({ kind: "storyboard_locked" });
+    expect(planner.calls).toBe(0);
+    expect(await images.list(article.id)).toEqual([]);
+  });
+
   it("persists successful planner suggestions", async () => {
     const { articles, images, article } = await createArticleWithContent();
     const planner = new Planner();

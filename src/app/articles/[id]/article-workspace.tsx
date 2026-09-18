@@ -7,6 +7,7 @@ import { ComicStripControl } from "@/components/comic-strip-control";
 import { GenerationPanel } from "@/components/generation-panel";
 import type { ImageMutationPayload } from "@/components/image-planning-panel";
 import { KnowledgeBriefEditor } from "@/components/knowledge-brief-editor";
+import { SegmentFramesPanel } from "@/components/segment-frames-panel";
 import { SegmentStripsControl } from "@/components/segment-strips-control";
 import { SourcePanel } from "@/components/source-panel";
 import { WechatPreview } from "@/components/wechat-preview";
@@ -562,6 +563,26 @@ export function ArticleWorkspace({
     markPersisted(nextArticle);
   }
 
+  // 第三步生成/修订分镜时，帧资产由服务端直接落库，客户端的资产列表会落后一拍
+  //（旧流程靠第四步规划请求的响应带回资产；规划面板退场后这条补给线没了）。
+  const refreshImageAssetsFromServer = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/articles/${articleRef.current.id}/image-assets`);
+      if (!response.ok) return;
+      const body = (await response.json()) as { assets?: ImageAsset[] };
+      if (Array.isArray(body.assets)) setImageAssets(body.assets);
+    } catch {
+      // 拉取失败保持现状：之后的图片操作响应仍会带回完整资产。
+    }
+  }, []);
+
+  // 进入第四步时对齐一次资产列表（分镜文章才有帧资产；旧文跳过，避免多余请求）。
+  useEffect(() => {
+    if (activeStep !== "images") return;
+    if (!articleRef.current.planning.storyboardSegments?.length) return;
+    void refreshImageAssetsFromServer();
+  }, [activeStep, refreshImageAssetsFromServer]);
+
   const handleContentHistoryChange = useCallback((
     versions: ArticleRevision<ContentRevisionSnapshot>[],
     review: ContentWorkspaceReview,
@@ -578,6 +599,10 @@ export function ArticleWorkspace({
     conflict: "存在冲突",
     error: "未保存"
   }[saveState];
+
+  // 第三步设计过分镜的文章（planning.storyboardSegments 非空）：
+  // 第四步走「帧生成 + 分段拼接」，视觉规划面板整体退场。
+  const hasStoryboardSegments = Boolean(article.planning.storyboardSegments?.length);
 
   return (
     <section className="workspace-page" aria-labelledby="article-title">
@@ -711,26 +736,58 @@ export function ArticleWorkspace({
         ) : null}
         {activeStep === "images" ? (
           <section className="workflow-panel workflow-images-panel" aria-label="配图">
-            {article.planning.storyboardSegments?.length ? (
-              // 第三步做过分镜设计的文章一律走分段拼接（每段一张段图进公众号）；
-              // 旧文章没有 segments，保留整篇一条的漫画长图入口。
-              <SegmentStripsControl
-                article={article}
-                assets={imageAssets}
-                readOnly={isNarrowViewport}
-                disabled={isDirty || autosaveBlocked || saveState === "saving"}
-                onResult={applyImageResult}
-                composeSegmentStrips={(expectedUpdatedAt, fontId) =>
-                  beginImageOperation(() =>
-                    composeSegmentStrips(articleRef.current.id, expectedUpdatedAt, fontId)
-                  )
-                }
-                removeSegmentStrips={(expectedUpdatedAt) =>
-                  beginImageOperation(() =>
-                    removeComicStrip(articleRef.current.id, expectedUpdatedAt)
-                  )
-                }
-              />
+            {hasStoryboardSegments ? (
+              // 第三步做过分镜设计的文章：第四步只负责把设计稿的帧出图 + 拼段图，
+              // 不再提供「重新设计分镜」——视觉规划器的让位语义会删掉/停用第三步
+              // 设计的帧，两套设计互相打架；服务端 planImages 对这类文章直接拒绝。
+              // 旧文章没有 segments，保留整篇一条的漫画长图 + 视觉规划入口。
+              <>
+                <SegmentFramesPanel
+                  article={article}
+                  assets={imageAssets}
+                  readOnly={isNarrowViewport}
+                  disabled={isDirty || autosaveBlocked || saveState === "saving"}
+                  onResult={applyImageResult}
+                  refreshPlaceholder={(assetId, expectedUpdatedAt) =>
+                    beginImageOperation(() =>
+                      refreshPlaceholder(articleRef.current.id, assetId, expectedUpdatedAt)
+                    )
+                  }
+                  generateImage={
+                    imageGenerationEnabled
+                      ? (assetId: string, expectedUpdatedAt: string) =>
+                          beginImageOperation(() =>
+                            generateImage(articleRef.current.id, assetId, expectedUpdatedAt)
+                          )
+                      : undefined
+                  }
+                  generateBatch={
+                    imageGenerationEnabled
+                      ? ({ expectedUpdatedAt }: { expectedUpdatedAt: string; model?: string }) =>
+                          beginImageOperation(() =>
+                            generateBatch(articleRef.current.id, expectedUpdatedAt)
+                          )
+                      : undefined
+                  }
+                />
+                <SegmentStripsControl
+                  article={article}
+                  assets={imageAssets}
+                  readOnly={isNarrowViewport}
+                  disabled={isDirty || autosaveBlocked || saveState === "saving"}
+                  onResult={applyImageResult}
+                  composeSegmentStrips={(expectedUpdatedAt, fontId) =>
+                    beginImageOperation(() =>
+                      composeSegmentStrips(articleRef.current.id, expectedUpdatedAt, fontId)
+                    )
+                  }
+                  removeSegmentStrips={(expectedUpdatedAt) =>
+                    beginImageOperation(() =>
+                      removeComicStrip(articleRef.current.id, expectedUpdatedAt)
+                    )
+                  }
+                />
+              </>
             ) : (
               <ComicStripControl
                 article={article}
@@ -753,50 +810,53 @@ export function ArticleWorkspace({
             <div className="article-canvas">
               <BlockEditor blocks={article.blocks} onChange={updateBlocks} readOnly={isNarrowViewport} imageAssets={imageAssets} />
             </div>
-            <GenerationPanel
-              article={article}
-              imageAssets={imageAssets}
-              readOnly={isNarrowViewport}
-              imageOperationsLocked={isDirty || autosaveBlocked || saveState === "saving"}
-              onImageResult={applyImageResult}
-              planImages={(expectedUpdatedAt, model, options) =>
-                beginImageOperation(() =>
-                  options
-                    ? planImages(articleRef.current.id, expectedUpdatedAt, model, options)
-                    : planImages(articleRef.current.id, expectedUpdatedAt, model)
-                )}
-              llmEnabled={llmConfig.enabled}
-              availableModels={llmConfig.availableModels}
-              updateImageAsset={(assetId, input) => beginImageOperation(() => updateImageAsset(articleRef.current.id, assetId, input))}
-              deleteImageAsset={(assetId, expectedUpdatedAt) => beginImageOperation(() => deleteImageAsset(articleRef.current.id, assetId, expectedUpdatedAt))}
-              refreshPlaceholder={(assetId, expectedUpdatedAt) => beginImageOperation(() => refreshPlaceholder(articleRef.current.id, assetId, expectedUpdatedAt))}
-              generateImage={
-                imageGenerationEnabled
-                  ? (assetId: string, expectedUpdatedAt: string, model?: string) =>
-                      beginImageOperation(() =>
-                        generateImage(articleRef.current.id, assetId, expectedUpdatedAt, model)
-                      )
-                  : undefined
-              }
-              generateBatch={
-                imageGenerationEnabled
-                  ? ({ expectedUpdatedAt, model }: { expectedUpdatedAt: string; model?: string }) =>
-                      beginImageOperation(() =>
-                        generateBatch(articleRef.current.id, expectedUpdatedAt, model)
-                      )
-                  : undefined
-              }
-              selectGeneration={(assetId, generationId, expectedUpdatedAt) =>
-                beginImageOperation(() =>
-                  selectImageGeneration(articleRef.current.id, assetId, generationId, expectedUpdatedAt)
-                )
-              }
-              deleteGeneration={(generationId, expectedUpdatedAt) =>
-                beginImageOperation(() =>
-                  deleteImageGeneration(articleRef.current.id, generationId, expectedUpdatedAt)
-                )
-              }
-            />
+            {/* 分镜文章不渲染视觉规划面板（含「重新设计分镜」入口），旧文保留原流程。 */}
+            {!hasStoryboardSegments ? (
+              <GenerationPanel
+                article={article}
+                imageAssets={imageAssets}
+                readOnly={isNarrowViewport}
+                imageOperationsLocked={isDirty || autosaveBlocked || saveState === "saving"}
+                onImageResult={applyImageResult}
+                planImages={(expectedUpdatedAt, model, options) =>
+                  beginImageOperation(() =>
+                    options
+                      ? planImages(articleRef.current.id, expectedUpdatedAt, model, options)
+                      : planImages(articleRef.current.id, expectedUpdatedAt, model)
+                  )}
+                llmEnabled={llmConfig.enabled}
+                availableModels={llmConfig.availableModels}
+                updateImageAsset={(assetId, input) => beginImageOperation(() => updateImageAsset(articleRef.current.id, assetId, input))}
+                deleteImageAsset={(assetId, expectedUpdatedAt) => beginImageOperation(() => deleteImageAsset(articleRef.current.id, assetId, expectedUpdatedAt))}
+                refreshPlaceholder={(assetId, expectedUpdatedAt) => beginImageOperation(() => refreshPlaceholder(articleRef.current.id, assetId, expectedUpdatedAt))}
+                generateImage={
+                  imageGenerationEnabled
+                    ? (assetId: string, expectedUpdatedAt: string, model?: string) =>
+                        beginImageOperation(() =>
+                          generateImage(articleRef.current.id, assetId, expectedUpdatedAt, model)
+                        )
+                    : undefined
+                }
+                generateBatch={
+                  imageGenerationEnabled
+                    ? ({ expectedUpdatedAt, model }: { expectedUpdatedAt: string; model?: string }) =>
+                        beginImageOperation(() =>
+                          generateBatch(articleRef.current.id, expectedUpdatedAt, model)
+                        )
+                    : undefined
+                }
+                selectGeneration={(assetId, generationId, expectedUpdatedAt) =>
+                  beginImageOperation(() =>
+                    selectImageGeneration(articleRef.current.id, assetId, generationId, expectedUpdatedAt)
+                  )
+                }
+                deleteGeneration={(generationId, expectedUpdatedAt) =>
+                  beginImageOperation(() =>
+                    deleteImageGeneration(articleRef.current.id, generationId, expectedUpdatedAt)
+                  )
+                }
+              />
+            ) : null}
           </section>
         ) : null}
       </main>
@@ -806,7 +866,7 @@ export function ArticleWorkspace({
           <WechatPreview
             blocks={article.blocks}
             assets={imageAssets}
-            stripFlow={Boolean(article.planning.storyboardSegments?.length)}
+            stripFlow={hasStoryboardSegments}
             onClose={() => setIsPreviewOpen(false)}
             publishDraft={
               wechatPublishEnabled

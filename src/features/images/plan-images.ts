@@ -10,6 +10,7 @@ export type PlanImagesResult =
   | { kind: "not_found" }
   | { kind: "no_content" }
   | { kind: "stale_content" }
+  | { kind: "storyboard_locked" }
   | { kind: "conflict" }
   | { kind: "invalid_plan"; source: "repository"; message: string }
   | { kind: "planner_error"; message: string };
@@ -38,6 +39,13 @@ export async function planImages(
   const confirmedOutlineRevisionId = article.planning.confirmedOutlineRevisionId;
   if (confirmedOutlineRevisionId && article.planning.contentOutlineRevisionId !== confirmedOutlineRevisionId) {
     return { kind: "stale_content" };
+  }
+
+  // 第三步已设计过分镜的文章不再走视觉规划器：规划会把第三步的帧资产
+  // 删掉/禁用（applyPlan 的让位语义），两套「设计分镜」互相打架。
+  // 这类文章的配图 = 直接生成第三步的帧，第四步不再提供规划入口。
+  if (article.planning.storyboardSegments?.length) {
+    return { kind: "storyboard_locked" };
   }
 
   const blocks = article.blocks.filter((block) => block.type !== "image");

@@ -101,6 +101,12 @@ export function createImagePlanRouteHandler(
     if (result.kind === "stale_content") {
       return Response.json({ error: "当前正文基于旧大纲，请先重新生成正文再配图" }, { status: 400 });
     }
+    if (result.kind === "storyboard_locked") {
+      return Response.json(
+        { error: "本文已在第三步设计分镜，第四步直接生成这些分镜帧即可，不再重复设计分镜" },
+        { status: 400 }
+      );
+    }
     if (result.kind === "invalid_plan") {
       return Response.json({ error: result.message }, { status: 400 });
     }

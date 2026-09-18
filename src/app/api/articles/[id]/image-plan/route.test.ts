@@ -110,6 +110,42 @@ describe("image plan route", () => {
     expect(failed.status).toBe(502);
   });
 
+  it("refuses articles that already designed storyboard segments with a clear message", async () => {
+    const { articles, images, article } = await setup();
+    const designed = await articles.save(
+      {
+        ...article,
+        planning: {
+          ...article.planning,
+          storyboardSegments: [
+            {
+              id: "segment-1",
+              sectionKey: "section-1",
+              title: "第一段",
+              route: "image_text",
+              copyBlockIds: ["block-1"],
+              frameAssetIds: [],
+              order: 0
+            }
+          ]
+        }
+      },
+      article.updatedAt
+    );
+    if (designed.kind !== "saved") throw new Error("storyboard fixture should save");
+    const POST = createImagePlanRouteHandler(articles, images, planner());
+
+    const response = await POST(
+      requestJson(`http://test/api/articles/${article.id}/image-plan`, {
+        expectedUpdatedAt: designed.article.updatedAt
+      }),
+      context(article.id)
+    );
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toContain("不再重复设计分镜");
+  });
+
   it("keeps an invalid repository plan at 400 even when its message matches a planner error", async () => {
     const { articles, images, article } = await setup();
     const collisionRepository: ImageAssetRepository = {

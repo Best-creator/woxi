@@ -49,8 +49,11 @@ test.describe("unified article workflow", () => {
     await expect(workflow.getByRole("button", { name: /配图/ })).toContainText("可进入");
     await workflow.getByRole("button", { name: /配图/ }).click();
     await expect(page).toHaveURL(/\?step=images$/);
-    await expect(page.getByRole("region", { name: "配图规划" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "根据正文设计动漫分镜" })).toBeVisible();
+    // 第四步直接消费第三步分镜设计（分镜配图 + 分段拼接接管），视觉规划面板退场，
+    // 全程不会有任何 image-plan 请求。
+    await expect(page.getByRole("region", { name: "分镜配图" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "分段拼接" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "根据正文设计动漫分镜" })).toHaveCount(0);
     expect(imagePlanRequests).toBe(0);
   });
 });

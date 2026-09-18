@@ -106,8 +106,9 @@ test.describe("content workflow", () => {
     );
     await page.getByRole("button", { name: "确认内容" }).click();
     await expect((await approveResponse).ok()).toBe(true);
-    // 确认成功后工作台自动进入配图步骤（ec590f5 起的动线）。
-    await expect(page.getByRole("heading", { name: "规划配图" })).toBeVisible();
+    // 确认成功后工作台自动进入配图步骤（ec590f5 起的动线）；
+    // 有分镜设计的文章：第四步直接出帧（分镜配图面板），规划配图已退场。
+    await expect(page.getByRole("region", { name: "分镜配图" })).toBeVisible();
 
     // 确认内容后配图步骤解锁，且正文状态落库为 content_ready。
     await expect(workflow.getByRole("button", { name: /配图/ })).toBeEnabled();
@@ -168,7 +169,8 @@ test.describe("content workflow", () => {
       page.getByRole("heading", { name: "用大白话讲清楚：什么是机会成本" })
     ).toBeVisible();
 
-    // 配图规划要求正文已基于当前确认大纲，因此先让正文编辑落盘。
+    // 先手改一处文案并落盘：给后面的段图流预览一个确定性的断言文本
+    //（demo 生成的正文内容不稳定，手改的这句是残留文本渲染的锚点）。
     const saveResponse = page.waitForResponse(
       (response) =>
         response.request().method() === "PATCH" &&
@@ -182,37 +184,37 @@ test.describe("content workflow", () => {
       .getByRole("navigation", { name: "文章工作流" })
       .getByRole("button", { name: /配图/ })
       .click();
-    await page.getByRole("button", { name: "根据正文设计动漫分镜" }).click();
+    // 第四步直接消费第三步分镜设计：帧卡片 + 分段拼接接管，视觉规划面板退场
+    //（没有「根据正文设计动漫分镜」可点，也就不会再有 image-plan 请求）。
+    await expect(page.getByRole("region", { name: "分镜配图" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "根据正文设计动漫分镜" })).toHaveCount(0);
     await expect(page.getByText("待生成").first()).toBeVisible();
     await expect(page.locator("img.image-plan-thumbnail").first()).toBeVisible();
 
-    // 有分镜设计的文章：第四步入口切换为「分段拼接」（每段一张段图进公众号）。
-    // E2E 无生图服务，帧停在待生成——按钮必须明确禁用并说明还差几帧。
+    // E2E 无生图服务：帧停在待生成、无生成按钮；拼接入口禁用并说明还差几帧。
+    await expect(page.getByText(/未配置生图服务/)).toBeVisible();
     await expect(page.getByRole("region", { name: "分段拼接" })).toBeVisible();
     await expect(page.getByRole("button", { name: "拼接段图" })).toBeDisabled();
     await expect(page.getByText(/帧分镜没生成图片/)).toBeVisible();
     await expect(page.getByRole("region", { name: "漫画长图" })).toHaveCount(0);
 
-    const imageSaveResponse = page.waitForResponse(
-      (response) =>
-        response.request().method() === "PATCH" &&
-        /\/api\/articles\/[0-9a-f-]+\/image-assets\/[0-9a-f-]+$/.test(new URL(response.url()).pathname)
-    );
-    await page.getByLabel("配图提示词 1").fill("清晰解释机会成本的对比信息图");
-    await page.getByLabel("配图提示词 1").press("Tab");
-    await imageSaveResponse;
-    await expect(page.getByText("已保存", { exact: true })).toBeVisible();
+    // 帧占位图走 image-assets 内容路由：缩略图真实加载，保住这条链路的端到端覆盖。
+    await expect
+      .poll(async () =>
+        page
+          .locator("img.image-plan-thumbnail")
+          .first()
+          .evaluate((image) => (image as HTMLImageElement).naturalWidth)
+      )
+      .toBeGreaterThan(0);
 
-    // exact 匹配：避免子串命中配图面板的「预览配图 N」按钮（严格模式会报多元素冲突）。
+    // exact 匹配：避免与面板里其他含「预览」字样的按钮产生子串冲突。
     await page.getByRole("button", { name: "预览", exact: true }).click();
     await expect(page.getByRole("dialog", { name: "公众号预览" })).toBeVisible();
+    // 纯段图流预览：段图还没拼时按「残留文本」渲染（与推送侧同一份判定），
+    // 因此这里断言文案可见；帧图不进内容块，预览里没有 <img>。
     const preview = page.frameLocator("iframe[title='公众号文章预览']");
     await expect(preview.getByText("机会成本，是选择一种方案时放弃的最佳替代方案。")).toBeVisible();
-    const previewImage = preview.locator("img[src*='/api/image-assets/']").first();
-    await expect(previewImage).toBeVisible();
-    await expect
-      .poll(async () => previewImage.evaluate((image) => (image as HTMLImageElement).naturalWidth))
-      .toBeGreaterThan(0);
 
     await page.getByRole("button", { name: "复制到公众号" }).click();
     await expect(page.getByText("已复制富文本")).toBeVisible();

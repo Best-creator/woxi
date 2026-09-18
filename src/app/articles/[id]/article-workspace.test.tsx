@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { articleFixture, twoBlocks } from "../../../../tests/fixtures/article";
-import type { Article } from "@/features/articles/domain";
+import type { Article, ContentBlock, StoryboardSegment } from "@/features/articles/domain";
 import { DEFAULT_STYLE_PROFILE } from "@/features/content/style-profile";
 import type { ArticleRevision, ContentRevisionSnapshot } from "@/features/revisions/domain";
 import type { ImageAsset } from "@/features/images/domain";
@@ -49,6 +49,74 @@ describe("ArticleWorkspace", () => {
     createdAt: "2026-09-09T00:00:00.000Z",
     updatedAt: "2026-09-09T00:00:00.000Z"
   };
+
+  // 分镜文章夹具：三段覆盖三种排法（与 segment-frames-panel / segment-strips-control 测试一致）。
+  const SEGMENTS: StoryboardSegment[] = [
+    {
+      id: "seg-1",
+      sectionKey: "sec-1",
+      title: "开场",
+      route: "image_text",
+      copyBlockIds: ["s1-h", "s1-p"],
+      frameAssetIds: ["frame-1"],
+      order: 0
+    },
+    {
+      id: "seg-2",
+      sectionKey: "sec-2",
+      title: "机制",
+      route: "image_text_image",
+      copyBlockIds: ["s2-h", "s2-p"],
+      frameAssetIds: ["frame-2a", "frame-2b"],
+      order: 1
+    },
+    {
+      id: "seg-3",
+      sectionKey: "sec-3",
+      title: "收束",
+      route: "text_image",
+      copyBlockIds: ["s3-h", "s3-p"],
+      frameAssetIds: ["frame-3"],
+      order: 2
+    }
+  ];
+
+  const SEGMENT_BLOCKS: ContentBlock[] = [
+    { id: "s1-h", type: "heading", content: "开场", order: 0, level: 2, segmentId: "seg-1", version: 1 },
+    { id: "s1-p", type: "paragraph", content: "第一段文案。", order: 1, segmentId: "seg-1", version: 1 },
+    { id: "s2-h", type: "heading", content: "机制", order: 2, level: 2, segmentId: "seg-2", version: 1 },
+    { id: "s2-p", type: "paragraph", content: "第二段文案。", order: 3, segmentId: "seg-2", version: 1 },
+    { id: "s3-h", type: "heading", content: "收束", order: 4, level: 2, segmentId: "seg-3", version: 1 },
+    { id: "s3-p", type: "paragraph", content: "第三段文案。", order: 5, segmentId: "seg-3", version: 1 }
+  ];
+
+  const frameAsset = (id: string, status: ImageAsset["status"] = "generated"): ImageAsset => ({
+    id,
+    articleId: "article-1",
+    type: "storyboard",
+    anchorBlockId: null,
+    purpose: `分镜 ${id}`,
+    prompt: "分镜画面",
+    altText: `分镜帧 ${id}`,
+    aspectRatio: "square",
+    status,
+    placeholderUrl: null,
+    filePath: status === "generated" ? `C:/tmp/${id}.png` : null,
+    publicUrl: null,
+    manuallyEdited: false,
+    consumedContent: null,
+    createdAt: "2026-09-16T00:00:00.000Z",
+    updatedAt: "2026-09-16T00:00:00.000Z"
+  });
+
+  const segmentDraftArticle = (): Article =>
+    currentArticleDraft({
+      blocks: SEGMENT_BLOCKS,
+      planning: {
+        ...currentDraftPlanning,
+        storyboardSegments: SEGMENTS
+      }
+    });
 
   const confirmedPlanning = {
     lengthPreset: "standard" as const,
@@ -191,6 +259,88 @@ describe("ArticleWorkspace", () => {
 
     // 规划模型默认走服务端配置（下拉为空 → model 为 undefined）。
     expect(planImages).toHaveBeenCalledWith("article-1", "2026-09-09T00:00:00.000Z", undefined);
+  });
+
+  it("分镜文章第四步直接出帧：视觉规划面板退场", () => {
+    render(
+      <ArticleWorkspace
+        initialArticle={segmentDraftArticle()}
+        initialImageAssets={[
+          frameAsset("frame-1", "placeholder"),
+          frameAsset("frame-2a"),
+          frameAsset("frame-2b", "placeholder"),
+          frameAsset("frame-3", "placeholder")
+        ]}
+        initialStep="images"
+        imageGenerationEnabled
+      />
+    );
+
+    expect(screen.getByRole("region", { name: "分镜配图" })).toBeVisible();
+    expect(screen.getByText("段 1 · 开场")).toBeVisible();
+    expect(screen.getAllByText("待生成").length).toBeGreaterThan(0);
+    // 规划面板（含「重新设计分镜」「一键生成全部配图」）整体退场。
+    expect(screen.queryByRole("button", { name: "根据正文设计动漫分镜" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /重新设计分镜/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /一键生成全部配图/ })).toBeNull();
+  });
+
+  it("分镜文章第四步逐帧生成走 generateImage", async () => {
+    const user = userEvent.setup();
+    const article = segmentDraftArticle();
+    const generateImage = vi.fn(async () => ({
+      article: { ...article, updatedAt: "2026-09-16T00:00:01.000Z" },
+      assets: [frameAsset("frame-1"), frameAsset("frame-2a"), frameAsset("frame-2b"), frameAsset("frame-3")]
+    }));
+    render(
+      <ArticleWorkspace
+        initialArticle={article}
+        initialImageAssets={[
+          frameAsset("frame-1", "placeholder"),
+          frameAsset("frame-2a", "placeholder"),
+          frameAsset("frame-2b", "placeholder"),
+          frameAsset("frame-3", "placeholder")
+        ]}
+        initialStep="images"
+        imageGenerationEnabled
+        generateImage={generateImage}
+      />
+    );
+
+    const generateButtons = screen.getAllByRole("button", { name: "生成" });
+    await user.click(generateButtons[0]);
+
+    expect(generateImage).toHaveBeenCalledTimes(1);
+    // 乐观并发 token 用该帧资产自己的 updatedAt。
+    expect(generateImage).toHaveBeenCalledWith("article-1", "frame-1", "2026-09-16T00:00:00.000Z");
+  });
+
+  it("分镜文章第四步一键批量生成全部待生成帧", async () => {
+    const user = userEvent.setup();
+    const article = segmentDraftArticle();
+    const generateBatch = vi.fn(async () => ({
+      article,
+      assets: [frameAsset("frame-1"), frameAsset("frame-2a"), frameAsset("frame-2b"), frameAsset("frame-3")]
+    }));
+    render(
+      <ArticleWorkspace
+        initialArticle={article}
+        initialImageAssets={[
+          frameAsset("frame-1", "placeholder"),
+          frameAsset("frame-2a"),
+          frameAsset("frame-2b", "placeholder"),
+          frameAsset("frame-3", "placeholder")
+        ]}
+        initialStep="images"
+        imageGenerationEnabled
+        generateBatch={generateBatch}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "一键生成全部待生成帧（3）" }));
+
+    expect(generateBatch).toHaveBeenCalledTimes(1);
+    expect(generateBatch).toHaveBeenCalledWith("article-1", article.updatedAt);
   });
 
   it("persists an embedded outline edit after navigating away before its debounce", async () => {
