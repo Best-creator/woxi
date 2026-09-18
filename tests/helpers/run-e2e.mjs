@@ -18,11 +18,15 @@ const env = {
 delete env.FORCE_COLOR;
 delete env.NO_COLOR;
 
+// 与 playwright.config.ts / start-e2e-server.mjs 共用 E2E_PORT（缺省 3000）：
+// dev server 正被占用时可换端口并行跑，不必先停掉使用中的服务。
+const port = Number(process.env.E2E_PORT ?? 3000);
+
 await new Promise((resolvePort, rejectPort) => {
-  const socket = connect({ host: "127.0.0.1", port: 3000 });
+  const socket = connect({ host: "127.0.0.1", port });
   socket.once("connect", () => {
     socket.destroy();
-    rejectPort(new Error("Port 3000 is already in use; stop the existing server before E2E tests"));
+    rejectPort(new Error(`Port ${port} is already in use; pick another E2E_PORT or stop the existing server`));
   });
   socket.once("error", (error) => {
     if (error && typeof error === "object" && "code" in error && error.code === "ECONNREFUSED") {
@@ -46,7 +50,7 @@ async function waitForServer() {
       throw new Error(`E2E server exited with code ${server.exitCode}`);
     }
     try {
-      const response = await fetch("http://127.0.0.1:3000");
+      const response = await fetch(`http://127.0.0.1:${port}`);
       if (response.ok) return;
     } catch {
       // The server is still starting.

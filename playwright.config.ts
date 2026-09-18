@@ -2,6 +2,10 @@ import { defineConfig, devices } from "@playwright/test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+// E2E 默认占 3000；dev server 正被占用时可用 E2E_PORT 换端口并行跑
+// （run-e2e.mjs 与 start-e2e-server.mjs 读同一个变量）。
+const port = Number(process.env.E2E_PORT ?? 3000);
+
 export default defineConfig({
   testDir: "./tests/e2e",
   fullyParallel: false,
@@ -22,7 +26,7 @@ export default defineConfig({
   // 兜底：即便收尾仍然被拖慢，也让它退化成一次有界的可见失败，而不是无限挂起。
   globalTimeout: 6 * 60_000,
   use: {
-    baseURL: "http://127.0.0.1:3000",
+    baseURL: `http://127.0.0.1:${port}`,
     trace: "retain-on-failure"
   },
   projects: [
