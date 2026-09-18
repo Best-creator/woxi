@@ -5,7 +5,12 @@ import type { ContentBlock } from "@/features/articles/domain";
 import type { ImageAsset } from "@/features/images/domain";
 import { imageBlock, paragraphBlock } from "../../tests/fixtures/article";
 import { renderWechatHtml } from "@/features/publishing/render-wechat-html";
-import { buildPrintDocument, waitForPrintableImages, WechatPreview } from "./wechat-preview";
+import {
+  buildPrintDocument,
+  fitOversizedImages,
+  waitForPrintableImages,
+  WechatPreview
+} from "./wechat-preview";
 
 function stripAsset(id: string): ImageAsset {
   return {
@@ -170,5 +175,33 @@ describe("WechatPreview", () => {
 
     // 上游图床挂了也要照常出 PDF：到点放行。
     await waitForPrintableImages(frameWindow, 20);
+  });
+
+  it("shrinks an oversized strip onto a single page and leaves normal images alone", () => {
+    const oversized = document.createElement("img");
+    oversized.src = "/api/image-assets/strip-3/content";
+    vi.spyOn(oversized, "getBoundingClientRect").mockReturnValue({
+      height: 1449,
+      width: 677
+    } as DOMRect);
+    const normal = document.createElement("img");
+    normal.src = "/api/image-assets/strip-1/content";
+    vi.spyOn(normal, "getBoundingClientRect").mockReturnValue({
+      height: 900,
+      width: 677
+    } as DOMRect);
+    const frameWindow = {
+      document: { images: [oversized, normal] }
+    } as unknown as Window;
+
+    fitOversizedImages(frameWindow);
+
+    // 超页高的段图等比缩进一页并居中，而不是被打印拦腰切断。
+    expect(oversized.style.height).toBe("1000px");
+    expect(oversized.style.width).toBe("auto");
+    expect(oversized.style.margin).toBe("0px auto");
+    // 放得下的图不动：保持原宽度，整篇左右边缘才齐。
+    expect(normal.style.height).toBe("");
+    expect(normal.style.width).toBe("");
   });
 });

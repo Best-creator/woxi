@@ -1,9 +1,10 @@
 "use client";
 
-import { History, Images, Loader2, RefreshCw, Wand2 } from "lucide-react";
+import { History, Images, Loader2, Pencil, RefreshCw, Wand2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { STORYBOARD_ROUTE_LABELS, type Article } from "@/features/articles/domain";
 import type { ImageAsset, ImageLibraryItem } from "@/features/images/domain";
+import type { ImageAssetPatch } from "@/features/images/repository";
 import type { ImageMutationPayload } from "./image-planning-panel";
 
 /**
@@ -60,6 +61,11 @@ export interface SegmentFramesPanelProps {
     generationId: string,
     expectedUpdatedAt: string
   ) => Promise<ImageMutationPayload>;
+  /** 修改帧信息（当前用于图注 altText）；未提供时图注只读展示。 */
+  updateAsset?: (
+    assetId: string,
+    input: ImageAssetPatch & { expectedUpdatedAt: string }
+  ) => Promise<ImageMutationPayload>;
 }
 
 export function SegmentFramesPanel({
@@ -71,13 +77,15 @@ export function SegmentFramesPanel({
   generateImage,
   generateBatch,
   refreshPlaceholder,
-  selectGeneration
+  selectGeneration,
+  updateAsset
 }: SegmentFramesPanelProps) {
   const [busyAssetId, setBusyAssetId] = useState<string | null>(null);
   const [batchBusy, setBatchBusy] = useState(false);
   const [error, setError] = useState("");
   const [generations, setGenerations] = useState<ImageLibraryItem[]>([]);
   const [versionsAssetId, setVersionsAssetId] = useState<string | null>(null);
+  const [altEdit, setAltEdit] = useState<{ assetId: string; value: string } | null>(null);
 
   const segments = useMemo(
     () => [...(article.planning.storyboardSegments ?? [])].sort((left, right) => left.order - right.order),
@@ -159,6 +167,25 @@ export function SegmentFramesPanel({
     }
   }
 
+  async function saveAltText() {
+    if (!altEdit || !updateAsset) return;
+    const altText = altEdit.value.trim();
+    // 图注空了就没有可读性可言（导出 PDF 与公众号的图注都来自它），不提交。
+    if (!altText) return;
+    setBusyAssetId(altEdit.assetId);
+    setError("");
+    try {
+      onResult(
+        await updateAsset(altEdit.assetId, { altText, expectedUpdatedAt: article.updatedAt })
+      );
+      setAltEdit(null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "操作失败，请稍后重试");
+    } finally {
+      setBusyAssetId(null);
+    }
+  }
+
   if (!segments.length) return null;
 
   return (
@@ -226,6 +253,62 @@ export function SegmentFramesPanel({
                           {statusLabels[asset.status]}
                         </span>
                       </div>
+                      {altEdit?.assetId === asset.id ? (
+                        <form
+                          className="segment-frame-alt-form"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            void saveAltText();
+                          }}
+                        >
+                          <input
+                            className="segment-frame-alt-input"
+                            value={altEdit.value}
+                            maxLength={240}
+                            aria-label={`第 ${segmentIndex + 1} 段帧 ${frameIndex + 1} 图注`}
+                            onChange={(event) =>
+                              setAltEdit((current) =>
+                                current && current.assetId === asset.id
+                                  ? { ...current, value: event.target.value }
+                                  : current
+                              )
+                            }
+                          />
+                          <button
+                            className="button button-secondary segment-frame-alt-save"
+                            type="submit"
+                            disabled={locked || !altEdit.value.trim()}
+                          >
+                            保存
+                          </button>
+                          <button
+                            className="button button-secondary segment-frame-alt-cancel"
+                            type="button"
+                            disabled={busyAssetId === asset.id}
+                            onClick={() => setAltEdit(null)}
+                          >
+                            取消
+                          </button>
+                        </form>
+                      ) : (
+                        <div className="segment-frame-alt">
+                          <span className="segment-frame-alt-text" title={asset.altText}>
+                            {asset.altText}
+                          </span>
+                          {!readOnly && updateAsset && asset.status !== "generating" ? (
+                            <button
+                              className="icon-button segment-frame-alt-button"
+                              type="button"
+                              title="编辑图注"
+                              aria-label={`编辑第 ${segmentIndex + 1} 段帧 ${frameIndex + 1} 图注`}
+                              disabled={locked}
+                              onClick={() => setAltEdit({ assetId: asset.id, value: asset.altText })}
+                            >
+                              <Pencil size={12} aria-hidden="true" />
+                            </button>
+                          ) : null}
+                        </div>
+                      )}
                       {!readOnly && asset.status === "generating" ? (
                         <button
                           className="button button-secondary segment-frame-action"

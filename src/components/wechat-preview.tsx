@@ -37,7 +37,7 @@ const printStyles = `
   html, body { margin: 0; padding: 0; background: #ffffff; }
   body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   img { max-width: 100%; height: auto; }
-  img, h1, h2, h3, h4 { break-inside: avoid; }
+  figure, section, p, blockquote, h1, h2, h3, h4 { break-inside: avoid; }
 `;
 
 /**
@@ -74,6 +74,28 @@ export async function waitForPrintableImages(frameWindow: Window, timeoutMs = 80
 }
 
 /**
+ * A4 在 96dpi 下页高 1123px，上下各 12mm 边距后内容区约 1032px；再留余量取整。
+ * 分镜长段拼出来的段图（实测见过 1080×2308）按正文宽显示会超过一整页，
+ * break-inside: avoid 对超高元素无效，浏览器只能拦腰切开——必须提前缩。
+ */
+export const MAX_PRINT_IMAGE_HEIGHT = 1000;
+
+/**
+ * 打印前把超过一页高度的图等比缩进一页、水平居中。
+ * 长段图以「完整一张卡」跨进页面，好过被切成两半的半截图；
+ * 缩放只发生在超高的个别图上，其余图保持原宽度、左右边缘不受影响。
+ */
+export function fitOversizedImages(frameWindow: Window) {
+  for (const image of Array.from(frameWindow.document.images)) {
+    const rect = image.getBoundingClientRect();
+    if (rect.height <= MAX_PRINT_IMAGE_HEIGHT) continue;
+    image.style.width = "auto";
+    image.style.height = `${MAX_PRINT_IMAGE_HEIGHT}px`;
+    image.style.margin = "0 auto";
+  }
+}
+
+/**
  * 默认实现：把同一份渲染结果放进一个离屏 iframe 再触发浏览器打印，
  * 用户在系统对话框里选「另存为 PDF」即可落盘。
  *
@@ -100,6 +122,7 @@ export function exportPreviewAsPdf(html: string) {
     // 兜底：用户长时间不关打印对话框时也不留下悬挂节点。
     window.setTimeout(remove, 600_000);
     void waitForPrintableImages(frameWindow).then(() => {
+      fitOversizedImages(frameWindow);
       frameWindow.focus();
       frameWindow.print();
     });
@@ -174,7 +197,9 @@ export function WechatPreview({
     setPdfMessage("");
     try {
       exportPdf(html);
-      setPdfMessage("已打开打印对话框：把「目标打印机」选成「另存为 PDF」再保存即可。");
+      setPdfMessage(
+        "已打开打印对话框：目标打印机选「另存为 PDF」，并取消勾选「页眉和页脚」（网址和日期就不会印上去），再保存即可。"
+      );
     } catch (pdfError) {
       setPdfMessage(pdfError instanceof Error ? pdfError.message : "导出 PDF 失败，请稍后重试");
     }

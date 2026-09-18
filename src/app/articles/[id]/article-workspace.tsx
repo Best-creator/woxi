@@ -766,6 +766,11 @@ export function ArticleWorkspace({
                   readOnly={isNarrowViewport}
                   disabled={isDirty || autosaveBlocked || saveState === "saving"}
                   onResult={applyImageResult}
+                  updateAsset={(assetId, input) =>
+                    beginImageOperation(() =>
+                      updateImageAsset(articleRef.current.id, assetId, input)
+                    )
+                  }
                   refreshPlaceholder={(assetId, expectedUpdatedAt) =>
                     beginImageOperation(() =>
                       refreshPlaceholder(articleRef.current.id, assetId, expectedUpdatedAt)

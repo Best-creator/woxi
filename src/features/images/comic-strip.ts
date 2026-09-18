@@ -47,11 +47,13 @@ export const DEFAULT_COMIC_STRIP_METRICS: ComicStripMetrics = {
   maxPanelHeight: 1180,
   gap: 28,
   background: "#FFFFFF",
-  // 文字带和画布同色（纯白）：长图里每一格图片的底色都是白的，
-  // 文字带要是留一块米灰，滑下来就像贴了一张便利贴，没法读成一整张纸。
-  textBackground: "#FFFFFF",
+  // 文字带是暖纸白卡片：纯白会「素得像没设计」，与精致的分镜插图落差太大；
+  // 卡片底 + 细描边 + 圆角 + 硬阴影（见 TEXT_CARD_* 常量）让文字带成为
+  // 长图里的杂志小节卡——比纯白有设计感，又足够浅，不破坏「一整张纸」的连续感。
+  textBackground: "#FCFAF4",
   textColor: "#2C2C2A",
-  titleColor: "#1A1A18",
+  // 标题用深绿呼应强调色：杂志小节标题的常规做法，黑标题在卡片上太闷。
+  titleColor: "#1E5B37",
   accent: "#2F7D47",
   // 中文字体只列常见系统字体：微信侧和本机渲染都要能命中，不能依赖网络上没有的字库。
   fontFamily: "'PingFang SC','Microsoft YaHei','Noto Sans CJK SC',sans-serif"
@@ -63,6 +65,13 @@ const BODY_SIZE = 32;
 const BODY_LINE_HEIGHT = 48;
 const TEXT_PAD_X = 40;
 const TEXT_PAD_Y = 32;
+
+// 文字卡片的固定视觉参数：不进 metrics——这是设计决策，不是可调参数。
+const TEXT_CARD_BORDER = "#E8E1D2";
+const TEXT_CARD_SHADOW = "#E7ECE3";
+const TEXT_CARD_RADIUS = 16;
+const TEXT_CARD_SHADOW_OFFSET = 5;
+const TITLE_BAR_WIDTH = 7;
 
 export interface ComicStripTextLayout {
   titleLines: string[];
@@ -127,7 +136,9 @@ export function layoutComicStripTextBlock(
   block: ComicStripTextBlock,
   metrics: ComicStripMetrics = DEFAULT_COMIC_STRIP_METRICS
 ): ComicStripTextLayout {
-  const contentWidth = metrics.width - metrics.padding * 2 - TEXT_PAD_X * 2;
+  // 预算扣掉阴影偏移：卡片本体比带子窄一拍，折行不能贴到阴影里去。
+  const contentWidth =
+    metrics.width - metrics.padding * 2 - TEXT_PAD_X * 2 - TEXT_CARD_SHADOW_OFFSET;
   const title = block.title?.trim() ?? "";
   const body = block.body.trim();
   const titleLines = title ? wrapText(title, contentWidth, TITLE_SIZE) : [];
@@ -166,9 +177,19 @@ function renderComicStripTextBlockSvg(
     );
   }
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${blockWidth}" height="${layout.height}">
-  <rect width="${blockWidth}" height="${layout.height}" fill="${metrics.textBackground}"/>
-  <rect x="0" y="0" width="6" height="${layout.height}" fill="${metrics.accent}"/>
+  // 标题前的强调竖条：圆角短条只压在标题区，替代旧版「贯穿整块」的左边缘线——
+  // 那条线把每段文案都框成引用体，杂志小节卡用短竖标更精神。
+  const titleBar = layout.titleLines.length
+    ? `<rect x="${left + 16}" y="${TEXT_PAD_Y + 8}" width="${TITLE_BAR_WIDTH}" height="${
+        layout.titleLines.length * TITLE_LINE_HEIGHT - 10
+      }" rx="3.5" fill="${metrics.accent}"/>`
+    : "";
+
+  const cardWidth = blockWidth - TEXT_CARD_SHADOW_OFFSET;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${blockWidth}" height="${layout.height + TEXT_CARD_SHADOW_OFFSET}">
+  <rect x="${TEXT_CARD_SHADOW_OFFSET}" y="${TEXT_CARD_SHADOW_OFFSET}" width="${cardWidth}" height="${layout.height}" rx="${TEXT_CARD_RADIUS}" fill="${TEXT_CARD_SHADOW}"/>
+  <rect x="0" y="0" width="${cardWidth}" height="${layout.height}" rx="${TEXT_CARD_RADIUS}" fill="${metrics.textBackground}" stroke="${TEXT_CARD_BORDER}" stroke-width="2"/>
+  ${titleBar}
   ${parts.join("\n  ")}
 </svg>`;
 }
@@ -180,7 +201,11 @@ async function renderComicStripTextBlock(
   const layout = layoutComicStripTextBlock(block, metrics);
   const svg = renderComicStripTextBlockSvg(block, metrics, layout);
   const binary = await sharp(Buffer.from(svg)).png().toBuffer();
-  return { input: binary, width: layout.width - metrics.padding * 2, height: layout.height };
+  return {
+    input: binary,
+    width: layout.width - metrics.padding * 2,
+    height: layout.height + TEXT_CARD_SHADOW_OFFSET
+  };
 }
 
 async function renderComicStripImageBlock(

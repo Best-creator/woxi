@@ -92,8 +92,9 @@ describe("composeComicStrip", () => {
     );
 
     expect(width).toBe(METRICS.width);
-    // 两张图各被压到 (400-40) 宽、300 高上限内 → 360×270；中间那块按排版算出的高度。
-    const textHeight = layoutComicStripTextBlock(text, METRICS).height;
+    // 两张图各被压到 (400-40) 宽、300 高上限内 → 360×270；中间那块按排版算出的高度，
+    // 外加文字卡右下的 5px 硬阴影（卡片化后文字带实际占位多出一拍）。
+    const textHeight = layoutComicStripTextBlock(text, METRICS).height + 5;
     expect(height).toBe(METRICS.padding * 2 + METRICS.gap * 2 + 270 * 2 + textHeight);
 
     const metadata = await sharp(buffer).metadata();
@@ -118,15 +119,16 @@ describe("composeComicStrip", () => {
     expect(info.channels).toBeGreaterThanOrEqual(3);
   });
 
-  it("fills the text band with white too, so the strip reads as one sheet", async () => {
+  it("fills the text band with the warm card background", async () => {
     const { buffer } = await composeComicStrip([{ kind: "text", body: "一句话" }], METRICS);
-    // 取文字带右侧、文字够不到的一点：那里是文字带的底色而不是画布。
+    // 取文字带右侧、文字够不到的一点：那里是文字卡的底色而不是画布。
+    // 卡片化后底色是暖纸白 #FCFAF4——比纯白暖一点，给文字带「杂志小节卡」的质感。
     const { data } = await sharp(buffer)
       .extract({ left: METRICS.width - 30, top: METRICS.padding + 8, width: 1, height: 1 })
       .raw()
       .toBuffer({ resolveWithObject: true });
 
-    expect([data[0], data[1], data[2]]).toEqual([255, 255, 255]);
+    expect([data[0], data[1], data[2]]).toEqual([252, 250, 244]);
   });
 
   it("caps a tall panel so one竖图 cannot blow the strip up", async () => {

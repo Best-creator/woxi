@@ -94,8 +94,10 @@ function setup(overrides: {
   disabled?: boolean;
   withGeneration?: boolean;
   withSelectGeneration?: boolean;
+  withUpdateAsset?: boolean;
 } = {}) {
   const withGeneration = overrides.withGeneration ?? true;
+  const withUpdateAsset = overrides.withUpdateAsset ?? true;
   const props = {
     article: overrides.article ?? segmentArticle(),
     assets: overrides.assets ?? [
@@ -114,6 +116,9 @@ function setup(overrides: {
       : undefined,
     refreshPlaceholder: vi.fn().mockResolvedValue({ article: segmentArticle(), assets: [] }),
     selectGeneration: overrides.withSelectGeneration
+      ? vi.fn().mockResolvedValue({ article: segmentArticle(), assets: [] })
+      : undefined,
+    updateAsset: withUpdateAsset
       ? vi.fn().mockResolvedValue({ article: segmentArticle(), assets: [] })
       : undefined
   };
@@ -212,6 +217,43 @@ describe("SegmentFramesPanel", () => {
     );
 
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("edits a frame caption inline and saves with the article-level token", async () => {
+    const props = setup();
+
+    await userEvent.click(screen.getByRole("button", { name: "编辑第 1 段帧 1 图注" }));
+
+    const input = screen.getByLabelText("第 1 段帧 1 图注");
+    expect(input).toHaveValue("分镜帧 frame-1");
+    await userEvent.clear(input);
+    await userEvent.type(input, "袋熊在斜坡上垒方砖");
+    await userEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    // 图注走同一个 PATCH（服务端会把它同步进正文图块，公众号图注/导出 PDF 立即生效），
+    // 乐观锁与其他写操作一致取文章令牌。
+    expect(props.updateAsset).toHaveBeenCalledWith("frame-1", {
+      altText: "袋熊在斜坡上垒方砖",
+      expectedUpdatedAt: articleFixture().updatedAt
+    });
+    expect(props.onResult).toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByLabelText("第 1 段帧 1 图注")).toBeNull());
+  });
+
+  it("refuses to save an emptied caption", async () => {
+    setup();
+
+    await userEvent.click(screen.getByRole("button", { name: "编辑第 1 段帧 1 图注" }));
+    await userEvent.clear(screen.getByLabelText("第 1 段帧 1 图注"));
+
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+  });
+
+  it("shows captions as plain text when editing is not wired", () => {
+    setup({ withUpdateAsset: false });
+
+    expect(screen.getByText("分镜帧 frame-1")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /编辑第 \d+ 段帧 \d+ 图注/ })).toBeNull();
   });
 });
 

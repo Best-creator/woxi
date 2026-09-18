@@ -2750,6 +2750,52 @@ h2 {
   justify-content: center;
 }
 
+/* 帧图注：公众号与导出 PDF 的图注文案都来自它，行内即可改。 */
+.segment-frame-alt {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  font-size: 11px;
+  gap: 4px;
+  min-width: 0;
+}
+
+.segment-frame-alt-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.segment-frame-alt .icon-button {
+  flex: 0 0 auto;
+  height: 20px;
+  width: 20px;
+}
+
+.segment-frame-alt-form {
+  display: flex;
+  gap: 4px;
+}
+
+.segment-frame-alt-input {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  flex: 1 1 auto;
+  font-size: 11px;
+  min-width: 0;
+  padding: 4px 6px;
+}
+
+.segment-frame-alt-form .button {
+  flex: 0 0 auto;
+  font-size: 11px;
+  height: 26px;
+  padding: 0 8px;
+}
+
 .segment-frames-empty {
   color: var(--muted);
   font-size: 12px;
