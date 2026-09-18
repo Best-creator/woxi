@@ -18,7 +18,7 @@ import type {
   ImagePlanSuggestion
 } from "./domain";
 import { imageContentUrl, mergeImageBlocks } from "./merge-image-blocks";
-import { restoreConsumedBlocks, withStripsRestored } from "./consumed-content";
+import { restoreConsumedBlocks, storyboardSegmentIds, withStripsRestored } from "./consumed-content";
 import type { ComicStripModeDecision } from "./comic-strip-mode-router";
 import { parseImageAssetRow as parseAsset, type ImageAssetRow } from "./asset-row";
 import type {
@@ -974,7 +974,11 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
         expectedUpdatedAt,
         this.listSync(articleId),
         asset.filePath ?? filePaths.find((path) => Boolean(path)) ?? null,
-        restoreConsumedBlocks(article.blocks, asset.consumedContent)
+        restoreConsumedBlocks(
+          article.blocks,
+          asset.consumedContent,
+          storyboardSegmentIds(article.planning.storyboardSegments)
+        )
       );
     });
   }
@@ -1179,7 +1183,16 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
       // 合并前先虚拟还原所有长图吃掉的块：长图的锚点是它自己吃掉的第一个块，
       // 那个块在上一次落库时已经从 blocks_json 里消失了——不还原的话，
       // 这次合并会因为「锚点不在正文里」把已有长图悄悄丢掉（分段拼接首拼即暴露）。
-      blocks: mergeImageBlocks(withStripsRestored(blocks, assets), assets, removedAssetIds),
+      // 只还原当前这套设计的快照：上一代设计的快照还原回来会把旧文案混进新正文。
+      blocks: mergeImageBlocks(
+        withStripsRestored(
+          blocks,
+          assets,
+          storyboardSegmentIds(article.planning.storyboardSegments)
+        ),
+        assets,
+        removedAssetIds
+      ),
       updatedAt
     };
     const result = this.db

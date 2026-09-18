@@ -9,7 +9,7 @@ import {
   type ComicStripModeDecision,
   type ComicStripModeRouter
 } from "./comic-strip-mode-router";
-import { withStripsRestored } from "./consumed-content";
+import { storyboardSegmentIds, withStripsRestored } from "./consumed-content";
 import { isComicStripMode, type ComicStripMode, type ComicStripModeChoice, type ImageAsset } from "./domain";
 import { removeGenerationFile } from "./generation-files";
 import {
@@ -143,7 +143,14 @@ export async function composeComicStrips(
   if (article.updatedAt !== input.expectedUpdatedAt) return { kind: "conflict" };
 
   const assets = await dependencies.images.list(article.id);
-  const readiness = inspectComicStrip(withStripsRestored(article.blocks, assets), assets);
+  const readiness = inspectComicStrip(
+    withStripsRestored(
+      article.blocks,
+      assets,
+      storyboardSegmentIds(article.planning.storyboardSegments)
+    ),
+    assets
+  );
   if (!readiness.groups.length) {
     return {
       kind: "not_ready",

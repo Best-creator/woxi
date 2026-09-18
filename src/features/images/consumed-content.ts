@@ -19,10 +19,17 @@ import type { ConsumedContent, ImageAsset } from "./domain";
  *
  * 位置靠 `resumeBeforeBlockId` 定位而不是靠 order：正文每次落库都会重排 order，
  * 快照里那些序号早就对不上了，只有「插在哪一块之前」这个相对位置还成立。
+ *
+ * 还原前要先过一道「这批快照是不是上一代留下的」判定：正文被整篇重新生成/换设计之后，
+ * 老段图（老长图）的快照还挂在资产上，把它的文案放回新正文，作者就会看到「图里一遍、
+ * 文字又一遍」，而且新段图随后按新块 id 去认领时正文里已经没有那些块可藏。判据分两层：
+ * - 快照块带段 id（分镜段图）→ 看段 id 在不在当前设计里，一个都不在就整批丢弃（见下）；
+ * - 快照块没段 id（早年的文章级长图）→ 看锚点块还在不在正文里，找不到就是上一代正文。
  */
 export function restoreConsumedBlocks(
   blocks: readonly ContentBlock[],
-  consumed: ConsumedContent | null
+  consumed: ConsumedContent | null,
+  activeSegmentIds: readonly string[] = []
 ): ContentBlock[] {
   if (!consumed?.blocks.length) return [...blocks];
 
@@ -34,9 +41,27 @@ export function restoreConsumedBlocks(
     .sort(byOrder);
   if (!missing.length) return [...blocks];
 
+  const snapshotSegments = missing
+    .map((block) => block.segmentId)
+    .filter((segmentId): segmentId is string => Boolean(segmentId));
+  // 带段 id 的快照只认「这批块属不属于当前这套分镜设计」：段 id 一个都对不上
+  // = 上一代设计留下的快照，整批丢弃。设计还没进 planning 时不套这条（宁可照常还原）。
+  if (snapshotSegments.length) {
+    const active = new Set(activeSegmentIds);
+    if (active.size && snapshotSegments.every((segmentId) => !active.has(segmentId))) {
+      return [...blocks];
+    }
+  }
+
   const at = consumed.resumeBeforeBlockId
     ? textBlocks.findIndex((block) => block.id === consumed.resumeBeforeBlockId)
     : -1;
+  // 没有段 id 的老式快照（文章级长图）只能看锚点：锚点块在正文里彻底找不到
+  // = 这是上一代正文的快照，不还原。
+  // 带段 id 的快照不受这条限制：锚点可能因为历史脏数据早就丢了，图仍然属于当前设计，
+  // 不还原反倒会把「块和图一起弄没」（恢复版本的两步串联正要靠它把块放回来）。
+  if (!snapshotSegments.length && consumed.resumeBeforeBlockId && at < 0) return [...blocks];
+
   return at >= 0
     ? [...textBlocks.slice(0, at), ...missing, ...textBlocks.slice(at)]
     : [...textBlocks, ...missing];
@@ -50,11 +75,21 @@ export function restoreConsumedBlocks(
  */
 export function withStripsRestored(
   blocks: ContentBlock[],
-  assets: readonly ImageAsset[]
+  assets: readonly ImageAsset[],
+  activeSegmentIds: readonly string[] = []
 ): ContentBlock[] {
   return assets.reduce(
     (current, asset) =>
-      asset.consumedContent ? restoreConsumedBlocks(current, asset.consumedContent) : current,
+      asset.consumedContent
+        ? restoreConsumedBlocks(current, asset.consumedContent, activeSegmentIds)
+        : current,
     blocks
   );
+}
+
+/** 从 planning 的段设计里取段 id 列表：判断一份长图快照是否属于上一代设计。 */
+export function storyboardSegmentIds(
+  segments: readonly { id: string }[] | null | undefined
+): string[] {
+  return (segments ?? []).map((segment) => segment.id);
 }

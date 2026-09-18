@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { mergeImageBlocks } from "./merge-image-blocks";
+import { withStripsRestored } from "./consumed-content";
 import type { ImageAsset } from "./domain";
 import { imageBlock, twoBlocks } from "../../../tests/fixtures/article";
 
@@ -197,5 +198,33 @@ describe("mergeImageBlocks", () => {
     const imageBlocks = blocks.filter((block) => block.type === "image");
     expect(imageBlocks).toHaveLength(1);
     expect(imageBlocks[0]?.assetId).toBe("cover-manual-new");
+  });
+
+  it("keeps a strip alive when the merge re-runs on a body that only holds its image block", () => {
+    // 恢复版本是两步串联：第一步把正文换成「只剩段图」的形态，第二步（分镜计划落库）
+    // 又会合并一次。这一步认不出段图，成品段图就会从正文里凭空消失——作者的图白拼了。
+    const consumedBlocks = twoBlocks().map((block, index) => ({
+      ...block,
+      segmentId: "seg-1",
+      order: index
+    }));
+    const stripAsset = asset({
+      id: "strip-1",
+      type: "comic_strip",
+      aspectRatio: "portrait",
+      anchorBlockId: consumedBlocks[0]!.id,
+      status: "generated",
+      consumedContent: { blocks: consumedBlocks, resumeBeforeBlockId: null }
+    });
+
+    const merged = mergeImageBlocks(
+      withStripsRestored([imageBlock("strip-1")], [stripAsset], ["seg-1"]),
+      [stripAsset]
+    );
+
+    expect(merged.filter((block) => block.type === "image").map((block) => block.assetId)).toEqual([
+      "strip-1"
+    ]);
+    expect(merged.filter((block) => block.type !== "image")).toHaveLength(0);
   });
 });

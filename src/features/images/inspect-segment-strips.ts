@@ -32,7 +32,13 @@ export function inspectSegmentStrips(
     (left, right) => left.order - right.order
   );
   const assetById = new Map(assets.map((asset) => [asset.id, asset]));
-  const restored = withStripsRestored(article.blocks, assets);
+  // 还原视图只认「当前这套设计」的长图快照：上一代设计的快照还原回来只会把旧文案
+  // 混进正文，界面据此报出的就绪度也是假的。
+  const restored = withStripsRestored(
+    article.blocks,
+    assets,
+    segments.map((segment) => segment.id)
+  );
   const copyableBlockIds = new Set(
     restored
       .filter((block) => block.type !== "image" && CONSUMABLE_BLOCK_TYPES.has(block.type))

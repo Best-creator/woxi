@@ -155,7 +155,11 @@ export async function composeSegmentStrips(
   const assets = await dependencies.images.list(article.id);
   const assetById = new Map(assets.map((asset) => [asset.id, asset]));
 
-  const restoredBlocks = withStripsRestored(article.blocks, assets);
+  const restoredBlocks = withStripsRestored(
+    article.blocks,
+    assets,
+    segments.map((segment) => segment.id)
+  );
   const textBlocks = restoredBlocks.filter((block) => block.type !== "image").sort(byOrder);
   const blockById = new Map(textBlocks.map((block) => [block.id, block]));
 
