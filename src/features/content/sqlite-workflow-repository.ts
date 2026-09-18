@@ -7,7 +7,8 @@ import {
   type ArticleStatus,
   type ContentBlock,
   type KnowledgeBrief,
-  type OutlineSection
+  type OutlineSection,
+  type StoryboardSegment
 } from "@/features/articles/domain";
 import { hashSnapshot } from "@/features/revisions/content-hash";
 import type {
@@ -24,7 +25,13 @@ import {
 import { mergeImageBlocks } from "@/features/images/merge-image-blocks";
 import { parseImageAssetRow as parseAsset, type ImageAssetRow } from "@/features/images/asset-row";
 import type { ImageAsset } from "@/features/images/domain";
-import { contentHashInput, textBlocksOf } from "./content-version";
+import type { StoryboardRevisionSegmentPlan } from "@/features/images/repository";
+import type { StoryboardSnapshotSegment } from "@/features/revisions/domain";
+import {
+  contentHashInput,
+  enrichStoryboardSnapshotSegments,
+  textBlocksOf
+} from "./content-version";
 import { parseStyleProfileJson } from "./style-profile";
 import type { ContentReviewResult } from "./ports";
 import type {
@@ -32,6 +39,70 @@ import type {
   ContentWorkflowWriteResult,
   SaveGeneratedContentInput
 } from "./workflow-repository";
+
+/**
+ * 快照分镜段的还原决议：帧全部存活的段直接写回 planning（图不动）；
+ * 有缺失的段给出重建计划，交用例层转图片仓储 applyStoryboardRevision 落库。
+ *
+ * 生成/修订快照天生不带 frameAssetIds（帧在设计落库之后才创建），恢复这类版本时
+ * 按段 id 从当前 planning 认领绑定：段没被重新设计过（id 未变）且帧仍存活就原样
+ * 保留；重新设计过则段 id 已换新，认领不到，回落到快照描述符重建。
+ */
+function resolveStoryboardRestore(
+  segments: StoryboardSnapshotSegment[] | undefined,
+  assets: readonly ImageAsset[],
+  currentSegments: readonly StoryboardSegment[] | null | undefined
+): {
+  segments: StoryboardSegment[] | null;
+  rebuildPlans: StoryboardRevisionSegmentPlan[];
+} {
+  if (!segments?.length) return { segments: null, rebuildPlans: [] };
+  const storyboardIds = new Set(
+    assets.filter((asset) => asset.type === "storyboard").map((asset) => asset.id)
+  );
+  const currentById = new Map((currentSegments ?? []).map((segment) => [segment.id, segment]));
+  const persisted: StoryboardSegment[] = [];
+  const rebuildPlans: StoryboardRevisionSegmentPlan[] = [];
+  let allAlive = true;
+  for (const segment of segments) {
+    const planBase = {
+      id: segment.id,
+      sectionKey: segment.sectionKey,
+      title: segment.title,
+      route: segment.route,
+      copyBlockIds: segment.copyBlockIds,
+      order: segment.order
+    };
+    const frameAssetIds =
+      segment.frameAssetIds ?? currentById.get(segment.id)?.frameAssetIds ?? [];
+    const allFramesAlive =
+      frameAssetIds.length > 0 && frameAssetIds.every((id) => storyboardIds.has(id));
+    if (allFramesAlive) {
+      persisted.push({ ...planBase, frameAssetIds });
+      rebuildPlans.push({ ...planBase, frames: [], retainedFrameAssetIds: frameAssetIds });
+      continue;
+    }
+    allAlive = false;
+    rebuildPlans.push({
+      ...planBase,
+      // 有描述符就重建占位帧；老快照没存描述符的段落成空帧，由设计视图提示重新设计。
+      frames: segment.frames
+    });
+  }
+  return { segments: allAlive ? persisted : null, rebuildPlans };
+}
+
+/** 手动/检查点快照落库前补齐分镜帧描述符（恢复旧版本要靠它重建缺失的帧）。 */
+function withEnrichedStoryboardSegments(
+  snapshot: ContentRevisionSnapshot,
+  assets: readonly ImageAsset[]
+): ContentRevisionSnapshot {
+  if (!snapshot.storyboardSegments?.length) return snapshot;
+  return {
+    ...snapshot,
+    storyboardSegments: enrichStoryboardSnapshotSegments(snapshot.storyboardSegments, assets)
+  };
+}
 
 interface ArticleRow {
   id: string;
@@ -135,7 +206,11 @@ export class SqliteContentWorkflowRepository implements ContentWorkflowRepositor
         outlineRevisionId,
         styleProfile: input.styleProfile,
         recommendedTotalWords: article.planning.recommendedTotalWords ?? textBlocks.length,
-        sourceContextSnapshot: input.sourceContextSnapshot
+        sourceContextSnapshot: input.sourceContextSnapshot,
+        // 编排层传来的本次设计计划随版本保存：恢复旧版本时按它提交回第四步。
+        ...(input.storyboardSegments?.length
+          ? { storyboardSegments: input.storyboardSegments }
+          : {})
       };
       const revision = this.createRevision(input.articleId, snapshot, input.model, input.reason ?? "generated");
       const updated = this.writeArticle(article, input.expectedUpdatedAt, {
@@ -164,7 +239,12 @@ export class SqliteContentWorkflowRepository implements ContentWorkflowRepositor
       if (!article) return this.missingOrConflict(input.articleId, input.expectedUpdatedAt);
       return {
         kind: "checkpointed" as const,
-        revision: this.createRevision(input.articleId, input.snapshot, input.model, "review_checkpoint")
+        revision: this.createRevision(
+          input.articleId,
+          withEnrichedStoryboardSegments(input.snapshot, this.listImageAssets(article.id)),
+          input.model,
+          "review_checkpoint"
+        )
       };
     });
   }
@@ -276,7 +356,13 @@ export class SqliteContentWorkflowRepository implements ContentWorkflowRepositor
     return this.inTransaction(() => {
       const article = this.currentArticle(input.articleId, input.expectedUpdatedAt);
       if (!article) return this.missingOrConflict(input.articleId, input.expectedUpdatedAt);
-      const revision = this.createRevision(input.articleId, input.snapshot, input.model, "manual");
+      // 手动版本快照里的分镜段补上帧描述符：恢复旧版本时要靠它重建缺失的帧。
+      const revision = this.createRevision(
+        input.articleId,
+        withEnrichedStoryboardSegments(input.snapshot, this.listImageAssets(article.id)),
+        input.model,
+        "manual"
+      );
       return { kind: "saved" as const, article, revision };
     });
   }
@@ -297,23 +383,34 @@ export class SqliteContentWorkflowRepository implements ContentWorkflowRepositor
       const restoredFrom = parseRevisionRow<ContentRevisionSnapshot>(revisionRow);
       const snapshot = restoredFrom.snapshot;
       const revision = this.createRestoredRevision(input.articleId, snapshot, restoredFrom.model);
+      const assets = this.listImageAssets(article.id);
+      // 分镜设计随快照还原：正文回到哪一版，分镜段就回到哪一版。
+      // 帧仍存活的段保留绑定（已生成的图不动）；缺失的段交回用例层，
+      // 由 applyStoryboardRevision 按快照里的帧描述符重建占位帧后重新出图。
+      // 无绑定的快照段（生成/修订版）按段 id 从当前 planning 认领存活帧。
+      const resolution = resolveStoryboardRestore(
+        snapshot.storyboardSegments,
+        assets,
+        article.planning.storyboardSegments
+      );
       const updated = this.writeArticle(article, input.expectedUpdatedAt, {
         title: snapshot.title,
-        blocks: mergeImageBlocks(snapshot.textBlocks, this.listImageAssets(article.id)),
+        blocks: mergeImageBlocks(snapshot.textBlocks, assets),
         styleProfile: snapshot.styleProfile,
         status: "editing",
         planning: {
           ...article.planning,
           contentOutlineRevisionId: snapshot.outlineRevisionId,
-          // 分镜设计随快照还原：正文回到哪一版，分镜段就回到哪一版。
-          // 帧资产不跟着回滚（可能已被后续设计重建），缺失帧由设计视图提示重新生成。
-          ...(snapshot.storyboardSegments
-            ? { storyboardSegments: snapshot.storyboardSegments }
-            : {})
+          ...(resolution.segments ? { storyboardSegments: resolution.segments } : {})
         }
       });
       if (!updated) throw new AbortMutation({ kind: "conflict" });
-      return { kind: "restored" as const, article: updated, revision };
+      return {
+        kind: "restored" as const,
+        article: updated,
+        revision,
+        ...(resolution.rebuildPlans.length ? { storyboardPlans: resolution.rebuildPlans } : {})
+      };
     });
   }
 

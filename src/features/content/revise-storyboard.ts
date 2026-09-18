@@ -6,7 +6,11 @@ import { readySourceContext } from "@/features/outlines/generate-outline";
 import { withStripsRestored } from "@/features/images/consumed-content";
 import type { ImageAsset } from "@/features/images/domain";
 import type { StoryboardRevisionSegmentPlan } from "@/features/images/repository";
-import type { ArticleRevision, ContentRevisionSnapshot } from "@/features/revisions/domain";
+import type {
+  ArticleRevision,
+  ContentRevisionSnapshot,
+  StoryboardSnapshotSegment
+} from "@/features/revisions/domain";
 import { contentIsReady, splitStoryboardCopy } from "./generate-content";
 import { describeAudience } from "./audience";
 import { validateStoryboardDesign } from "./openai-storyboard-designer";
@@ -313,6 +317,29 @@ export async function reviseStoryboard(
     });
   }
 
+  // 快照随版本保存本次修订后的设计：保留段记下帧资产 id 与描述符（图还在），
+  // 替换段记下帧描述符（恢复这一版时按它重建占位帧重新出图）。
+  const assetById = new Map(assets.map((asset) => [asset.id, asset]));
+  const snapshotSegments: StoryboardSnapshotSegment[] = plans.map((plan, index) => ({
+    id: plan.id,
+    sectionKey: plan.sectionKey,
+    title: plan.title,
+    route: plan.route,
+    copyBlockIds: plan.copyBlockIds,
+    order: index,
+    frames: plan.retainedFrameAssetIds?.length
+      ? plan.retainedFrameAssetIds.flatMap((id) => {
+          const asset = assetById.get(id);
+          return asset
+            ? [{ prompt: asset.prompt, altText: asset.altText, aspectRatio: asset.aspectRatio }]
+            : [];
+        })
+      : plan.frames,
+    ...(plan.retainedFrameAssetIds?.length
+      ? { frameAssetIds: [...plan.retainedFrameAssetIds] }
+      : {})
+  }));
+
   // 落库第一步：正文块与版本（reason=review_applied，与改大纲同款）。
   const saved = await dependencies.workflow.saveGeneratedContent({
     articleId: article.id,
@@ -322,7 +349,8 @@ export async function reviseStoryboard(
     textBlocks,
     styleProfile: command.styleProfile,
     sourceContextSnapshot: sourceContext,
-    reason: "review_applied"
+    reason: "review_applied",
+    storyboardSegments: snapshotSegments
   });
   if (saved.kind === "conflict") return { kind: "conflict" };
   if (saved.kind !== "saved") {

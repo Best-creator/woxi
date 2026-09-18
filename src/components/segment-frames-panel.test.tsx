@@ -1,8 +1,8 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Article, ContentBlock, StoryboardSegment } from "@/features/articles/domain";
-import type { ImageAsset } from "@/features/images/domain";
+import type { ImageAsset, ImageLibraryItem } from "@/features/images/domain";
 import { articleFixture } from "../../tests/fixtures/article";
 import { SegmentFramesPanel } from "./segment-frames-panel";
 
@@ -56,6 +56,23 @@ function frame(id: string, status: ImageAsset["status"] = "placeholder"): ImageA
   };
 }
 
+function generation(id: string, assetId: string, overrides: Partial<ImageLibraryItem> = {}): ImageLibraryItem {
+  return {
+    id,
+    articleId: "article-1",
+    assetId,
+    prompt: `${id} 的画面提示词`,
+    model: "demo-model",
+    filePath: `C:/tmp/${id}.png`,
+    publicUrl: null,
+    selected: false,
+    createdAt: "2026-09-18T00:00:00.000Z",
+    assetType: "storyboard",
+    assetPurpose: `分镜 ${assetId}`,
+    ...overrides
+  };
+}
+
 function segmentArticle(overrides: Partial<Article> = {}): Article {
   return articleFixture({
     planning: {
@@ -76,6 +93,7 @@ function setup(overrides: {
   readOnly?: boolean;
   disabled?: boolean;
   withGeneration?: boolean;
+  withSelectGeneration?: boolean;
 } = {}) {
   const withGeneration = overrides.withGeneration ?? true;
   const props = {
@@ -94,7 +112,10 @@ function setup(overrides: {
     generateBatch: withGeneration
       ? vi.fn().mockResolvedValue({ article: segmentArticle(), assets: [] })
       : undefined,
-    refreshPlaceholder: vi.fn().mockResolvedValue({ article: segmentArticle(), assets: [] })
+    refreshPlaceholder: vi.fn().mockResolvedValue({ article: segmentArticle(), assets: [] }),
+    selectGeneration: overrides.withSelectGeneration
+      ? vi.fn().mockResolvedValue({ article: segmentArticle(), assets: [] })
+      : undefined
   };
   render(<SegmentFramesPanel {...props} />);
   return props;
@@ -189,5 +210,78 @@ describe("SegmentFramesPanel", () => {
     );
 
     expect(container).toBeEmptyDOMElement();
+  });
+});
+
+describe("SegmentFramesPanel 帧版本抽屉", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** stub 素材库接口；仓储按 created_at DESC 返回（最新在前）。 */
+  function stubGenerations(generations: ImageLibraryItem[]) {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ generations })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it("expands a per-frame history drawer with ordered version labels", async () => {
+    stubGenerations([generation("gen-2", "frame-1", { selected: true }), generation("gen-1", "frame-1")]);
+    setup();
+
+    await screen.findByText("已生成 2 版");
+
+    await userEvent.click(screen.getByRole("button", { name: "已生成 2 版" }));
+    expect(screen.getByText("第 2 版 · 当前")).toBeInTheDocument();
+    expect(screen.getByText("第 1 版")).toBeInTheDocument();
+    expect(screen.getByAltText("gen-1 的画面提示词")).toHaveAttribute(
+      "src",
+      "/api/image-generations/gen-1/content"
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "已生成 2 版" }));
+    expect(screen.queryByText("第 1 版")).toBeNull();
+  });
+
+  it("applies an older version through the injected selection callback", async () => {
+    stubGenerations([generation("gen-2", "frame-1", { selected: true }), generation("gen-1", "frame-1")]);
+    const props = setup({ withSelectGeneration: true });
+
+    await screen.findByText("已生成 2 版");
+    await userEvent.click(screen.getByRole("button", { name: "已生成 2 版" }));
+    await userEvent.click(screen.getByRole("button", { name: "选用此版" }));
+
+    expect(props.selectGeneration).toHaveBeenCalledWith("frame-1", "gen-1", "2026-09-18T00:00:00.000Z");
+    expect(props.onResult).toHaveBeenCalled();
+  });
+
+  it("keeps the drawer view-only when selection is not wired", async () => {
+    stubGenerations([generation("gen-2", "frame-1", { selected: true }), generation("gen-1", "frame-1")]);
+    setup();
+
+    await screen.findByText("已生成 2 版");
+    await userEvent.click(screen.getByRole("button", { name: "已生成 2 版" }));
+
+    expect(screen.getByText("第 1 版")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "选用此版" })).toBeNull();
+  });
+
+  it("hides the drawer entry when the frame has no generation history", async () => {
+    const fetchMock = stubGenerations([]);
+    setup();
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(screen.queryByText(/已生成 \d+ 版/)).toBeNull();
+  });
+
+  it("silently ignores a failing generation library fetch", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+    setup();
+
+    expect(screen.getByText("段 1 · 开场")).toBeInTheDocument();
+    expect(screen.queryByText(/已生成 \d+ 版/)).toBeNull();
   });
 });

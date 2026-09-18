@@ -182,7 +182,9 @@ export async function generateContent(
     title,
     textBlocks: blocks,
     styleProfile: command.styleProfile,
-    sourceContextSnapshot: sourceContext
+    sourceContextSnapshot: sourceContext,
+    // 设计计划随版本快照保存：恢复这一版时按描述符重建帧，直接提交给第四步。
+    storyboardSegments: plans.map((plan, index) => ({ ...plan, order: index }))
   });
   if (saved.kind === "conflict") return { kind: "conflict" };
   if (saved.kind !== "saved") {

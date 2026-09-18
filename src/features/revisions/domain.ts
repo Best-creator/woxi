@@ -3,8 +3,9 @@ import type {
   KnowledgeBrief,
   LengthPreset,
   OutlineSection,
-  StoryboardSegment
+  StoryboardRoute
 } from "@/features/articles/domain";
+import type { ImageAspectRatio } from "@/features/images/domain";
 import type { StyleProfile } from "@/features/content/style-profile";
 
 export type RevisionScope = "outline" | "content";
@@ -16,6 +17,30 @@ export type RevisionReason =
   | "confirmed"
   | "manual"
   | "restored";
+
+/** 快照里的帧描述符：恢复旧版本时按它重建占位帧，prompt 即生图的完整输入。 */
+export interface StoryboardFrameSnapshot {
+  prompt: string;
+  altText: string;
+  aspectRatio?: ImageAspectRatio;
+}
+
+/**
+ * 快照里的分镜段：与设计计划同形，外加捕获时刻的帧资产 id。
+ * 恢复版本时 frameAssetIds 全部存活 → 原样保留绑定（已生成的图不动）；
+ * 缺失 → 按 frames 描述符重建占位帧，回第四步重新出图。
+ */
+export interface StoryboardSnapshotSegment {
+  id: string;
+  sectionKey: string;
+  title: string;
+  route: StoryboardRoute;
+  /** 该段成稿文案所在的正文块 id（标题块 + 文案块）。 */
+  copyBlockIds: string[];
+  order: number;
+  frames: StoryboardFrameSnapshot[];
+  frameAssetIds?: string[];
+}
 
 export interface OutlineRevisionSnapshot {
   title: string;
@@ -36,9 +61,10 @@ export interface ContentRevisionSnapshot {
   sourceContextSnapshot: string;
   /**
    * 正文分镜设计（与 textBlocks 同代的结构）。
-   * 不参与内容哈希——分镜结构变化不算正文内容变化；恢复旧版本时随快照还原。
+   * 不参与内容哈希——分镜结构变化不算正文内容变化；恢复旧版本时随快照还原，
+   * 帧资产存活则保留绑定，缺失则按 frames 描述符重建占位帧。
    */
-  storyboardSegments?: StoryboardSegment[];
+  storyboardSegments?: StoryboardSnapshotSegment[];
 }
 
 export interface CreateRevisionInput<TSnapshot> {

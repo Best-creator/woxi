@@ -229,6 +229,22 @@ describe("reviseStoryboard", () => {
         blocks.filter((block) => kept.copyBlockIds.includes(block.id))
       ).toHaveLength(kept.copyBlockIds.length);
     }
+
+    // 修订后的版本快照携带本次设计：保留段带帧资产 id（图还在），
+    // 替换段带帧描述符（恢复这一版时按它重建占位帧）。
+    const versions = await fixture.contentWorkflow.listContentVersions(result.article.id);
+    const snapshotSegments = versions[0]?.snapshot.storyboardSegments ?? [];
+    expect(snapshotSegments).toHaveLength(segments.length);
+    expect(snapshotSegments[0]!.frameAssetIds).toBeUndefined();
+    expect(snapshotSegments[0]!.frames.length).toBe(plannedSegments[0]!.frameAssetIds.length);
+    for (const [index, kept] of segments.slice(1).entries()) {
+      const snapshotSegment = snapshotSegments[index + 1]!;
+      expect(snapshotSegment.frameAssetIds).toEqual(kept.frameAssetIds);
+      expect(snapshotSegment.frames).toHaveLength(kept.frameAssetIds.length);
+      for (const frame of snapshotSegment.frames) {
+        expect(frame.prompt.length).toBeGreaterThan(0);
+      }
+    }
   });
 
   it("lets the author revise by personal instructions without any review", async () => {

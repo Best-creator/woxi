@@ -92,6 +92,41 @@ describe("generateContent", () => {
     expect(segments[1]?.route).toBe("image_text_image");
   });
 
+  it("records the storyboard design in the version snapshot for step-four resubmission", async () => {
+    const fixture = await articleWithConfirmedOutline();
+    const result = await generateContent(
+      {
+        articleId: fixture.article.id,
+        expectedUpdatedAt: fixture.article.updatedAt,
+        styleProfile: resolveStyleProfile("friend_chat")
+      },
+      {
+        articles: fixture.articles,
+        sources: fixture.sources,
+        designer: new DemoStoryboardDesigner(),
+        workflow: fixture.contentWorkflow,
+        images: fixture.imageAssets
+      }
+    );
+    if (result.kind !== "generated") throw new Error("expected generated");
+
+    // 版本快照携带本次设计：恢复旧版本时按帧描述符重建占位帧，重新提交给第四步。
+    const versions = await fixture.contentWorkflow.listContentVersions(result.article.id);
+    const segments = versions[0]?.snapshot.storyboardSegments ?? [];
+    expect(segments.map((segment) => segment.sectionKey)).toEqual(
+      (result.article.planning.storyboardSegments ?? []).map((segment) => segment.sectionKey)
+    );
+    for (const segment of segments) {
+      expect(segment.frames.length).toBeGreaterThan(0);
+      for (const frame of segment.frames) {
+        expect(frame.prompt.length).toBeGreaterThan(0);
+        expect(frame.altText.length).toBeGreaterThan(0);
+      }
+      // 生成落库前快照没有帧资产 id：恢复时走「按描述符重建」。
+      expect(segment.frameAssetIds).toBeUndefined();
+    }
+  });
+
   it("adopts the title proposed by the designer", async () => {
     const fixture = await articleWithConfirmedOutline();
     const titling = fakeDesigner(async (input) => {

@@ -753,6 +753,19 @@ export function ArticleWorkspace({
                       refreshPlaceholder(articleRef.current.id, assetId, expectedUpdatedAt)
                     )
                   }
+                  selectGeneration={
+                    selectImageGeneration
+                      ? (assetId: string, generationId: string, expectedUpdatedAt: string) =>
+                          beginImageOperation(() =>
+                            selectImageGeneration(
+                              articleRef.current.id,
+                              assetId,
+                              generationId,
+                              expectedUpdatedAt
+                            )
+                          )
+                      : undefined
+                  }
                   generateImage={
                     imageGenerationEnabled
                       ? (assetId: string, expectedUpdatedAt: string) =>

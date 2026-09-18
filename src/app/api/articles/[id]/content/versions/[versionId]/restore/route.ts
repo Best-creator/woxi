@@ -3,7 +3,7 @@ import {
   restoreContentVersion,
   type RestoreContentVersionDependencies
 } from "@/features/content/restore-content-version";
-import { getContentWorkflowRepository } from "@/server/services";
+import { getContentWorkflowRepository, getImageAssetRepository } from "@/server/services";
 
 export const runtime = "nodejs";
 
@@ -34,10 +34,14 @@ export function createContentRestoreRouteHandler(dependencies: RestoreContentVer
     if (result.kind === "not_found") return Response.json({ error: "文章不存在" }, { status: 404 });
     if (result.kind === "version_not_found") return Response.json({ error: "正文版本不存在" }, { status: 404 });
     if (result.kind === "conflict") return Response.json({ error: "文章已在其他位置更新，请刷新后重试" }, { status: 409 });
+    if (result.kind === "storyboard_conflict") return Response.json({ error: result.message }, { status: 409 });
     return Response.json({ article: result.article, revision: result.revision });
   };
 }
 
 export function POST(request: Request, context: RouteContext) {
-  return createContentRestoreRouteHandler({ workflow: getContentWorkflowRepository() })(request, context);
+  return createContentRestoreRouteHandler({
+    workflow: getContentWorkflowRepository(),
+    images: getImageAssetRepository()
+  })(request, context);
 }

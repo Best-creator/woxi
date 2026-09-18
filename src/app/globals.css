@@ -2674,6 +2674,130 @@ h2 {
   margin: 0;
 }
 
+/* 分镜帧面板（第四步）：按段分组的帧卡片 + 轻量版本抽屉。 */
+.segment-frames-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+}
+
+.workflow-images-panel > .segment-frames-panel {
+  grid-column: 1 / -1;
+}
+
+.segment-frames-batch {
+  display: flex;
+}
+
+.segment-frames-list {
+  display: grid;
+  gap: 12px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.segment-frames-item {
+  display: grid;
+  gap: 8px;
+}
+
+.segment-frames-item-head {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.segment-frames-item-head strong {
+  font-size: 14px;
+}
+
+.segment-frames-route {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.segment-frames-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.segment-frame-card {
+  display: grid;
+  gap: 6px;
+  width: 200px;
+}
+
+.segment-frame-card .image-plan-thumbnail {
+  aspect-ratio: 4 / 3;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  width: 100%;
+}
+
+.segment-frame-action {
+  justify-content: center;
+}
+
+.segment-frames-empty {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 0;
+}
+
+.segment-frame-versions {
+  display: grid;
+  gap: 6px;
+}
+
+.segment-frame-versions-toggle {
+  font-size: 12px;
+  justify-content: center;
+}
+
+.segment-frame-version-list {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+}
+
+.segment-frame-version-row {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.segment-frame-version-thumb {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  height: 44px;
+  object-fit: cover;
+  width: 58px;
+}
+
+.segment-frame-version-label {
+  color: var(--muted);
+  flex: 1;
+  font-size: 12px;
+}
+
 /* 第三步分镜设计视图：正文按段拆卡。 */
 .storyboard-segment-list {
   display: grid;

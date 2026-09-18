@@ -1,5 +1,10 @@
 import type { Article, ContentBlock } from "@/features/articles/domain";
-import type { ContentRevisionSnapshot } from "@/features/revisions/domain";
+import type { ImageAsset } from "@/features/images/domain";
+import type {
+  ContentRevisionSnapshot,
+  StoryboardFrameSnapshot,
+  StoryboardSnapshotSegment
+} from "@/features/revisions/domain";
 
 export class ContentSnapshotError extends Error {
   constructor(message = "正文尚未基于已确认的大纲生成") {
@@ -55,9 +60,43 @@ export function createContentSnapshot(
     recommendedTotalWords,
     sourceContextSnapshot,
     ...(article.planning.storyboardSegments?.length
-      ? { storyboardSegments: article.planning.storyboardSegments }
+      ? {
+          // 这里拿不到资产列表，帧描述符先留空，由仓储层在落库前
+          // 用 enrichStoryboardSnapshotSegments 补齐（恢复旧版本要靠描述符重建帧）。
+          storyboardSegments: article.planning.storyboardSegments.map((segment) => ({
+            ...segment,
+            frames: []
+          }))
+        }
       : {})
   };
+}
+
+/**
+ * 把快照里缺帧描述符的段补齐：按 frameAssetIds 从资产列表取 prompt/altText/aspectRatio。
+ * 已带描述符的段（生成/修订编排直接传入的设计计划）原样保留；资产缺失的段描述符留空，
+ * 恢复时该段只能落到「帧缺失」的降级态。
+ */
+export function enrichStoryboardSnapshotSegments(
+  segments: StoryboardSnapshotSegment[],
+  assets: readonly ImageAsset[]
+): StoryboardSnapshotSegment[] {
+  const assetById = new Map(assets.map((asset) => [asset.id, asset]));
+  return segments.map((segment) => {
+    if (segment.frames.length || !segment.frameAssetIds?.length) return segment;
+    const frames: StoryboardFrameSnapshot[] = [];
+    for (const id of segment.frameAssetIds) {
+      const asset = assetById.get(id);
+      // 任一帧资产缺失就整段放弃补齐：恢复时该段落到「帧缺失」降级态。
+      if (!asset) return segment;
+      frames.push({
+        prompt: asset.prompt,
+        altText: asset.altText,
+        aspectRatio: asset.aspectRatio
+      });
+    }
+    return { ...segment, frames };
+  });
 }
 
 export function tryCreateContentSnapshot(
