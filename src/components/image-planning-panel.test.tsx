@@ -129,6 +129,114 @@ describe("ImagePlanningPanel", () => {
     }
   });
 
+  it("offers AI character generation, prefills the style and posts it to the generate endpoint", async () => {
+    const user = userEvent.setup();
+    const created = {
+      id: "char-gen-1",
+      name: "小知",
+      persona: "",
+      description: "红伞白点的卡通蘑菇",
+      mimeType: "image/png",
+      filePath: "/tmp/gen.png",
+      publicUrl: "/api/characters/char-gen-1/image",
+      createdAt: "2026-09-18T00:00:00.000Z",
+      updatedAt: "2026-09-18T00:00:00.000Z"
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.includes("/api/characters/generate")) {
+        return new Response(JSON.stringify({ character: created }), {
+          status: 201,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (url.endsWith("/api/characters")) {
+        return new Response(JSON.stringify({ characters: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (url.includes("/api/image-models")) {
+        return new Response(JSON.stringify({ models: [{ id: "gpt-image-2", provider: "llm-gateway" }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      return new Response(JSON.stringify({ style: "", characterId: null, styles: [], generations: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const article = articleFixture({ blocks: [paragraphBlock()] });
+      render(
+        <ImagePlanningPanel article={article} assets={[]} onResult={vi.fn()} />
+      );
+
+      // 生图服务可用时才出现 AI 生成入口。
+      const characterSelect = screen.getByLabelText("参考形象");
+      await waitFor(() =>
+        expect(within(characterSelect).getByRole("option", { name: "AI 生成新形象…" })).toBeInTheDocument()
+      );
+
+      // 生成风格默认带出当前「绘制风格」选择，可再改。
+      await user.selectOptions(screen.getByLabelText("绘制风格"), "手绘水彩");
+      await user.selectOptions(characterSelect, "__generate__");
+      expect((screen.getByLabelText("生成形象风格") as HTMLSelectElement).value).toBe("手绘水彩");
+
+      await user.type(screen.getByLabelText("生成形象名称"), "小知");
+      await user.type(screen.getByLabelText("生成形象外观"), "圆框眼镜的蘑菇头角色");
+      await user.selectOptions(screen.getByLabelText("生成形象风格"), "简笔画");
+      await user.click(screen.getByRole("button", { name: "生成并保存到形象库" }));
+
+      await waitFor(() =>
+        expect(within(characterSelect).getByRole("option", { name: "小知" })).toBeInTheDocument()
+      );
+      // 成功后自动选中新形象。
+      expect((characterSelect as HTMLSelectElement).value).toBe("char-gen-1");
+
+      const generateCall = fetchMock.mock.calls.find(([input]) =>
+        String(input).includes("/api/characters/generate")
+      );
+      expect(generateCall).toBeDefined();
+      const body = JSON.parse(String(generateCall?.[1]?.body)) as Record<string, string>;
+      expect(body).toMatchObject({
+        name: "小知",
+        appearance: "圆框眼镜的蘑菇头角色",
+        style: "简笔画"
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("hides the AI character generation entry when no image models are available", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const payload = url.includes("/api/image-models")
+        ? { models: [] }
+        : { style: "", characterId: null, characters: [], styles: [], generations: [] };
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    }));
+    try {
+      const article = articleFixture({ blocks: [paragraphBlock()] });
+      render(
+        <ImagePlanningPanel article={article} assets={[]} onResult={vi.fn()} />
+      );
+
+      await screen.findByLabelText("参考形象");
+      const characterSelect = screen.getByLabelText("参考形象");
+      expect(within(characterSelect).queryByRole("option", { name: "AI 生成新形象…" })).not.toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("shows the re-analysis entry with a confirm guard when assets already exist", async () => {
     const user = userEvent.setup();
     const article = articleFixture({ blocks: [paragraphBlock()] });

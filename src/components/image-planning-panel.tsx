@@ -136,6 +136,7 @@ const STYLE_NONE = "__none__";
 const STYLE_CUSTOM = "__custom__";
 const CHARACTER_NONE = "__none__";
 const CHARACTER_UPLOAD = "__upload__";
+const CHARACTER_GENERATE = "__generate__";
 
 const stylePresets: Array<{ value: string; label: string }> = [
   { value: "简笔画", label: "简笔画（线条涂鸦）" },
@@ -308,6 +309,14 @@ export function ImagePlanningPanel({
   const [uploadPersona, setUploadPersona] = useState("");
   const [uploading, setUploading] = useState(false);
   const [characterError, setCharacterError] = useState("");
+  // AI 生成参考形象：与上传表单互斥；风格取值与「绘制风格」同一套（预设/风格库/自定义）。
+  const [showGenerateForm, setShowGenerateForm] = useState(false);
+  const [genName, setGenName] = useState("");
+  const [genPersona, setGenPersona] = useState("");
+  const [genAppearance, setGenAppearance] = useState("");
+  const [genStyleOption, setGenStyleOption] = useState(STYLE_NONE);
+  const [genStyleInput, setGenStyleInput] = useState("");
+  const [generatingCharacter, setGeneratingCharacter] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const settingsLoadedRef = useRef(false);
   const selectedCharacter = characters.find((item) => item.id === characterId) ?? null;
@@ -593,8 +602,49 @@ export function ImagePlanningPanel({
     }
   }
 
+  const genStyleText =
+    genStyleOption === STYLE_CUSTOM ? genStyleInput.trim() : genStyleOption === STYLE_NONE ? "" : genStyleOption;
+
+  async function handleGenerateCharacter() {
+    if (!genName.trim()) {
+      setCharacterError("请填写形象名称");
+      return;
+    }
+    setGeneratingCharacter(true);
+    setCharacterError("");
+    try {
+      const response = await fetch("/api/characters/generate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: genName.trim(),
+          persona: genPersona.trim(),
+          appearance: genAppearance.trim(),
+          style: genStyleText,
+          ...(imageModel ? { model: imageModel } : {})
+        })
+      });
+      const data = (await response.json()) as { character?: ReferenceCharacter; error?: string };
+      if (!response.ok || !data.character) {
+        throw new Error(data.error ?? "参考形象生成失败，请稍后重试");
+      }
+      const created = data.character;
+      setCharacters((current) => [...current, created]);
+      setCharacterId(created.id);
+      setShowGenerateForm(false);
+      setGenName("");
+      setGenPersona("");
+      setGenAppearance("");
+    } catch (generateError) {
+      setCharacterError(readableError(generateError, "参考形象生成失败，请稍后重试"));
+    } finally {
+      setGeneratingCharacter(false);
+    }
+  }
+
   function characterSelectValue() {
     if (showUploadForm) return CHARACTER_UPLOAD;
+    if (showGenerateForm) return CHARACTER_GENERATE;
     return characterId && characters.some((item) => item.id === characterId)
       ? characterId
       : CHARACTER_NONE;
@@ -613,10 +663,20 @@ export function ImagePlanningPanel({
   function onCharacterSelectChange(value: string) {
     setCharacterError("");
     if (value === CHARACTER_UPLOAD) {
+      setShowGenerateForm(false);
       setShowUploadForm(true);
       return;
     }
+    if (value === CHARACTER_GENERATE) {
+      // 生成用风格默认带出当前「绘制风格」选择，想换可临时改，不影响配图规划本身的风格。
+      setShowUploadForm(false);
+      setShowGenerateForm(true);
+      setGenStyleOption(styleOption);
+      setGenStyleInput(styleInput);
+      return;
+    }
     setShowUploadForm(false);
+    setShowGenerateForm(false);
     setCharacterId(value === CHARACTER_NONE ? "" : value);
   }
 
@@ -687,6 +747,9 @@ export function ImagePlanningPanel({
             {characters.map((character) => (
               <option key={character.id} value={character.id}>{character.name}</option>
             ))}
+            {imageModels.length > 0 ? (
+              <option value={CHARACTER_GENERATE}>AI 生成新形象…</option>
+            ) : null}
             <option value={CHARACTER_UPLOAD}>上传新形象…</option>
           </select>
         </label>
@@ -757,7 +820,104 @@ export function ImagePlanningPanel({
         </div>
       ) : null}
 
-      {selectedCharacter && !showUploadForm ? (
+      {showGenerateForm ? (
+        <div className="plan-upload-form">
+          <label className="plan-guide-field">
+            <span>形象名称</span>
+            <input
+              aria-label="生成形象名称"
+              value={genName}
+              placeholder="例如：蘑菇老师"
+              maxLength={40}
+              disabled={locked || generatingCharacter}
+              onChange={(event) => setGenName(event.target.value)}
+            />
+          </label>
+          <div className="plan-guide-row">
+            <label className="plan-guide-field">
+              <span>身份设定（可选）</span>
+              <input
+                aria-label="生成形象身份"
+                value={genPersona}
+                placeholder="例如：自媒体科普老师"
+                maxLength={200}
+                disabled={locked || generatingCharacter}
+                onChange={(event) => setGenPersona(event.target.value)}
+              />
+            </label>
+            <label className="plan-guide-field">
+              <span>外观描述（可选，留空由 AI 原创设计）</span>
+              <input
+                aria-label="生成形象外观"
+                value={genAppearance}
+                placeholder="例如：红色蘑菇头、圆框眼镜、绿色背带裤"
+                maxLength={500}
+                disabled={locked || generatingCharacter}
+                onChange={(event) => setGenAppearance(event.target.value)}
+              />
+            </label>
+          </div>
+          <div className="plan-guide-row">
+            <label className="plan-guide-field">
+              <span>生成风格</span>
+              <select
+                aria-label="生成形象风格"
+                value={genStyleOption}
+                disabled={locked || generatingCharacter}
+                onChange={(event) => setGenStyleOption(event.target.value)}
+              >
+                <option value={STYLE_NONE}>不指定（默认日系动漫）</option>
+                {stylePresets.map((preset) => (
+                  <option key={preset.value} value={preset.value}>{preset.label}</option>
+                ))}
+                {libraryStyles.length > 0 ? (
+                  <optgroup label="风格库（提炼导入）">
+                    {libraryStyles.map((style) => (
+                      <option key={style.id} value={libraryStyleValue(style.id)}>
+                        {style.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null}
+                <option value={STYLE_CUSTOM}>自定义…</option>
+              </select>
+            </label>
+            {genStyleOption === STYLE_CUSTOM ? (
+              <label className="plan-guide-field">
+                <span>自定义风格描述</span>
+                <input
+                  aria-label="生成形象自定义风格"
+                  value={genStyleInput}
+                  placeholder="例如：蜡笔手绘风，暖色调"
+                  disabled={locked || generatingCharacter}
+                  onChange={(event) => setGenStyleInput(event.target.value)}
+                />
+              </label>
+            ) : null}
+          </div>
+          <div className="plan-upload-actions">
+            <button
+              className="button button-secondary"
+              type="button"
+              disabled={generatingCharacter}
+              onClick={() => setShowGenerateForm(false)}
+            >
+              取消
+            </button>
+            <button
+              className="button button-primary"
+              type="button"
+              disabled={generatingCharacter || locked || !genName.trim()}
+              onClick={() => void handleGenerateCharacter()}
+            >
+              <Wand2 size={15} aria-hidden="true" />
+              {generatingCharacter ? "生成中（约需几十秒）..." : "生成并保存到形象库"}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {selectedCharacter && !showUploadForm && !showGenerateForm ? (
         <CharacterEditor
           key={selectedCharacter.id}
           character={selectedCharacter}
