@@ -96,6 +96,15 @@ describe("image asset generate route", () => {
     expect(missing.status).toBe(404);
     expect(stale.status).toBe(409);
     expect(failed.status).toBe(502);
+    // 失败响应必须带回服务端已落库的最新文章与资产：前端回灌后重试的令牌才有效。
+    const failedBody = (await failed.json()) as {
+      error: string;
+      article?: { updatedAt: string };
+      assets?: Array<{ id: string; status: string }>;
+    };
+    expect(failedBody.error).toBeTruthy();
+    expect(failedBody.article?.updatedAt).not.toBe(article.updatedAt);
+    expect(failedBody.assets?.find((asset) => asset.id === assetId)?.status).toBe("failed");
     // 失败后资产应停留在 failed 状态（可重试），而不是留在 generating。
     const afterFailure = await images.findById(article.id, assetId);
     expect(afterFailure?.status).toBe("failed");

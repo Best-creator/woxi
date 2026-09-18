@@ -188,7 +188,17 @@ async function imageMutationRequest(
     error?: string;
   };
   if (!response.ok || !result.article || !result.assets) {
-    throw new Error(result.error ?? "配图操作失败，请稍后重试");
+    // 生成失败的服务端也已落库（帧置 failed、文章推进），响应里带着最新状态：
+    // 挂到 Error 上让上层回灌，否则本地令牌落后，下一次写操作必撞 409。
+    const failure = new Error(result.error ?? "配图操作失败，请稍后重试") as Error & {
+      article?: Article;
+      assets?: ImageAsset[];
+    };
+    if (result.article && result.assets) {
+      failure.article = result.article;
+      failure.assets = result.assets;
+    }
+    throw failure;
   }
   return {
     article: result.article,
@@ -549,7 +559,15 @@ export function ArticleWorkspace({
 
   function beginImageOperation(operation: () => Promise<ImageMutationPayload>) {
     imageOperationRevisionRef.current = editRevisionRef.current;
-    return operation();
+    return operation().catch((error: unknown) => {
+      // 生成失败的响应带回服务端已落库的最新文章与资产：先回灌本地再抛错，
+      // 用户点「重试生成」时手里的令牌才是新的，不会陷入 409 死路。
+      const failure = error as { article?: Article; assets?: ImageAsset[] };
+      if (failure?.article && failure?.assets) {
+        applyImageResult({ article: failure.article, assets: failure.assets });
+      }
+      throw error;
+    });
   }
 
   function applyImageResult({ article: nextArticle, assets }: ImageMutationPayload) {

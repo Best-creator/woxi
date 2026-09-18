@@ -142,12 +142,14 @@ describe("SegmentFramesPanel", () => {
     expect(screen.getByRole("button", { name: "重试生成" })).toBeInTheDocument();
   });
 
-  it("generates a single frame with the asset's own version token", async () => {
+  it("generates a single frame with the article-level version token", async () => {
     const props = setup();
 
     await userEvent.click(screen.getByRole("button", { name: "生成" }));
 
-    expect(props.generateImage).toHaveBeenCalledWith("frame-2", "2026-09-18T00:00:00.000Z");
+    // 乐观锁是文章级的：即使帧的 updated_at 与文章不同步（失败/部分批量后必然漂移），
+    // 令牌也必须取 article.updatedAt，否则必撞 409。
+    expect(props.generateImage).toHaveBeenCalledWith("frame-2", articleFixture().updatedAt);
     expect(props.onResult).toHaveBeenCalled();
   });
 
@@ -160,7 +162,7 @@ describe("SegmentFramesPanel", () => {
     expect(screen.getByText("生成中")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /取消并恢复占位/ }));
 
-    expect(props.refreshPlaceholder).toHaveBeenCalledWith("frame-1", "2026-09-18T00:00:00.000Z");
+    expect(props.refreshPlaceholder).toHaveBeenCalledWith("frame-1", articleFixture().updatedAt);
   });
 
   it("batches all pending frames in one request", async () => {
@@ -254,7 +256,7 @@ describe("SegmentFramesPanel 帧版本抽屉", () => {
     await userEvent.click(screen.getByRole("button", { name: "已生成 2 版" }));
     await userEvent.click(screen.getByRole("button", { name: "选用此版" }));
 
-    expect(props.selectGeneration).toHaveBeenCalledWith("frame-1", "gen-1", "2026-09-18T00:00:00.000Z");
+    expect(props.selectGeneration).toHaveBeenCalledWith("frame-1", "gen-1", articleFixture().updatedAt);
     expect(props.onResult).toHaveBeenCalled();
   });
 

@@ -13,7 +13,16 @@ export type GenerateImageAssetResult =
   | { kind: "not_found" }
   | { kind: "conflict" }
   | { kind: "invalid_state"; message: string }
-  | { kind: "generator_error"; message: string };
+  | {
+      kind: "generator_error";
+      message: string;
+      /**
+       * 失败也落库（帧置 failed 并推进文章版本），这里带回落库后的最新状态。
+       * 前端拿到后回灌本地，否则下一次写操作必撞 409（令牌已过期），只能整页刷新。
+       */
+      article?: Article;
+      assets?: ImageAsset[];
+    };
 
 export interface GenerateImageAssetDependencies {
   images: ImageAssetRepository;
@@ -129,6 +138,11 @@ export async function generateImageAsset(
       article.updatedAt
     );
     if (failed.kind !== "saved") return mapMutation(failed);
-    return { kind: "generator_error", message: readableGeneratorError(error) };
+    return {
+      kind: "generator_error",
+      message: readableGeneratorError(error),
+      article: failed.article,
+      assets: failed.assets
+    };
   }
 }

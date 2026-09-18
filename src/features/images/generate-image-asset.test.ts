@@ -168,6 +168,11 @@ describe("generateImageAsset", () => {
     });
 
     expect(result).toMatchObject({ kind: "generator_error" });
+    // 失败也落库过（帧置 failed、文章推进）：结果必须带回落库后的最新状态，
+    // 前端回灌后重试的令牌才有效，否则陷入 409 死路只能整页刷新。
+    if (result.kind !== "generator_error") throw new Error("expected generator_error");
+    expect(result.article?.updatedAt).not.toBe(fixture.expectedUpdatedAt);
+    expect(result.assets?.find((asset) => asset.id === fixture.assetId)?.status).toBe("failed");
     const asset = await fixture.imagesRepo.findById(fixture.articleId, fixture.assetId);
     expect(asset?.status).toBe("failed");
     expect(asset?.publicUrl).toBeNull();

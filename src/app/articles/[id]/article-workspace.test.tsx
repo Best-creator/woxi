@@ -311,8 +311,46 @@ describe("ArticleWorkspace", () => {
     await user.click(generateButtons[0]);
 
     expect(generateImage).toHaveBeenCalledTimes(1);
-    // 乐观并发 token 用该帧资产自己的 updatedAt。
-    expect(generateImage).toHaveBeenCalledWith("article-1", "frame-1", "2026-09-16T00:00:00.000Z");
+    // 乐观锁是文章级的：服务端校验 article.updatedAt；帧资产时间线与文章
+    // 会漂移（生成失败/部分批量后），拿帧的 updatedAt 当令牌必撞 409。
+    expect(generateImage).toHaveBeenCalledWith("article-1", "frame-1", article.updatedAt);
+  });
+
+  it("rehydrates server state carried by a failed frame generation", async () => {
+    const user = userEvent.setup();
+    const article = segmentDraftArticle();
+    // 模拟 generate route 的 502：错误消息 + 服务端已落库的最新文章与资产。
+    const failure = Object.assign(new Error("图片生成失败，请稍后重试"), {
+      article: { ...article, updatedAt: "2026-09-16T00:00:01.000Z" },
+      assets: [
+        frameAsset("frame-1", "failed"),
+        frameAsset("frame-2a", "placeholder"),
+        frameAsset("frame-2b", "placeholder"),
+        frameAsset("frame-3", "placeholder")
+      ]
+    });
+    render(
+      <ArticleWorkspace
+        initialArticle={article}
+        initialImageAssets={[
+          frameAsset("frame-1", "placeholder"),
+          frameAsset("frame-2a", "placeholder"),
+          frameAsset("frame-2b", "placeholder"),
+          frameAsset("frame-3", "placeholder")
+        ]}
+        initialStep="images"
+        imageGenerationEnabled
+        generateImage={vi.fn(async () => {
+          throw failure;
+        })}
+      />
+    );
+
+    await user.click(screen.getAllByRole("button", { name: "生成" })[0]);
+
+    // 错误照常提示；失败响应带回的服务端状态已回灌：帧从「待生成」变「生成失败」。
+    expect(await screen.findByText(/图片生成失败/)).toBeVisible();
+    expect(screen.getByText("生成失败")).toBeVisible();
   });
 
   it("分镜文章第四步一键批量生成全部待生成帧", async () => {

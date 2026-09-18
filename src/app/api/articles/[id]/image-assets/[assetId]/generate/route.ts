@@ -33,7 +33,17 @@ function generationResponse(result: Awaited<ReturnType<typeof generateImageAsset
   if (result.kind === "invalid_state") {
     return Response.json({ error: result.message }, { status: 400 });
   }
-  return Response.json({ error: result.message }, { status: 502 });
+  // 生成失败也落库过（帧置 failed、文章推进）：把最新状态随错误一起回传，
+  // 前端回灌后下一次重试的乐观锁令牌才是有效的，否则必撞 409。
+  return Response.json(
+    {
+      error: result.message,
+      ...(result.article && result.assets
+        ? { article: result.article, assets: result.assets }
+        : {})
+    },
+    { status: 502 }
+  );
 }
 
 export function createImageAssetGenerateRouteHandler(

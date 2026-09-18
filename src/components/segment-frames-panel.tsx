@@ -133,7 +133,10 @@ export function SegmentFramesPanel({
     setBusyAssetId(assetId);
     setError("");
     try {
-      onResult(await action(asset.updatedAt));
+      // 乐观锁是文章级的：服务端校验 article.updatedAt。帧的 updated_at 有自己的
+      // 时间线（生成成功/失败只推进被写的帧），与文章令牌会差几毫秒——拿它当令牌
+      // 必撞 409「文章已在其他位置更新」。旧版规划面板一直传的就是文章令牌。
+      onResult(await action(article.updatedAt));
       await refreshGenerations();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "操作失败，请稍后重试");
