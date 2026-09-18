@@ -58,6 +58,12 @@ describe("plain explainer preset", () => {
     expect(plain.explanationStyle).toContain("术语第一次出现必须用大白话定义");
     expect(plain.sentenceStyle).toContain("禁止术语先行");
     expect(plain.avoid).toContain("术语先行");
+
+    // 「每讲完一个概念都落一句模板句」的机械指令已废除：生活迁移必须有纪律，
+    // 找不到贴切场景宁可不迁移，不许硬凑（用户实测它只会产出牵强鸡汤）。
+    expect(plain.explanationStyle).not.toContain("每讲完一个概念");
+    expect(plain.explanationStyle).toContain("宁可不迁移也不硬凑");
+    expect(plain.avoid).toContain("强行联系生活");
   });
 
   it("keeps the anime feel at the prose level, not as storyboard structure", () => {
