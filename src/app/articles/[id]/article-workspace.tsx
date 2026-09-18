@@ -4,6 +4,7 @@ import { Eye, Save, Send, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BlockEditor } from "@/components/block-editor";
 import { ComicStripControl } from "@/components/comic-strip-control";
+import { CoverPanel } from "@/components/cover-panel";
 import { GenerationPanel } from "@/components/generation-panel";
 import type { ImageMutationPayload } from "@/components/image-planning-panel";
 import { KnowledgeBriefEditor } from "@/components/knowledge-brief-editor";
@@ -14,7 +15,7 @@ import { WechatPreview } from "@/components/wechat-preview";
 import { WorkflowStepper } from "@/components/workflow-stepper";
 import type { Article, ContentBlock } from "@/features/articles/domain";
 import type { SaveArticleResult } from "@/features/articles/repository";
-import type { ImageAsset } from "@/features/images/domain";
+import type { ImageAspectRatio, ImageAsset } from "@/features/images/domain";
 import type { ImageAssetPatch } from "@/features/images/repository";
 import type { ImagePlanGuideOptions } from "@/components/image-planning-panel";
 import type { ContentRevisionSnapshot, ArticleRevision, OutlineRevisionSnapshot } from "@/features/revisions/domain";
@@ -90,7 +91,14 @@ type RemoveComicStrip = (
 type ComposeSegmentStrips = (
   articleId: string,
   expectedUpdatedAt: string,
-  fontId?: string
+  fontId?: string,
+  textScaleId?: string
+) => Promise<ImageMutationPayload>;
+
+type EnsureCover = (
+  articleId: string,
+  expectedUpdatedAt: string,
+  input?: { prompt?: string; aspectRatio?: ImageAspectRatio }
 ) => Promise<ImageMutationPayload>;
 
 async function publishWechatRequest(
@@ -127,8 +135,10 @@ export interface ArticleWorkspaceProps {
   composeComicStrip?: ComposeComicStrip;
   /** 取消长图，正文回到原来的分镜图文。 */
   removeComicStrip?: RemoveComicStrip;
-  /** 分段拼接：第三步分镜设计的每段各拼一张段图（fontId 随请求持久化）。 */
+  /** 分段拼接：第三步分镜设计的每段各拼一张段图（fontId/textScaleId 随请求持久化）。 */
   composeSegmentStrips?: ComposeSegmentStrips;
+  /** 建封面槽位（幂等）：分镜文章第四步的封面配置入口。 */
+  ensureCover?: EnsureCover;
   /** 服务端配置了图片生成能力时为 true，控制生成入口显隐。 */
   imageGenerationEnabled?: boolean;
   /** 服务端配置了公众号凭据时为 true，控制「推送到草稿箱」入口显隐。 */
@@ -316,12 +326,26 @@ function removeComicStripRequest(articleId: string, expectedUpdatedAt: string) {
 function composeSegmentStripsRequest(
   articleId: string,
   expectedUpdatedAt: string,
-  fontId?: string
+  fontId?: string,
+  textScaleId?: string
 ) {
-  // 字体可选：传了就由后端在校验全过之后持久化进 planning.storyboardFontId。
+  // 字体与文字大小都可选：传了就由后端在校验全过之后一并持久化进 planning。
   return imageMutationRequest(`/api/articles/${articleId}/segment-strips`, "POST", {
     expectedUpdatedAt,
-    ...(fontId ? { fontId } : {})
+    ...(fontId ? { fontId } : {}),
+    ...(textScaleId ? { textScaleId } : {})
+  });
+}
+
+function ensureCoverRequest(
+  articleId: string,
+  expectedUpdatedAt: string,
+  input?: { prompt?: string; aspectRatio?: ImageAspectRatio }
+) {
+  return imageMutationRequest(`/api/articles/${articleId}/cover`, "POST", {
+    expectedUpdatedAt,
+    ...(input?.prompt ? { prompt: input.prompt } : {}),
+    ...(input?.aspectRatio ? { aspectRatio: input.aspectRatio } : {})
   });
 }
 
@@ -341,6 +365,7 @@ export function ArticleWorkspace({
   composeComicStrip = composeComicStripRequest,
   removeComicStrip = removeComicStripRequest,
   composeSegmentStrips = composeSegmentStripsRequest,
+  ensureCover = ensureCoverRequest,
   imageGenerationEnabled = false,
   wechatPublishEnabled = false,
   autosaveDelayMs = 2_000,
@@ -568,6 +593,30 @@ export function ArticleWorkspace({
       }
       throw error;
     });
+  }
+
+  /**
+   * 「创建并生成 / 重新生成封面图」：幂等建槽位 + 出图两步串成一次操作。
+   *
+   * 两步必须串在同一个操作里（只能调一次 applyImageResult）：
+   * - 第二枪要用**服务端刚返回的版本号**，不能沿用本地的——建槽位会推进 updatedAt，
+   *   本地令牌不变的话第二枪必撞 409；
+   * - applyImageResult 带「操作期间有没有新编辑」的守卫，调两次第二次会被守卫挡掉，
+   *   界面反而提示「文章已发生新编辑」。所以这里只把最终结果交回给调用方去 apply。
+   */
+  async function generateCoverOperation(input: {
+    prompt: string;
+    aspectRatio: ImageAspectRatio;
+    model?: string;
+  }): Promise<ImageMutationPayload> {
+    const articleId = articleRef.current.id;
+    const ensured = await ensureCover(articleId, articleRef.current.updatedAt, {
+      ...(input.prompt ? { prompt: input.prompt } : {}),
+      aspectRatio: input.aspectRatio
+    });
+    const cover = ensured.assets.find((asset) => asset.type === "cover");
+    if (!cover) throw new Error("封面槽位创建失败，请重试");
+    return generateImage(articleId, cover.id, ensured.article.updatedAt, input.model);
   }
 
   function applyImageResult({ article: nextArticle, assets }: ImageMutationPayload) {
@@ -812,15 +861,58 @@ export function ArticleWorkspace({
                   readOnly={isNarrowViewport}
                   disabled={isDirty || autosaveBlocked || saveState === "saving"}
                   onResult={applyImageResult}
-                  composeSegmentStrips={(expectedUpdatedAt, fontId) =>
+                  composeSegmentStrips={(expectedUpdatedAt, fontId, textScaleId) =>
                     beginImageOperation(() =>
-                      composeSegmentStrips(articleRef.current.id, expectedUpdatedAt, fontId)
+                      composeSegmentStrips(
+                        articleRef.current.id,
+                        expectedUpdatedAt,
+                        fontId,
+                        textScaleId
+                      )
                     )
                   }
                   removeSegmentStrips={(expectedUpdatedAt) =>
                     beginImageOperation(() =>
                       removeComicStrip(articleRef.current.id, expectedUpdatedAt)
                     )
+                  }
+                />
+                {/* 封面是公众号草稿的头图，也是推送的硬门槛；分镜文章不会从视觉规划器
+                    拿到封面（第四步锁定规划），所以在这里单独给一个配置入口。 */}
+                <CoverPanel
+                  article={article}
+                  assets={imageAssets}
+                  readOnly={isNarrowViewport}
+                  disabled={isDirty || autosaveBlocked || saveState === "saving"}
+                  onResult={applyImageResult}
+                  imageGenerationEnabled={imageGenerationEnabled}
+                  generateCover={
+                    imageGenerationEnabled
+                      ? (input) => beginImageOperation(() => generateCoverOperation(input))
+                      : undefined
+                  }
+                  ensureCover={(expectedUpdatedAt, input) =>
+                    beginImageOperation(() =>
+                      ensureCover(articleRef.current.id, expectedUpdatedAt, input)
+                    )
+                  }
+                  updateAsset={(assetId, input) =>
+                    beginImageOperation(() =>
+                      updateImageAsset(articleRef.current.id, assetId, input)
+                    )
+                  }
+                  selectGeneration={
+                    selectImageGeneration
+                      ? (assetId, generationId, expectedUpdatedAt) =>
+                          beginImageOperation(() =>
+                            selectImageGeneration(
+                              articleRef.current.id,
+                              assetId,
+                              generationId,
+                              expectedUpdatedAt
+                            )
+                          )
+                      : undefined
                   }
                 />
               </>

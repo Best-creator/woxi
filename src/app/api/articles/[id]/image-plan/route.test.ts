@@ -157,6 +157,7 @@ describe("image plan route", () => {
         message: "配图分析失败，请稍后重试"
       }),
       update: images.update.bind(images),
+      ensureCover: images.ensureCover.bind(images),
       remove: images.remove.bind(images),
       refreshPlaceholder: images.refreshPlaceholder.bind(images),
       beginGeneration: images.beginGeneration.bind(images),

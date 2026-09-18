@@ -17,7 +17,10 @@ const requestSchema = z.object({
   expectedUpdatedAt: z.iso.datetime(),
   // 可选：本次拼接使用的字体 id（images 域 STORYBOARD_FONT_OPTIONS），传入即持久化进
   // planning；缺省沿用已存选择，从未选过则回落默认黑体。
-  fontId: z.string().trim().min(1).max(64).optional()
+  fontId: z.string().trim().min(1).max(64).optional(),
+  // 可选：文字大小档位 id（images 域 STORYBOARD_TEXT_SCALE_OPTIONS），同上；
+  // 段图在公众号里恒为 100% 宽，字号烘进图就是最终观感，所以这一档决定好不好读。
+  textScaleId: z.string().trim().min(1).max(64).optional()
 });
 
 function notFound() {
@@ -49,7 +52,8 @@ export function createSegmentStripsComposeHandler(
       {
         articleId: id,
         expectedUpdatedAt: input.data.expectedUpdatedAt,
-        fontId: input.data.fontId ?? null
+        fontId: input.data.fontId ?? null,
+        textScaleId: input.data.textScaleId ?? null
       },
       { articles, images }
     );

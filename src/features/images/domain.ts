@@ -75,6 +75,18 @@ export interface ConsumedContent {
   resumeBeforeBlockId: string | null;
 }
 
+/**
+ * 封面提示词的兜底草稿。
+ *
+ * 封面是公众号草稿的头图，是唯一一张「文章级」配图——没有它发布门直接拒推。
+ * 作者没写提示词时用它兜底，避免把空提示词送进生图模型；界面上会把它填进
+ * 输入框让作者接着改。放 domain 是为了让服务端与界面共用同一份措辞。
+ */
+export function defaultCoverPrompt(article: { title: string; topic: string }): string {
+  const topic = article.topic?.trim() || article.title;
+  return `微信公众号封面图：${article.title}。围绕主题「${topic}」，主体清晰、有视觉冲击力，适合作为文章头图，不要出现文字水印。`;
+}
+
 export interface ImageAsset extends ImagePlanSuggestion {
   id: string;
   articleId: string;
@@ -177,6 +189,44 @@ export function resolveStoryboardFont(fontId?: string | null): StoryboardFontOpt
   return (
     STORYBOARD_FONT_OPTIONS.find((option) => option.id === normalized) ??
     (STORYBOARD_FONT_OPTIONS[0] as StoryboardFontOption)
+  );
+}
+
+/**
+ * 段图文字大小的档位。
+ *
+ * 段图在公众号里恒为 100% 宽显示，手机上约 340-400px，也就是 1080 的画布整体缩到
+ * 约 0.32 倍——「字够不够大」完全由烘进图里的字号决定，界面上的任何缩放都帮不上忙。
+ * 基准值（`DEFAULT_COMIC_STRIP_METRICS`）已按 0.32 倍反推到与微信正文同量级（约 17px），
+ * 这三档是给作者按自己的读者和设备微调用的：`scale` 只作用于文字带（字号/行高/内边距），
+ * 画布宽度与分镜图尺寸不动。
+ */
+export interface StoryboardTextScaleOption {
+  id: string;
+  label: string;
+  /** 文字度量的缩放系数；1 = 基准档。 */
+  scale: number;
+  /** 界面上的一句话说明：手机上大概多少 px，好让作者不必靠猜。 */
+  hint: string;
+}
+
+export const DEFAULT_STORYBOARD_TEXT_SCALE_ID = "standard";
+
+/** 手机正文宽约 0.32 倍缩放下的实际观感：52 × 0.32 ≈ 17px（≈ 微信正文字号）。 */
+export const STORYBOARD_TEXT_SCALE_OPTIONS: readonly StoryboardTextScaleOption[] = [
+  { id: "compact", label: "紧凑", scale: 0.85, hint: "手机上约 14px，段更短" },
+  { id: "standard", label: "标准", scale: 1, hint: "手机上约 17px，与微信正文同大" },
+  { id: "large", label: "特大", scale: 1.2, hint: "手机上约 20px，最好读，段最长" }
+];
+
+/** 解析文字大小档位：空值/未知 id 一律回落标准档，拼接不因一个档位 id 卡住。 */
+export function resolveStoryboardTextScale(
+  textScaleId?: string | null
+): StoryboardTextScaleOption {
+  const normalized = textScaleId?.trim() ?? "";
+  return (
+    STORYBOARD_TEXT_SCALE_OPTIONS.find((option) => option.id === normalized) ??
+    (STORYBOARD_TEXT_SCALE_OPTIONS[1] as StoryboardTextScaleOption)
   );
 }
 

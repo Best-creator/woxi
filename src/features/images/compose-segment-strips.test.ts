@@ -8,12 +8,15 @@ import { describe, expect, it } from "vitest";
 import type { ContentBlock } from "@/features/articles/domain";
 import { SqliteArticleRepository } from "@/features/articles/sqlite-repository";
 import { createTestDatabase } from "../../../tests/helpers/test-db";
-import { DEFAULT_COMIC_STRIP_METRICS } from "./comic-strip";
+import { DEFAULT_COMIC_STRIP_METRICS, scaleStripTextMetrics } from "./comic-strip";
 import { composeSegmentStrips, stripTextBandsOf } from "./compose-segment-strips";
 import {
   DEFAULT_STORYBOARD_FONT_ID,
+  DEFAULT_STORYBOARD_TEXT_SCALE_ID,
   STORYBOARD_FONT_OPTIONS,
-  resolveStoryboardFont
+  STORYBOARD_TEXT_SCALE_OPTIONS,
+  resolveStoryboardFont,
+  resolveStoryboardTextScale
 } from "./domain";
 import { generateImageAsset } from "./generate-image-asset";
 import type { ImageGenerator } from "./image-generator";
@@ -240,6 +243,40 @@ describe("composeSegmentStrips", () => {
     expect(again.fontFamily).toBe(resolveStoryboardFont("kaiti").fontFamily);
   });
 
+  it("bakes the chosen text size and persists the choice for recomposition", async () => {
+    const fixture = await storyboardFixture();
+    const result = await composeSegmentStrips(
+      {
+        articleId: fixture.articleId,
+        expectedUpdatedAt: fixture.expectedUpdatedAt,
+        textScaleId: "large"
+      },
+      { articles: fixture.articles, images: fixture.images, storageDir: fixture.storageDir }
+    );
+    if (result.kind !== "composed") throw new Error(`expected composed, got ${JSON.stringify(result)}`);
+
+    const persisted = await fixture.articles.findById(fixture.articleId);
+    expect(persisted?.planning.storyboardTextScaleId).toBe("large");
+
+    // 字号只放大文字带，画布宽度不动：图上字更大 = 段图更高，而不是图更宽。
+    const baseline = await storyboardFixture();
+    const standard = await composeSegmentStrips(
+      { articleId: baseline.articleId, expectedUpdatedAt: baseline.expectedUpdatedAt },
+      { articles: baseline.articles, images: baseline.images, storageDir: baseline.storageDir }
+    );
+    if (standard.kind !== "composed") throw new Error("baseline compose should pass");
+    expect(result.strips[0]!.width).toBe(standard.strips[0]!.width);
+    expect(result.strips[0]!.height).toBeGreaterThan(standard.strips[0]!.height);
+
+    // 再拼一次不带 textScaleId：沿用已存选择，不回落默认档。
+    const again = await composeSegmentStrips(
+      { articleId: fixture.articleId, expectedUpdatedAt: result.article.updatedAt },
+      { articles: fixture.articles, images: fixture.images, storageDir: fixture.storageDir }
+    );
+    if (again.kind !== "composed") throw new Error("recompose should pass");
+    expect(again.strips[0]!.height).toBe(result.strips[0]!.height);
+  });
+
   it("replaces previous strips on recomposition instead of stacking a second set", async () => {
     const fixture = await storyboardFixture();
     const first = await composeSegmentStrips(
@@ -435,5 +472,30 @@ describe("resolveStoryboardFont", () => {
     expect(resolveStoryboardFont(null)).toBe(STORYBOARD_FONT_OPTIONS[0]);
     expect(resolveStoryboardFont("  ")).toBe(STORYBOARD_FONT_OPTIONS[0]);
     expect(resolveStoryboardFont("kaiti").label).toBe("楷体");
+  });
+});
+
+describe("resolveStoryboardTextScale", () => {
+  it("falls back to the standard tier for unknown or blank ids", () => {
+    const standard = resolveStoryboardTextScale(DEFAULT_STORYBOARD_TEXT_SCALE_ID);
+    expect(resolveStoryboardTextScale("nope")).toBe(standard);
+    expect(resolveStoryboardTextScale(null)).toBe(standard);
+    expect(resolveStoryboardTextScale("  ")).toBe(standard);
+    expect(resolveStoryboardTextScale("large").scale).toBeGreaterThan(standard.scale);
+    expect(resolveStoryboardTextScale("compact").scale).toBeLessThan(standard.scale);
+  });
+
+  it("keeps every tier readable once the strip is shrunk to a phone", () => {
+    // 段图画布 1080px，公众号正文区约 345px ⇒ 显示缩放 ≈0.32。字号烘进图里就没救了，
+    // 所以基准字号必须让最紧凑的档也落在能读的区间，标准档贴住微信正文的 17px。
+    const phoneScale = 345 / DEFAULT_COMIC_STRIP_METRICS.width;
+    const bodyPx = (scale: number) =>
+      scaleStripTextMetrics(DEFAULT_COMIC_STRIP_METRICS, scale).bodySize * phoneScale;
+
+    for (const option of STORYBOARD_TEXT_SCALE_OPTIONS) {
+      expect(bodyPx(option.scale)).toBeGreaterThanOrEqual(13);
+    }
+    expect(bodyPx(1)).toBeGreaterThanOrEqual(16);
+    expect(bodyPx(resolveStoryboardTextScale("large").scale)).toBeGreaterThan(bodyPx(1));
   });
 });

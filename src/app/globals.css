@@ -1392,6 +1392,31 @@ h2 {
   white-space: nowrap;
 }
 
+/* 段图块：分段拼接产物的真实高宽比（约 0.47）远比任何枚举值窄，按枚举框死再
+   object-fit: cover 会把下半截裁掉。这里不设宽高比、contain 显示，并收到手机宽度，
+   让编辑器里看到的就是读者在公众号里那一屏；文案已烘进图里，故不叠图注。 */
+.editor-image-block-strip {
+  display: flex;
+  justify-content: center;
+}
+
+.editor-image-block-strip > img {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  display: block;
+  height: auto;
+  max-width: min(100%, 420px);
+  object-fit: contain;
+  width: auto;
+}
+
+.editor-image-block-strip .image-placeholder {
+  height: 220px;
+  max-width: min(100%, 420px);
+  width: 100%;
+}
+
 .generation-button {
   width: 100%;
 }
@@ -2634,14 +2659,15 @@ h2 {
   }
 }
 
-/* 分段拼接（第四步）：与漫画长图入口同族，横跨配图面板整行。 */
+/* 分段拼接（第四步）：左控制栏 + 右分段清单，横跨配图面板整行。
+   清单让「哪段拼好了、哪段还差」一眼可见——拼接前是待办列表，拼接后就是段图预览。 */
 .segment-strips-control {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-card);
   display: grid;
-  gap: 10px;
+  gap: 12px;
   padding: 14px 16px;
 }
 
@@ -2649,29 +2675,576 @@ h2 {
   grid-column: 1 / -1;
 }
 
+.segment-strips-head {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.segment-strips-icon {
+  align-items: center;
+  background: var(--surface-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--primary);
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 30px;
+  justify-content: center;
+  width: 30px;
+}
+
+.segment-strips-heading {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.segment-strips-heading strong {
+  color: var(--text);
+  display: block;
+  font-size: 14px;
+}
+
+.segment-strips-heading p {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 1px 0 0;
+}
+
+/* 状态徽章：整篇走到哪一步（可以拼接 / 待补帧 / 已拼接）一眼可见。 */
+.segment-strips-badge {
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 650;
+  gap: 4px;
+  padding: 3px 10px;
+}
+
+.segment-strips-badge-empty {
+  background: var(--surface-subtle);
+  color: var(--muted);
+}
+
+.segment-strips-badge-warn {
+  background: #fff8e6;
+  border-color: #f0d79a;
+  color: #7a5312;
+}
+
+.segment-strips-badge-ready {
+  background: #eaf5ef;
+  border-color: #bfdccb;
+  color: var(--primary);
+}
+
+.segment-strips-badge-done {
+  background: var(--primary);
+  color: #ffffff;
+}
+
+.segment-strips-body {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* 有分段清单时两栏：控制栏窄、清单吃满剩余宽度（面板本就横跨整行，右侧不再空着）。 */
+@media (min-width: 900px) {
+  .segment-strips-body.has-manifest {
+    grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+  }
+}
+
+.segment-strips-controls {
+  align-content: start;
+  display: grid;
+  gap: 12px;
+}
+
 .segment-font-field {
   align-items: center;
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
 .segment-font-field label {
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
+  font-weight: 650;
 }
 
 .segment-font-field select {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
+  color: var(--text);
   font: inherit;
-  padding: 4px 8px;
+  padding: 6px 8px;
+}
+
+/* 字体烘进图里就是像素，选之前得先看见它长什么样。 */
+.segment-font-sample {
+  background: var(--surface-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  flex: 1 1 100%;
+  font-size: 13px;
+  padding: 7px 10px;
+}
+
+/* 文字大小的说明给的是手机上的实际观感，弱化处理避免和字体样张抢注意力。 */
+.segment-scale-sample {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.segment-strips-progress {
+  display: grid;
+  gap: 7px;
+}
+
+.segment-strips-progress-track {
+  background: var(--surface-subtle);
+  border-radius: 999px;
+  height: 4px;
+  overflow: hidden;
+}
+
+.segment-strips-progress-track span {
+  background: var(--primary);
+  display: block;
+  height: 100%;
+  transition: width 0.25s ease;
+}
+
+/* 取消段图是破坏性操作（撤掉全部段图并把正文放回去），别和主按钮同款。 */
+.segment-strips-cancel {
+  background: transparent;
+  border-color: transparent;
+  color: #8d351d;
+}
+
+.segment-strips-cancel:hover {
+  background: #fff4ed;
+  border-color: #f4c7a8;
 }
 
 .segment-strips-summary {
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 650;
+  margin: 0;
+}
+
+/* 分段清单：左侧段属性，右侧段图缩略图（未拼时是状态标签）。 */
+.segment-strips-manifest {
+  background: var(--surface-subtle);
+  border-radius: var(--radius-sm);
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.segment-strips-manifest-head {
+  align-items: baseline;
   color: var(--text);
+  display: flex;
+  font-size: 12px;
+  font-weight: 650;
+  justify-content: space-between;
+  margin: 0;
+}
+
+.segment-strips-manifest-count {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.segment-strips-manifest-list {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 0;
+}
+
+.segment-strips-manifest-row {
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  display: flex;
+  gap: 10px;
+  padding: 8px 10px;
+}
+
+.segment-strips-index {
+  color: var(--muted);
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.segment-strips-manifest-info {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 2px;
+  min-width: 0;
+}
+
+.segment-strips-manifest-title {
+  align-items: baseline;
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.segment-strips-manifest-title strong {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.segment-strips-route {
+  color: var(--muted);
+  flex: 0 0 auto;
+  font-size: 11px;
+}
+
+.segment-strips-manifest-meta {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.segment-strips-state {
+  flex: 0 0 auto;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.segment-strips-state-ready {
+  color: var(--primary);
+}
+
+.segment-strips-state-pending {
+  color: var(--accent);
+}
+
+.segment-strips-thumb {
+  flex: 0 0 auto;
+  margin: 0;
+  text-align: right;
+}
+
+/* 段图动辄上千像素高：缩略图固定框裁顶部，别让清单被撑爆。 */
+.segment-strips-thumb img {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  display: block;
+  height: 60px;
+  object-fit: cover;
+  object-position: top;
+  width: 46px;
+}
+
+.segment-strips-thumb figcaption {
+  color: var(--muted);
+  font-size: 10px;
+  margin-top: 3px;
+  white-space: nowrap;
+}
+
+/* 封面图配置（第四步，分镜文章）：左预览右配置，窄屏堆叠。 */
+.cover-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.workflow-images-panel > .cover-panel {
+  grid-column: 1 / -1;
+}
+
+.cover-panel-head {
+  align-items: flex-start;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.cover-panel-title {
+  align-items: flex-start;
+  display: flex;
+  gap: 9px;
+  min-width: 0;
+}
+
+.cover-panel-icon {
+  align-items: center;
+  background: var(--primary);
+  border-radius: 8px;
+  color: #ffffff;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 26px;
+  justify-content: center;
+  width: 26px;
+}
+
+.cover-panel-heading,
+.cover-panel-title h2 {
+  font-size: 15px;
+  line-height: 1.3;
+  margin: 0;
+}
+
+.cover-panel-sub {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 2px 0 0;
+}
+
+.cover-panel-sub strong {
+  color: var(--text);
+  font-weight: 650;
+}
+
+.cover-panel-badge {
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 650;
+  padding: 3px 10px;
+}
+
+.cover-panel-badge-missing,
+.cover-panel-badge-planned,
+.cover-panel-badge-disabled {
+  background: var(--surface-subtle);
+  color: var(--muted);
+}
+
+.cover-panel-badge-placeholder,
+.cover-panel-badge-failed {
+  background: #fff8e6;
+  border-color: #f0d79a;
+  color: #7a5312;
+}
+
+.cover-panel-badge-generating {
+  background: #eaf5ef;
+  border-color: #bfdccb;
+  color: var(--primary);
+}
+
+.cover-panel-badge-generated {
+  background: var(--primary);
+  color: #ffffff;
+}
+
+.cover-panel-body {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 900px) {
+  .cover-panel-body {
+    align-items: start;
+    grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+  }
+}
+
+.cover-panel-preview {
+  position: relative;
+}
+
+/* 封面 2.35:1 很扁：宽度铺满左侧栏，高度按比例，不裁不拉伸。 */
+.cover-panel-image {
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  display: block;
+  height: auto;
+  width: 100%;
+}
+
+.cover-panel-empty {
+  align-items: center;
+  background: var(--surface-subtle);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  display: flex;
+  font-size: 12px;
+  justify-content: center;
+  min-height: 84px;
+  width: 100%;
+}
+
+.cover-panel-generating {
+  align-items: center;
+  background: rgba(0, 0, 0, 0.62);
+  border-radius: var(--radius-sm);
+  bottom: 8px;
+  color: #ffffff;
+  display: inline-flex;
+  font-size: 11px;
+  gap: 4px;
+  left: 8px;
+  padding: 3px 9px;
+  position: absolute;
+}
+
+.cover-panel-fields {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.cover-panel-field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.cover-panel-field > span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.cover-panel-field textarea,
+.cover-panel-field select {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.55;
+  padding: 7px 9px;
+  resize: vertical;
+  width: 100%;
+}
+
+.cover-panel-field textarea:disabled,
+.cover-panel-field select:disabled {
+  background: var(--surface-subtle);
+  color: var(--muted);
+}
+
+.cover-panel-row {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 620px) {
+  .cover-panel-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.cover-panel-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cover-panel-busy {
+  align-items: center;
+  color: var(--muted);
+  display: inline-flex;
+  font-size: 12px;
+  gap: 4px;
+}
+
+.cover-panel-hint {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.cover-panel-error {
+  background: #fdeceb;
+  border: 1px solid #f3c4c0;
+  border-radius: var(--radius-sm);
+  color: #8c2f27;
   font-size: 12px;
   margin: 0;
+  padding: 6px 9px;
+}
+
+.cover-panel-library {
+  border-top: 1px dashed var(--border);
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+}
+
+.cover-panel-library-hint,
+.cover-panel-library-state {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.cover-panel-library-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.cover-panel-library-thumb {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: block;
+  overflow: hidden;
+  padding: 0;
+  width: 100%;
+}
+
+/* 素材库缩略图统一按封面比例裁顶部，避免一行里高度参差。 */
+.cover-panel-library-thumb img {
+  aspect-ratio: 2.35 / 1;
+  display: block;
+  object-fit: cover;
+  object-position: top;
+  width: 100%;
+}
+
+.cover-panel-library-thumb.is-current {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary);
+}
+
+.cover-panel-library-thumb:disabled {
+  cursor: default;
+  opacity: 0.55;
 }
 
 /* 分镜帧面板（第四步）：按段分组的帧卡片 + 轻量版本抽屉。 */

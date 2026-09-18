@@ -39,6 +39,12 @@ export interface ArticlePlanning {
    * 文案烘进段图后字体就是像素，成稿观感由这里决定；空值/未知 id 在拼接时回落默认字体。
    */
   storyboardFontId?: string | null;
+  /**
+   * 分段拼接的文字大小档位（images 域 STORYBOARD_TEXT_SCALE_OPTIONS 里的 id）。
+   * 段图在公众号里恒为 100% 宽显示，字号烘进图就是最终观感——手机上 1080 的画布
+   * 缩到约 0.32 倍，所以「字够不够大」只能靠这里调。空值/未知 id 回落标准档。
+   */
+  storyboardTextScaleId?: string | null;
 }
 
 /**

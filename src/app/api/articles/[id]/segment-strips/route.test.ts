@@ -54,4 +54,24 @@ describe("segment strips route", () => {
       expect(payload.error).toContain("分镜设计");
     }
   });
+
+  it("rejects a blank text size token before reading the article", async () => {
+    // textScaleId 与 fontId 同规格（1..64），空白串必须在校验层被挡掉，
+    // 不能落进 planning 变成「选了但选了个空的」。
+    const db = createTestDatabase();
+    const articles = new SqliteArticleRepository(db);
+    const images = new SqliteImageAssetRepository(db);
+    const created = await articles.create({ topic: "护眼" });
+    const POST = createSegmentStripsComposeHandler(articles, images);
+
+    const blank = await POST(
+      requestJson(`http://test/api/articles/${created.id}/segment-strips`, {
+        expectedUpdatedAt: created.updatedAt,
+        textScaleId: "   "
+      }),
+      context(created.id)
+    );
+
+    expect(blank.status).toBe(400);
+  });
 });

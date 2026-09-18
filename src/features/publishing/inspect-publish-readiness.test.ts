@@ -170,6 +170,45 @@ describe("inspectPublishReadiness", () => {
     ]);
   });
 
+  it("封面图块不算残留：它是草稿头图，段图流正文里本就不渲染它", () => {
+    // 回归用例：封面资产在正文里也有一个 image 块（mergeImageBlocks 把它放在最前）。
+    // 段图流渲染只认段图 URL，会把这个块丢掉；发布门要是把它当「残留块」，
+    // 每一篇有封面的分镜文章推送时都得先勾一次「强制重新推送」。
+    const article = articleFixture({
+      blocks: [
+        {
+          id: "block-cover",
+          type: "image",
+          content: "/api/image-assets/cover-1/content",
+          altText: "封面",
+          order: 0,
+          version: 1
+        },
+        stripImageBlock("strip-1", 1)
+      ],
+      planning: {
+        ...articleFixture().planning,
+        storyboardSegments: [segment("seg-1", "换挡", 0, ["c-1p"])]
+      }
+    });
+    const assets = [
+      stripAsset("strip-1", [copyBlock("c-1p", "seg-1", "血糖塌下去了。", 0)]),
+      {
+        ...stripAsset("cover-1", []),
+        type: "cover",
+        aspectRatio: "cover",
+        consumedContent: null,
+        anchorBlockId: null
+      } as ImageAsset
+    ];
+
+    const readiness = inspectPublishReadiness(article, assets);
+
+    expect(readiness.mode).toBe("strip_flow");
+    expect(readiness.missingStrips).toEqual([]);
+    expect(readiness.residualBlocks).toEqual([]);
+  });
+
   it("摘要清掉空白并截到 50 字", () => {
     const longCopy = `${"字".repeat(30)}。\n${"词".repeat(40)}。`;
     const article = articleFixture({

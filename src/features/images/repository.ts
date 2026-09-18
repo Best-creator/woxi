@@ -70,6 +70,26 @@ export interface ImageAssetPatch {
   enabled?: boolean;
 }
 
+/**
+ * 建封面槽位的输入。只在**还没有封面**时生效——已有封面时改提示词走 update，
+ * 免得「确保存在」这种幂等操作悄悄覆盖作者写好的提示词。
+ */
+export interface EnsureCoverInput {
+  prompt?: string;
+  altText?: string;
+  aspectRatio?: ImageAspectRatio;
+  purpose?: string;
+}
+
+/**
+ * 封面槽位的幂等结果：`created` 区分「这次新建了」与「本来就有」，
+ * 界面据此决定提示语（新建后要接着触发生成，已有则只提示可重新生成）。
+ */
+export type EnsureCoverResult =
+  | { kind: "ready"; article: Article; assets: ImageAsset[]; asset: ImageAsset; created: boolean }
+  | { kind: "not_found" }
+  | { kind: "conflict" };
+
 export interface CompleteGenerationInput {
   publicUrl: string | null;
   filePath: string | null;
@@ -118,6 +138,25 @@ export interface ImageAssetRepository {
     expectedUpdatedAt: string,
     patch: ImageAssetPatch
   ): Promise<ImagePlanMutationResult>;
+  /**
+   * 确保这篇文章有封面槽位（幂等）：已有封面原样返回，没有就建一张
+   * type=cover、anchorBlockId=null、status=placeholder 的封面。
+   *
+   * 为什么需要它：封面是公众号草稿的**头图**，发布门在正文校验之后会检查
+   * 「有一张已生成的封面」，没有就直接拒推（publish-article-draft 的 no_cover）。
+   * 旧文章的封面由视觉规划器产出，而分镜文章在第四步锁定规划
+   * （planImages 返回 storyboard_locked），于是分镜文章永远拿不到封面、
+   * 也就永远推不了草稿。这里只补「建槽位」这一件事，
+   * 出图仍走 beginGeneration / completeGeneration / selectGeneration。
+   *
+   * 不复用 applyPlan：它的让位语义会把同文章里未手动编辑的 placeholder 资产
+   * 全删掉——那正是第三步设计出来的分镜帧。
+   */
+  ensureCover(
+    articleId: string,
+    expectedUpdatedAt: string,
+    input?: EnsureCoverInput
+  ): Promise<EnsureCoverResult>;
   remove(
     articleId: string,
     assetId: string,

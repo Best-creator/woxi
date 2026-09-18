@@ -74,8 +74,40 @@ export function BlockEditor({
 
         if (block.type === "image") {
           const asset = imageAssets.find((candidate) => candidate.id === block.assetId);
-          const aspectRatio = asset ? imageAspectRatios[asset.aspectRatio] : imageAspectRatios.landscape;
           const failed = failedImageIds.has(block.id);
+          // 段图（分段拼接产物）不能用「枚举宽高比 + object-fit: cover」这套渲染：
+          // 真实段图约 1080×2308（比例 0.47），而最接近的 portrait 枚举是 0.75——
+          // 框死再 cover 会把下半截裁掉，作者看到的是被放大的上半段，于是「图太大、
+          // 字太大、看不全」。这里不设宽高比、contain 显示，并收到手机宽度：
+          // 编辑器里看到的就是读者在公众号里滑到的那一屏。
+          // 文案已经烘进段图里，不再叠图注（叠上去会糊在段图自带的文字卡上）。
+          if (asset?.type === "comic_strip") {
+            return (
+              <figure
+                className={
+                  isHighlighted
+                    ? "editor-image-block editor-image-block-strip is-highlighted"
+                    : "editor-image-block editor-image-block-strip"
+                }
+                id={`block-${block.id}`}
+                key={block.id}
+              >
+                {failed ? (
+                  <div className="image-placeholder">图片位置</div>
+                ) : (
+                  // Internal placeholder routes need a stable, native image element.
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={block.content}
+                    alt={block.altText || "文章配图"}
+                    loading="lazy"
+                    onError={() => setFailedImageIds((current) => new Set(current).add(block.id))}
+                  />
+                )}
+              </figure>
+            );
+          }
+          const aspectRatio = asset ? imageAspectRatios[asset.aspectRatio] : imageAspectRatios.landscape;
           return (
             <figure
               className={isHighlighted ? "editor-image-block is-highlighted" : "editor-image-block"}

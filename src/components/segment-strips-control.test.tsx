@@ -73,7 +73,12 @@ function stripAsset(): ImageAsset {
     id: "strip-1",
     type: "comic_strip",
     purpose: "分段长图｜开场｜图 + 文",
-    filePath: "C:/tmp/strip-1.png"
+    filePath: "C:/tmp/strip-1.png",
+    // 段图归属哪个段靠快照里带 segmentId 的块认出来（拼接时就是这么存的）。
+    consumedContent: {
+      blocks: BLOCKS.filter((block) => block.segmentId === "seg-1").map((block) => ({ ...block })),
+      resumeBeforeBlockId: "s2-h"
+    }
   };
 }
 
@@ -106,8 +111,8 @@ function setup(overrides: {
     removeSegmentStrips: vi.fn().mockResolvedValue({}),
     ...(overrides.disabled === undefined ? {} : { disabled: overrides.disabled })
   };
-  render(<SegmentStripsControl {...props} />);
-  return props;
+  const view = render(<SegmentStripsControl {...props} />);
+  return { ...props, unmount: view.unmount };
 }
 
 describe("SegmentStripsControl", () => {
@@ -119,8 +124,12 @@ describe("SegmentStripsControl", () => {
     expect(button).toBeEnabled();
 
     await userEvent.click(button);
-    // 缺省字体随请求提交（后端校验全过才持久化）。
-    expect(props.composeSegmentStrips).toHaveBeenCalledWith(articleFixture().updatedAt, "sans_default");
+    // 缺省字体与文字大小随请求提交（后端校验全过才持久化）。
+    expect(props.composeSegmentStrips).toHaveBeenCalledWith(
+      articleFixture().updatedAt,
+      "sans_default",
+      "standard"
+    );
   });
 
   it("refuses to compose while a frame still has no image", () => {
@@ -166,7 +175,11 @@ describe("SegmentStripsControl", () => {
     await userEvent.selectOptions(screen.getByLabelText("段图字体"), "yahei");
     await userEvent.click(screen.getByRole("button", { name: "拼接段图" }));
 
-    expect(props.composeSegmentStrips).toHaveBeenCalledWith(articleFixture().updatedAt, "yahei");
+    expect(props.composeSegmentStrips).toHaveBeenCalledWith(
+      articleFixture().updatedAt,
+      "yahei",
+      "standard"
+    );
   });
 
   it("initializes the font dropdown from the persisted planning choice", () => {
@@ -177,6 +190,36 @@ describe("SegmentStripsControl", () => {
     setup({ article: segmentArticle({ planning }) });
 
     expect(screen.getByLabelText("段图字体")).toHaveValue("kaiti");
+  });
+
+  it("sends the selected text size with the compose request", async () => {
+    const props = setup();
+
+    await userEvent.selectOptions(screen.getByLabelText("文字大小"), "large");
+    await userEvent.click(screen.getByRole("button", { name: "拼接段图" }));
+
+    expect(props.composeSegmentStrips).toHaveBeenCalledWith(
+      articleFixture().updatedAt,
+      "sans_default",
+      "large"
+    );
+  });
+
+  it("initializes the text size dropdown from the persisted planning choice", () => {
+    const planning = {
+      ...segmentArticle().planning,
+      storyboardTextScaleId: "compact"
+    };
+    setup({ article: segmentArticle({ planning }) });
+
+    expect(screen.getByLabelText("文字大小")).toHaveValue("compact");
+  });
+
+  it("spells out what each text size looks like on a phone", () => {
+    // 段图在公众号里只有约 1/3 宽，档位光写「大 / 小」等于没说：必须给手机上换算后的实际观感。
+    setup();
+
+    expect(screen.getByText("手机上约 17px，与微信正文同大")).toBeInTheDocument();
   });
 
   it("summarizes the compose result with the font label", async () => {
@@ -195,6 +238,7 @@ describe("SegmentStripsControl", () => {
     const statuses = screen.getAllByRole("status").map((node) => node.textContent).join("");
     expect(statuses).toContain("已拼接 2 段");
     expect(statuses).toContain("字体「微软雅黑」");
+    expect(statuses).toContain("文字「标准」");
   });
 
   it("offers re-composing and cancellation once strips exist", async () => {
@@ -215,5 +259,76 @@ describe("SegmentStripsControl", () => {
 
     expect(screen.getByRole("button", { name: "拼接段图" })).toBeDisabled();
     expect(screen.getByLabelText("段图字体")).toBeDisabled();
+    expect(screen.getByLabelText("文字大小")).toBeDisabled();
+  });
+
+  it("shows a stage badge instead of making authors read the whole sentence", () => {
+    const view = setup();
+    expect(screen.getByText("可以拼接")).toBeInTheDocument();
+    view.unmount();
+
+    setup({
+      assets: [frame("frame-1", "placeholder"), frame("frame-2a"), frame("frame-2b"), frame("frame-3")]
+    });
+    expect(screen.getByText("待补 1 帧")).toBeInTheDocument();
+  });
+
+  it("lists every segment with its frame progress", () => {
+    setup({ assets: [frame("frame-1"), frame("frame-2a", "placeholder"), frame("frame-2b"), frame("frame-3")] });
+
+    const rows = screen.getAllByRole("listitem");
+    expect(rows[0]).toHaveTextContent("开场");
+    expect(rows[0]).toHaveTextContent("帧 1/1");
+    expect(rows[0]).toHaveTextContent("文案就绪");
+    // 段二缺一帧：进度与状态标签同步反映，不用去数按钮为什么是灰的。
+    expect(rows[1]).toHaveTextContent("帧 1/2");
+    expect(rows[1]).toHaveTextContent("待补齐");
+    expect(screen.getByText("2/3 段就绪")).toBeInTheDocument();
+  });
+
+  it("previews the composed strip next to its segment once composed", () => {
+    setup({
+      assets: [frame("frame-1"), frame("frame-2a"), frame("frame-2b"), frame("frame-3"), stripAsset()]
+    });
+
+    expect(screen.getByText("已拼接 1 段")).toBeInTheDocument();
+    expect(screen.getByAltText("分镜帧 frame-1")).toBeInTheDocument();
+    // 只剩没拼的段还挂着「待拼接」标签。
+    expect(screen.getAllByText("待拼接")).toHaveLength(2);
+  });
+
+  it("renders the sample text in the chosen font so the pick is visible before composing", async () => {
+    setup();
+
+    const sample = () => screen.getByText("文案烘进图里的样子");
+    expect(sample().getAttribute("style")).toContain("PingFang SC");
+
+    await userEvent.selectOptions(screen.getByLabelText("段图字体"), "kaiti");
+    expect(sample().getAttribute("style")).toContain("KaiTi");
+  });
+
+  it("stops promising a future compose once strips are already in the body", () => {
+    setup({
+      assets: [frame("frame-1"), frame("frame-2a"), frame("frame-2b"), frame("frame-3"), stripAsset()],
+      article: segmentArticle({
+        planning: { ...segmentArticle().planning, storyboardTextScaleId: "standard" }
+      })
+    });
+
+    // 拼过之后再说「将拼成 N 张段图」会读成「还没拼」，语义要跟着状态走。
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "重新拼接会按当前文案与所选字体、文字大小重出一遍"
+    );
+  });
+
+  it("tells the author that existing strips were baked with the old small font", () => {
+    // 旧段图是像素，字号烘进去就改不了。planning 里没有档位记录 = 这批图出自旧渲染器
+    // （手机上只有约 10px），唯一出路是重拼——不点名这句，作者会以为换字号不用重拼。
+    setup({
+      assets: [frame("frame-1"), frame("frame-2a"), frame("frame-2b"), frame("frame-3"), stripAsset()]
+    });
+
+    expect(screen.getByRole("status")).toHaveTextContent("它们用的是旧字号");
+    expect(screen.getByRole("button", { name: "重新拼接段图" })).toBeEnabled();
   });
 });

@@ -33,6 +33,21 @@ export interface ComicStripMetrics {
   maxPanelHeight: number;
   /** 块与块之间的间距。 */
   gap: number;
+  /**
+   * 文字带的排版度量（像素，按画布宽度定）。
+   *
+   * 为什么必须能调：长图/段图在公众号里一律 100% 宽显示，1080 的画布落到手机正文
+   * 只剩 340-400px，等于整体缩到约 0.32 倍。字号写死就等于把读者的最终观感写死——
+   * 原来正文 32px 在手机上其实只有 ~10px（微信正文自身是 17px），读者反馈「看着很吃力」。
+   * 所以基准值按缩放比反推（0.32 × 52 ≈ 17px），档位选择见 STORYBOARD_TEXT_SCALE_OPTIONS。
+   */
+  titleSize: number;
+  titleLineHeight: number;
+  bodySize: number;
+  bodyLineHeight: number;
+  /** 文字距卡片边缘的留白；注意不是画布留白（那是 padding）。 */
+  textPadX: number;
+  textPadY: number;
   background: string;
   textBackground: string;
   textColor: string;
@@ -46,6 +61,15 @@ export const DEFAULT_COMIC_STRIP_METRICS: ComicStripMetrics = {
   padding: 48,
   maxPanelHeight: 1180,
   gap: 28,
+  // 字号基准按「手机正文里的实际观感」反推，不是按画布好看：
+  // 1080 画布 → 手机正文约 340-400px，缩放 ≈ 0.32，所以 52px 正文 ≈ 17px 观感、
+  // 64px 标题 ≈ 20px 观感，与微信正文（17px）同量级，读起来才不费劲。
+  titleSize: 64,
+  titleLineHeight: 88,
+  bodySize: 52,
+  bodyLineHeight: 76,
+  textPadX: 48,
+  textPadY: 44,
   background: "#FFFFFF",
   // 文字带是暖纸白卡片：纯白会「素得像没设计」，与精致的分镜插图落差太大；
   // 卡片底 + 细描边 + 圆角 + 硬阴影（见 TEXT_CARD_* 常量）让文字带成为
@@ -59,19 +83,38 @@ export const DEFAULT_COMIC_STRIP_METRICS: ComicStripMetrics = {
   fontFamily: "'PingFang SC','Microsoft YaHei','Noto Sans CJK SC',sans-serif"
 };
 
-const TITLE_SIZE = 40;
-const TITLE_LINE_HEIGHT = 56;
-const BODY_SIZE = 32;
-const BODY_LINE_HEIGHT = 48;
-const TEXT_PAD_X = 40;
-const TEXT_PAD_Y = 32;
+/**
+ * 只缩放文字带（字号 / 行高 / 卡片内边距），画布宽度与分镜图尺寸不动。
+ *
+ * 段图的显示宽度由公众号正文决定（恒为 100%），所以「字看着更大」只有一条路：
+ * 让文字占画布的比例更大。缩放系数来自作者选的档位，见 STORYBOARD_TEXT_SCALE_OPTIONS。
+ */
+export function scaleStripTextMetrics(
+  metrics: ComicStripMetrics,
+  scale: number
+): ComicStripMetrics {
+  if (!Number.isFinite(scale) || scale <= 0 || scale === 1) return metrics;
+  return {
+    ...metrics,
+    titleSize: Math.round(metrics.titleSize * scale),
+    titleLineHeight: Math.round(metrics.titleLineHeight * scale),
+    bodySize: Math.round(metrics.bodySize * scale),
+    bodyLineHeight: Math.round(metrics.bodyLineHeight * scale),
+    textPadX: Math.round(metrics.textPadX * scale),
+    textPadY: Math.round(metrics.textPadY * scale)
+  };
+}
+
+/** 标题与正文之间的小间隔：与字号同缩放，避免特大档下标题贴着正文。 */
+function titleGap(metrics: ComicStripMetrics) {
+  return Math.round(metrics.bodySize * 0.23);
+}
 
 // 文字卡片的固定视觉参数：不进 metrics——这是设计决策，不是可调参数。
 const TEXT_CARD_BORDER = "#E8E1D2";
 const TEXT_CARD_SHADOW = "#E7ECE3";
 const TEXT_CARD_RADIUS = 16;
 const TEXT_CARD_SHADOW_OFFSET = 5;
-const TITLE_BAR_WIDTH = 7;
 
 export interface ComicStripTextLayout {
   titleLines: string[];
@@ -138,16 +181,16 @@ export function layoutComicStripTextBlock(
 ): ComicStripTextLayout {
   // 预算扣掉阴影偏移：卡片本体比带子窄一拍，折行不能贴到阴影里去。
   const contentWidth =
-    metrics.width - metrics.padding * 2 - TEXT_PAD_X * 2 - TEXT_CARD_SHADOW_OFFSET;
+    metrics.width - metrics.padding * 2 - metrics.textPadX * 2 - TEXT_CARD_SHADOW_OFFSET;
   const title = block.title?.trim() ?? "";
   const body = block.body.trim();
-  const titleLines = title ? wrapText(title, contentWidth, TITLE_SIZE) : [];
-  const bodyLines = body ? wrapText(body, contentWidth, BODY_SIZE) : [];
+  const titleLines = title ? wrapText(title, contentWidth, metrics.titleSize) : [];
+  const bodyLines = body ? wrapText(body, contentWidth, metrics.bodySize) : [];
   const height =
-    TEXT_PAD_Y * 2 +
-    titleLines.length * TITLE_LINE_HEIGHT +
-    (titleLines.length && bodyLines.length ? 12 : 0) +
-    bodyLines.length * BODY_LINE_HEIGHT;
+    metrics.textPadY * 2 +
+    titleLines.length * metrics.titleLineHeight +
+    (titleLines.length && bodyLines.length ? titleGap(metrics) : 0) +
+    bodyLines.length * metrics.bodyLineHeight;
 
   return { titleLines, bodyLines, width: metrics.width, height };
 }
@@ -157,32 +200,40 @@ function renderComicStripTextBlockSvg(
   metrics: ComicStripMetrics,
   layout: ComicStripTextLayout
 ) {
-  const left = metrics.padding;
+  // 这张 SVG 的坐标原点就是「内容区左边缘」：合成时整块被摆在 metrics.padding 处，
+  // 所以这里绝不能再加一次 padding——加了文字会整体右移一拍，右侧就越出卡片边界
+  // （左内边距看起来是两倍、右边却被压到边框上，实测满行会溢出 8px）。
   const blockWidth = metrics.width - metrics.padding * 2;
-  const textLeft = left + TEXT_PAD_X;
+  const textLeft = metrics.textPadX;
   const parts: string[] = [];
 
-  let y = TEXT_PAD_Y;
+  let y = metrics.textPadY;
   for (const line of layout.titleLines) {
-    y += TITLE_LINE_HEIGHT;
+    y += metrics.titleLineHeight;
     parts.push(
-      `<text x="${textLeft}" y="${y}" font-family="${escapeXml(metrics.fontFamily)}" font-size="${TITLE_SIZE}" font-weight="700" fill="${metrics.titleColor}">${escapeXml(line)}</text>`
+      `<text x="${textLeft}" y="${y}" font-family="${escapeXml(metrics.fontFamily)}" font-size="${metrics.titleSize}" font-weight="700" fill="${metrics.titleColor}">${escapeXml(line)}</text>`
     );
   }
-  if (layout.titleLines.length && layout.bodyLines.length) y += 12;
+  if (layout.titleLines.length && layout.bodyLines.length) y += titleGap(metrics);
   for (const line of layout.bodyLines) {
-    y += BODY_LINE_HEIGHT;
+    y += metrics.bodyLineHeight;
     parts.push(
-      `<text x="${textLeft}" y="${y}" font-family="${escapeXml(metrics.fontFamily)}" font-size="${BODY_SIZE}" fill="${metrics.textColor}">${escapeXml(line)}</text>`
+      `<text x="${textLeft}" y="${y}" font-family="${escapeXml(metrics.fontFamily)}" font-size="${metrics.bodySize}" fill="${metrics.textColor}">${escapeXml(line)}</text>`
     );
   }
 
   // 标题前的强调竖条：圆角短条只压在标题区，替代旧版「贯穿整块」的左边缘线——
   // 那条线把每段文案都框成引用体，杂志小节卡用短竖标更精神。
+  // 几何全部从文字度量推导（比例与旧版写死值一致），换字号档位时竖条跟着长，
+  // 不会出现「字大了、竖条还是细细一条」的错位。
+  const barWidth = Math.max(6, Math.round(metrics.titleSize * 0.18));
   const titleBar = layout.titleLines.length
-    ? `<rect x="${left + 16}" y="${TEXT_PAD_Y + 8}" width="${TITLE_BAR_WIDTH}" height="${
-        layout.titleLines.length * TITLE_LINE_HEIGHT - 10
-      }" rx="3.5" fill="${metrics.accent}"/>`
+    ? `<rect x="${Math.round(metrics.textPadX * 0.4)}" y="${
+        metrics.textPadY + Math.round(metrics.titleLineHeight * 0.14)
+      }" width="${barWidth}" height="${
+        layout.titleLines.length * metrics.titleLineHeight -
+        Math.round(metrics.titleLineHeight * 0.18)
+      }" rx="${barWidth / 2}" fill="${metrics.accent}"/>`
     : "";
 
   const cardWidth = blockWidth - TEXT_CARD_SHADOW_OFFSET;

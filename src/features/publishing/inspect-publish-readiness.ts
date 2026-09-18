@@ -12,6 +12,7 @@ import type { ImageAsset } from "@/features/images/domain";
  *   带 segmentId（buildSegmentBlocks 给文案块打的标记），对账即可，不猜锚点；
  * - 有没有「不属于任何段」的残留块（作者手加的段落、导语、旧知识卡片）？
  *   默认推送会拒掉，作者确认（force）后保留为段图之间的图文；
+ *   封面图块不算残留——它是草稿头图，段图流正文里本来就不渲染它；
  * - 摘要建议：纯段图正文没有文字可让微信抓取，digest 必须显式生成——
  *   取第一段成稿文案的开头。
  *
@@ -40,7 +41,7 @@ export interface PublishReadiness {
   suggestedDigest: string;
 }
 
-function stripContentUrl(asset: ImageAsset): string {
+function assetContentUrl(asset: ImageAsset): string {
   return `/api/image-assets/${asset.id}/content`;
 }
 
@@ -73,7 +74,13 @@ export function inspectPublishReadiness(
   const stripUrls = new Set(
     assets
       .filter((asset) => asset.type === "comic_strip" && asset.status === "generated")
-      .map(stripContentUrl)
+      .map(assetContentUrl)
+  );
+  // 封面是公众号草稿的**头图**，不属于正文序列：段图流的渲染本来就把它丢掉
+  // （renderWechatStripFlowHtml 只认段图 URL）。所以它不能算「作者忘了处理的残留块」——
+  // 算了的话，每一篇有封面的分镜文章推送时都要先勾一次「强制重新推送」。
+  const coverUrls = new Set(
+    assets.filter((asset) => asset.type === "cover").map(assetContentUrl)
   );
   // 注意：withStripsRestored 只还原文本块（restoreConsumedBlocks 会滤掉 image），
   // 所以残留文本块在还原视图上找，残留图片块必须在原始正文上找。
@@ -82,7 +89,10 @@ export function inspectPublishReadiness(
     (block) => block.type !== "image" && !copyBlockIds.has(block.id)
   );
   const residualImages = article.blocks.filter(
-    (block) => block.type === "image" && !stripUrls.has(block.content)
+    (block) =>
+      block.type === "image" &&
+      !stripUrls.has(block.content) &&
+      !coverUrls.has(block.content)
   );
   const residualBlocks = [...residualText, ...residualImages]
     .sort((left, right) => left.order - right.order)

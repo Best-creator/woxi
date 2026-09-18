@@ -13,12 +13,13 @@ import type { ArticleRepository } from "@/features/articles/repository";
 import {
   DEFAULT_COMIC_STRIP_METRICS,
   composeComicStrip,
+  scaleStripTextMetrics,
   type ComicStripBlock,
   type ComicStripMetrics,
   type ComicStripTextBlock
 } from "./comic-strip";
 import { withStripsRestored } from "./consumed-content";
-import { resolveStoryboardFont, type ImageAsset } from "./domain";
+import { resolveStoryboardFont, resolveStoryboardTextScale, type ImageAsset } from "./domain";
 import { removeGenerationFile } from "./generation-files";
 import { CONSUMABLE_BLOCK_TYPES } from "./plan-comic-strip";
 import type { ImageAssetRepository, SaveComicStripInput } from "./repository";
@@ -68,6 +69,12 @@ export interface ComposeSegmentStripsInput {
   expectedUpdatedAt: string;
   /** 本次拼接使用的字体 id（STORYBOARD_FONT_OPTIONS）；传入即持久化进 planning，缺省沿用已存选择。 */
   fontId?: string | null;
+  /**
+   * 本次拼接使用的文字大小档位 id（STORYBOARD_TEXT_SCALE_OPTIONS）；同上，
+   * 传入即与字体一起持久化。段图在公众号里恒为 100% 宽，字号即最终观感，
+   * 所以这一档直接决定读者读起来费不费劲。
+   */
+  textScaleId?: string | null;
 }
 
 export interface ComposeSegmentStripsDependencies {
@@ -226,15 +233,26 @@ export async function composeSegmentStrips(
     });
   }
 
-  // 校验全过，才把本次的字体选择持久化：拒拼的请求不该白白推进版本号。
+  // 校验全过，才把本次的排版选择持久化：拒拼的请求不该白白推进版本号。
   const chosenFont = resolveStoryboardFont(input.fontId ?? article.planning.storyboardFontId);
+  const chosenTextScale = resolveStoryboardTextScale(
+    input.textScaleId ?? article.planning.storyboardTextScaleId
+  );
   let currentArticle = article;
   let expectedUpdatedAt = input.expectedUpdatedAt;
-  if ((article.planning.storyboardFontId ?? null) !== chosenFont.id) {
+  // 字体与文字大小一起落库：分成两次 save 会白推两次版本号，界面也会拿到中间态。
+  if (
+    (article.planning.storyboardFontId ?? null) !== chosenFont.id ||
+    (article.planning.storyboardTextScaleId ?? null) !== chosenTextScale.id
+  ) {
     const saved = await dependencies.articles.save(
       {
         ...currentArticle,
-        planning: { ...currentArticle.planning, storyboardFontId: chosenFont.id }
+        planning: {
+          ...currentArticle.planning,
+          storyboardFontId: chosenFont.id,
+          storyboardTextScaleId: chosenTextScale.id
+        }
       },
       expectedUpdatedAt
     );
@@ -257,7 +275,12 @@ export async function composeSegmentStrips(
   }
 
   const base = dependencies.metrics ?? DEFAULT_COMIC_STRIP_METRICS;
-  const metrics: ComicStripMetrics = { ...base, fontFamily: chosenFont.fontFamily };
+  // 只缩放文字带（字号/行高/内边距）：画布宽度与分镜图尺寸不动，改的是
+  // 「文字占画布的比例」——那才是读者在手机上感知到的字大字小。
+  const metrics: ComicStripMetrics = scaleStripTextMetrics(
+    { ...base, fontFamily: chosenFont.fontFamily },
+    chosenTextScale.scale
+  );
   const storageDir =
     dependencies.storageDir ?? resolve(process.cwd(), ".data", "generated-images");
 

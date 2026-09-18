@@ -1,20 +1,36 @@
 import {
   storyboardFrameCount,
-  type Article
+  type Article,
+  type StoryboardRoute
 } from "@/features/articles/domain";
 import { withStripsRestored } from "./consumed-content";
 import type { ImageAsset } from "./domain";
 import { CONSUMABLE_BLOCK_TYPES } from "./plan-comic-strip";
 
 /**
- * 分段拼接的就绪判定：第三步段卡警告与第四步拼接按钮可用态共用这一份事实源。
+ * 分段拼接的就绪判定：拼接按钮的可用态、状态徽章、逐段清单共用这一份事实源。
  *
  * 与 composeSegmentStrips 的校验完全同构——都在 `withStripsRestored` 还原视图上
  * 判断（拼过段图后文案块已从 article.blocks 消失），保证「按钮亮着就一定能拼成」。
  * 本模块必须保持客户端安全：只依赖 consumed-content / plan-comic-strip / domain，
  * 不碰 node:crypto / node:fs（那些住在 merge-image-blocks 与 compose 编排里）。
  */
-export interface SegmentStripsReadiness {
+export interface SegmentStripStatus {
+  segmentId: string;
+  title: string;
+  order: number;
+  route: StoryboardRoute;
+  /** 该段路由要求的帧数。 */
+  requiredFrames: number;
+  /** 其中已生成且落盘的帧数（按路由截取）。 */
+  readyFrames: number;
+  /** 成稿文案是否还在正文里（还原视图上判定）。 */
+  hasCopy: boolean;
+  /** 该段对应的段图资产 id；尚未拼接时为 null。 */
+  stripAssetId: string | null;
+}
+
+export interface SegmentStripsInspection {
   totalSegments: number;
   /** 帧齐全且已生成、文案块也还在正文里的段数。 */
   readySegments: number;
@@ -22,12 +38,26 @@ export interface SegmentStripsReadiness {
   pendingFrames: number;
   /** 成稿文案块已不在正文里（被删或类型不可烘）的段数。 */
   missingCopySegments: number;
+  /** 逐段明细：界面按段列出「帧齐没齐、文案在不在、拼过没有」。 */
+  segments: SegmentStripStatus[];
 }
 
+/**
+ * 段图资产归属哪个段：拼接时把被替换掉的文案块（带 segmentId）整份存进快照，
+ * 从快照里取第一个带段 id 的块即得。旧版漫画长图没有段 id，返回 null。
+ */
+export function stripSegmentIdOf(asset: ImageAsset): string | null {
+  if (asset.type !== "comic_strip") return null;
+  return (
+    asset.consumedContent?.blocks.find((block) => Boolean(block.segmentId))?.segmentId ?? null
+  );
+}
+
+/** 完整判定：汇总（按钮可用态、状态徽章）+ 逐段明细（分段清单），一次算完。 */
 export function inspectSegmentStrips(
   article: Article,
   assets: readonly ImageAsset[]
-): SegmentStripsReadiness {
+): SegmentStripsInspection {
   const segments = [...(article.planning.storyboardSegments ?? [])].sort(
     (left, right) => left.order - right.order
   );
@@ -45,9 +75,18 @@ export function inspectSegmentStrips(
       .map((block) => block.id)
   );
 
+  // 段图 → 段：一个段至多留一张现行段图（重拼会先撤旧的）。
+  const stripBySegment = new Map<string, string>();
+  for (const asset of assets) {
+    const segmentId = stripSegmentIdOf(asset);
+    if (segmentId) stripBySegment.set(segmentId, asset.id);
+  }
+
   let readySegments = 0;
   let pendingFrames = 0;
   let missingCopySegments = 0;
+  const details: SegmentStripStatus[] = [];
+
   for (const segment of segments) {
     const required = storyboardFrameCount(segment.route);
     // 帧数按路由要求截取：设计帧不足时（比如改成图+文+图但只设计了 1 帧）同样记差，
@@ -63,7 +102,24 @@ export function inspectSegmentStrips(
     const hasCopy = segment.copyBlockIds.some((id) => copyableBlockIds.has(id));
     if (!hasCopy) missingCopySegments += 1;
     if (required - readyFrames === 0 && hasCopy) readySegments += 1;
+
+    details.push({
+      segmentId: segment.id,
+      title: segment.title,
+      order: segment.order,
+      route: segment.route,
+      requiredFrames: required,
+      readyFrames,
+      hasCopy,
+      stripAssetId: stripBySegment.get(segment.id) ?? null
+    });
   }
 
-  return { totalSegments: segments.length, readySegments, pendingFrames, missingCopySegments };
+  return {
+    totalSegments: segments.length,
+    readySegments,
+    pendingFrames,
+    missingCopySegments,
+    segments: details
+  };
 }

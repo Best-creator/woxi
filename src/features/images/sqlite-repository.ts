@@ -11,11 +11,12 @@ import {
   type OutlineSection,
   type StoryboardSegment
 } from "@/features/articles/domain";
-import type {
-  ImageAsset,
-  ImageGeneration,
-  ImageLibraryItem,
-  ImagePlanSuggestion
+import {
+  defaultCoverPrompt,
+  type ImageAsset,
+  type ImageGeneration,
+  type ImageLibraryItem,
+  type ImagePlanSuggestion
 } from "./domain";
 import { imageContentUrl, mergeImageBlocks } from "./merge-image-blocks";
 import { restoreConsumedBlocks, storyboardSegmentIds, withStripsRestored } from "./consumed-content";
@@ -23,6 +24,8 @@ import type { ComicStripModeDecision } from "./comic-strip-mode-router";
 import { parseImageAssetRow as parseAsset, type ImageAssetRow } from "./asset-row";
 import type {
   CompleteGenerationInput,
+  EnsureCoverInput,
+  EnsureCoverResult,
   ImageAssetPatch,
   ImageAssetRepository,
   ImageGenerationMutationResult,
@@ -66,11 +69,12 @@ interface ImageLibraryRow extends ImageGenerationRow {
   asset_purpose: string;
 }
 
-/** 两类变更结果的公共形状，用于让事务包装器同时服务配图与版本两种操作。 */
+/** 各类变更结果的公共形状，用于让事务包装器同时服务配图、版本与封面三类操作。 */
 type AnyImageMutationResult =
   | ImagePlanMutationResult
   | ImageGenerationMutationResult
-  | StoryboardPlanMutationResult;
+  | StoryboardPlanMutationResult
+  | EnsureCoverResult;
 
 class AbortMutation extends Error {
   constructor(readonly result: AnyImageMutationResult) {
@@ -349,6 +353,52 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
       };
       this.updateAsset(updated);
       return this.saveAggregate(article, expectedUpdatedAt, this.listSync(articleId));
+    });
+  }
+
+  async ensureCover(
+    articleId: string,
+    expectedUpdatedAt: string,
+    input: EnsureCoverInput = {}
+  ): Promise<EnsureCoverResult> {
+    return this.inTransaction(() => {
+      const article = this.currentArticle(articleId, expectedUpdatedAt);
+      if (!article) return this.missingOrConflict(articleId, expectedUpdatedAt);
+
+      const existing = this.listSync(articleId);
+      const cover = existing.find((asset) => asset.type === "cover");
+      // 幂等：已经有封面槽位就原样还回去（哪怕是停用/生成失败的历史封面）——
+      // 「确保存在」不该顺手改写作者写过的东西，改提示词走 update。
+      if (cover) return { kind: "ready", article, assets: existing, asset: cover, created: false };
+
+      const timestamp = nextTimestamp(article.updatedAt);
+      const id = randomUUID();
+      const asset: ImageAsset = {
+        id,
+        articleId,
+        type: "cover",
+        // 封面是公众号头图，不参与正文序列，所以没有锚点
+        // （与 applyPlan 对封面的校验、update 的「封面不能关联锚点」一致）。
+        anchorBlockId: null,
+        purpose: input.purpose?.trim() || "封面图",
+        prompt: input.prompt?.trim() || defaultCoverPrompt(article),
+        altText: input.altText?.trim() || `${article.title} 封面`,
+        aspectRatio: input.aspectRatio ?? "cover",
+        status: "placeholder",
+        placeholderUrl: imageContentUrl(id),
+        filePath: null,
+        publicUrl: null,
+        manuallyEdited: false,
+        consumedContent: null,
+        createdAt: timestamp,
+        updatedAt: timestamp
+      };
+      this.insertAsset(asset, this.nextPosition(articleId));
+
+      const saved = this.saveAggregate(article, expectedUpdatedAt, this.listSync(articleId));
+      // saveAggregate 的 kind 是仓储内部的措辞（"saved"）；这里按本方法的语义
+      // 统一成 "ready"（有封面槽位可用了），界面不必分辨是谁落库的。
+      return { kind: "ready", article: saved.article, assets: saved.assets, asset, created: true };
     });
   }
 

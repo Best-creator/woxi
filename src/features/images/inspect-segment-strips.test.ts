@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { Article, StoryboardSegment } from "@/features/articles/domain";
 import type { ImageAsset } from "./domain";
-import { inspectSegmentStrips } from "./inspect-segment-strips";
+import {
+  inspectSegmentStrips,
+  stripSegmentIdOf
+} from "./inspect-segment-strips";
 
 const SEGMENTS: StoryboardSegment[] = [
   {
@@ -91,7 +94,8 @@ describe("inspectSegmentStrips", () => {
       totalSegments: 0,
       readySegments: 0,
       pendingFrames: 0,
-      missingCopySegments: 0
+      missingCopySegments: 0,
+      segments: []
     });
   });
 
@@ -102,7 +106,7 @@ describe("inspectSegmentStrips", () => {
       frame("f2b")
     ]);
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       totalSegments: 2,
       readySegments: 2,
       pendingFrames: 0,
@@ -182,5 +186,76 @@ describe("inspectSegmentStrips", () => {
     // 段一的文案在还原视图里找回来了：不算 missing。
     expect(result.missingCopySegments).toBe(0);
     expect(result.readySegments).toBe(2);
+  });
+});
+
+describe("inspectSegmentStrips 逐段明细", () => {
+  it("reports each segment's frame progress and copy state", () => {
+    const result = inspectSegmentStrips(article(), [
+      frame("f1"),
+      frame("f2a", "placeholder"),
+      frame("f2b")
+    ]);
+
+    expect(result.segments.map((row) => row.segmentId)).toEqual(["seg-1", "seg-2"]);
+    expect(result.segments[0]).toMatchObject({
+      title: "开场",
+      route: "image_text",
+      requiredFrames: 1,
+      readyFrames: 1,
+      hasCopy: true,
+      stripAssetId: null
+    });
+    // 段二 2 帧缺 1：明细与汇总出自同一次判定，不能各说各话。
+    expect(result.segments[1]).toMatchObject({ requiredFrames: 2, readyFrames: 1 });
+    expect(result.pendingFrames).toBe(1);
+  });
+
+  it("points each segment at its composed strip", () => {
+    const strip = {
+      ...frame("strip-1"),
+      id: "strip-1",
+      type: "comic_strip" as const,
+      filePath: "C:/tmp/strip.png",
+      consumedContent: {
+        blocks: BLOCKS.filter((block) => block.segmentId === "seg-1").map((block) => ({ ...block })),
+        resumeBeforeBlockId: "h2"
+      }
+    };
+
+    const result = inspectSegmentStrips(article(), [frame("f1"), frame("f2a"), frame("f2b"), strip]);
+
+    expect(result.segments[0]!.stripAssetId).toBe("strip-1");
+    expect(result.segments[1]!.stripAssetId).toBeNull();
+  });
+});
+
+describe("stripSegmentIdOf", () => {
+  it("reads the owning segment from the consumed snapshot", () => {
+    const strip = {
+      ...frame("strip-1"),
+      type: "comic_strip" as const,
+      consumedContent: {
+        blocks: BLOCKS.filter((block) => block.segmentId === "seg-2").map((block) => ({ ...block })),
+        resumeBeforeBlockId: null
+      }
+    };
+
+    expect(stripSegmentIdOf(strip)).toBe("seg-2");
+  });
+
+  it("returns null for legacy strips and plain frames", () => {
+    // 早年整篇一条的长图没有分段快照，普通配图更谈不上归属。
+    const legacy = {
+      ...frame("legacy-strip"),
+      type: "comic_strip" as const,
+      consumedContent: {
+        blocks: BLOCKS.map((block) => ({ ...block, segmentId: undefined })),
+        resumeBeforeBlockId: null
+      }
+    };
+
+    expect(stripSegmentIdOf(legacy)).toBeNull();
+    expect(stripSegmentIdOf(frame("f1"))).toBeNull();
   });
 });
