@@ -149,6 +149,12 @@ describe("OpenAiStoryboardDesigner", () => {
     expect(STORYBOARD_DESIGNER_SYSTEM_PROMPT).toContain("知识卡片");
   });
 
+  it("tells the reviser how to locate segments when review issues carry no block ids", () => {
+    // 审核意见被净化后 blockIds 可能全空：修订器必须能从意见文本自行定位。
+    expect(STORYBOARD_REVISER_SYSTEM_PROMPT).toContain("flaggedSectionKeys 为空");
+    expect(STORYBOARD_REVISER_SYSTEM_PROMPT).toContain("message 自行判断");
+  });
+
   it("surfaces schema violations as design failures", async () => {
     const designer = new OpenAiStoryboardDesigner({
       complete: async () => {

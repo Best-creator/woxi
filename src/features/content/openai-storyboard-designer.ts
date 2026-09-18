@@ -41,7 +41,7 @@ export const STORYBOARD_REVISER_SYSTEM_PROMPT = `你是公众号知识类漫画�
 
 修订纪律（比写得好更重要的是改得准）：
 1. userInstructions 是最高优先级的意图来源；审核意见其次。两类要求同时存在时一次全部满足，互相冲突以 userInstructions 为准。
-2. 只改需要改的段：被 flaggedSectionKeys 点名的段必须按意见重写；没被点名、也不影响全局要求的段，title/copy/route/frames 必须与 currentDesign 里对应段逐字一致——这些段的分镜图可能已经生成，改动会作废已生成的图。
+2. 只改需要改的段：被 flaggedSectionKeys 点名的段必须按意见重写；flaggedSectionKeys 为空（意见没定位到具体段）时，从 reviewFeedback.issues 的 message 自行判断该改哪些段——message 里通常写了段落标题或位置。没被点名、也不影响全局要求的段，title/copy/route/frames 必须与 currentDesign 里对应段逐字一致——这些段的分镜图可能已经生成，改动会作废已生成的图。
 3. 全局义务例外：如果修订意见涉及收尾、总字数、段间衔接这类全篇问题，允许连带改动受影响的相邻段，但要在满足意见的前提下尽量少动。
 4. 禁止顺手润色：不要因为「可以更好」就改动与意见无关的段；一处小改也会作废该段已生成的分镜图。
 5. sectionKey 只能取输入 outline 中已存在的 id；每个章节至少被一个段落覆盖；段顺序与 currentDesign 保持一致。

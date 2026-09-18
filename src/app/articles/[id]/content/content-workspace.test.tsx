@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { articleFixture, twoBlocks } from "../../../../../tests/fixtures/article";
 import { resolveStyleProfile } from "@/features/content/style-profile";
@@ -319,25 +320,34 @@ describe("ContentWorkspace", () => {
       }
     });
 
+    /** 真实应用由 article-workspace 持有 article 状态并回传给本组件，这里同构。 */
     function reviseFixture(reviseContent: unknown) {
-      return render(
-        <ContentWorkspace
-          article={storyboardArticle}
-          llmConfig={{ enabled: false, availableModels: [], defaultModel: null }}
-          prepareArticle={async () => storyboardArticle}
-          onArticleChange={vi.fn()}
-          onEditBlocks={vi.fn()}
-          initialVersions={[storyboardRevision]}
-          initialReview={{ revision: storyboardRevision, review: reviewWith("needs_revision", ["seg1-p"]) }}
-          reviseContent={reviseContent as never}
-        />
-      );
+      function Harness() {
+        const [article, setArticle] = useState(storyboardArticle);
+        return (
+          <ContentWorkspace
+            article={article}
+            llmConfig={{ enabled: false, availableModels: [], defaultModel: null }}
+            prepareArticle={async () => article}
+            onArticleChange={setArticle}
+            onEditBlocks={vi.fn()}
+            initialVersions={[storyboardRevision]}
+            initialReview={{ revision: storyboardRevision, review: reviewWith("needs_revision", ["seg1-p"]) }}
+            reviseContent={reviseContent as never}
+          />
+        );
+      }
+      return render(<Harness />);
     }
 
     it("applies review feedback through the converged entry and reports what was replaced", async () => {
       const user = userEvent.setup();
+      // 真实修订会改写被点名段的文案：mock 文章同步改掉，过期判定才有依据。
+      const revisedBlocks = storyboardBlocks.map((block) =>
+        block.id === "seg1-p" ? { ...block, content: "第一段文案（已按意见充实）。" } : block
+      );
       const reviseContent = vi.fn(async () => ({
-        article: { ...storyboardArticle, updatedAt: "2026-09-10T00:00:09.000Z" },
+        article: { ...storyboardArticle, blocks: revisedBlocks, updatedAt: "2026-09-10T00:00:09.000Z" },
         revision: revision({ id: "content-revision-2", reason: "review_applied" }),
         replacedSegments: 1,
         retainedSegments: 1
@@ -350,7 +360,12 @@ describe("ContentWorkspace", () => {
         expectedUpdatedAt: storyboardArticle.updatedAt
       }));
       expect(await screen.findByText(/分镜已修订：更新 1 段/)).toBeVisible();
-      expect(screen.getByText(/其余 1 段连同已生成配图保持原样/)).toBeVisible();
+      expect(screen.getByText(/请重新审核后再确认内容/)).toBeVisible();
+      // 旧审核保留展示并标记过期（对齐改大纲）：意见留在面板上供继续迭代，
+      // 确认按钮被锁住直到重新审核。
+      expect(await screen.findByText("审核已过期")).toBeVisible();
+      expect(screen.getByRole("button", { name: "确认内容" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "审核文案" })).toBeEnabled();
     });
 
     it("sends personal instructions through the revise entry", async () => {

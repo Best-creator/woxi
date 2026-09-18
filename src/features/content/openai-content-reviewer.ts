@@ -15,24 +15,31 @@ issues 的 blockIds 只能引用输入 blocks 中给出的 id，不能虚构块�
 
 type JsonClient = Pick<OpenAiJsonClient, "complete">;
 
-function invalidContentReview(): never {
-  throw new Error("正文审核结果不符合要求");
-}
-
-export function validateContentReview(
+/**
+ * 审核结果的净化闸：模型偶发的小违规**就地修正而不是整份作废**。
+ * 此前这里是硬校验（虚构块 id / 资料分缺失 / blocked 无阻断项都会抛
+ * 「正文审核结果不符合要求」），一次小 slip 就让整个审核-修订循环卡死——
+ * 用户只能放弃审核直接确认，意见驱动修订的链路随之断掉。
+ */
+export function sanitizeContentReview(
   result: ContentReviewResult,
   input: ReviewContentInput
 ): ContentReviewResult {
   const blockIds = new Set(input.blocks.map((block) => block.id));
-  if (result.issues.some((issue) => issue.blockIds.some((id) => !blockIds.has(id)))) {
-    invalidContentReview();
-  }
-  if (!input.sourceContext?.trim() && result.sourceFidelity !== null) invalidContentReview();
-  if (input.sourceContext?.trim() && result.sourceFidelity === null) invalidContentReview();
-  if (result.status === "blocked" && !result.issues.some((issue) => issue.severity === "blocking")) {
-    invalidContentReview();
-  }
-  return result;
+  // 虚构的块 id 只丢弃 id、保住意见本身（空 blockIds 的意见界面本就支持：不可定位）。
+  const issues = result.issues.map((issue) => ({
+    ...issue,
+    blockIds: issue.blockIds.filter((id) => blockIds.has(id))
+  }));
+  // 没资料却打了资料一致分 → 视为不适用；有资料却漏评 → 取中性分 3，
+  // 不高估也不美化，只是不让整份审核因一个数字作废。
+  const sourceFidelity = input.sourceContext?.trim() ? (result.sourceFidelity ?? 3) : null;
+  // blocked 必须有阻断级问题支撑；模型忘了给就降级为需要修订，避免误锁死确认。
+  const status =
+    result.status === "blocked" && !issues.some((issue) => issue.severity === "blocking")
+      ? "needs_revision"
+      : result.status;
+  return { ...result, issues, sourceFidelity, status };
 }
 
 export class OpenAiContentReviewer implements ContentReviewer {
@@ -62,6 +69,6 @@ export class OpenAiContentReviewer implements ContentReviewer {
       schema: contentReviewResultSchema,
       timeoutMs: 90_000
     });
-    return validateContentReview(result, input);
+    return sanitizeContentReview(result, input);
   }
 }

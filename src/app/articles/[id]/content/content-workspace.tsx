@@ -361,12 +361,12 @@ export function ContentWorkspace({
       });
       onArticleChange(result.article);
       setVersions((items) => addVersion(items, result.revision));
-      // 修订产生新版本：旧审核不再对应当前内容，清掉等重新审核。
-      setCurrentReview(null);
+      // 修订后旧审核不再对应当前内容：保留在面板上、由 contentReviewIsStale 自动标记过期
+      // （对齐改大纲的模式——意见留在面板上供继续迭代，重新审核通过才能确认）。
       if (userInstructions) setInstructions("");
       setMessage(
         result.replacedSegments > 0
-          ? `分镜已修订：更新 ${result.replacedSegments} 段（该段配图已重置为待生成），其余 ${result.retainedSegments} 段连同已生成配图保持原样`
+          ? `分镜已修订：更新 ${result.replacedSegments} 段（该段配图已重置为待生成），其余 ${result.retainedSegments} 段连同已生成配图保持原样；请重新审核后再确认内容`
           : "分镜未变化：模型没有改任何段落，配图保持原样"
       );
     }, "revising");
