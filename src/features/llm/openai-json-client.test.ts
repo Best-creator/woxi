@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import type { LlmProviderConfig } from "@/server/config";
 import { LlmError } from "./errors";
-import { OpenAiJsonClient, type JsonCompletionRequest } from "./openai-json-client";
+import { OpenAiJsonClient, repairTruncatedJson, type JsonCompletionRequest } from "./openai-json-client";
 
 const config: LlmProviderConfig = {
   baseUrl: "https://llm.example.test/api",
@@ -201,6 +201,20 @@ describe("OpenAiJsonClient", () => {
     expect(calls).toBe(1);
   });
 
+  it("repairs a JSON object the model stopped writing midway", async () => {
+    let calls = 0;
+    const fetchFn = (async () => {
+      calls += 1;
+      // finish_reason=stop 但 JSON 断在字符串中间（实测的水瓶座文章失败形态）。
+      return completion('{"answer": "4');
+    }) as typeof fetch;
+
+    await expect(new OpenAiJsonClient(config, fetchFn).complete(request)).resolves.toEqual({
+      answer: "4"
+    });
+    expect(calls).toBe(1);
+  });
+
   it("joins multi-part content arrays that some gateways return", async () => {
     const fetchFn = (async () =>
       new Response(
@@ -230,7 +244,10 @@ describe("OpenAiJsonClient", () => {
       fetchResponse(() =>
         new Response(
           JSON.stringify({
-            choices: [{ finish_reason: "length", message: { content: '{"answer": "4' } }]
+            choices: [
+              // 无括号的散文 + 被长度上限掐断：抢救与修复都无从下手，只剩报错。
+              { finish_reason: "length", message: { content: "抱歉，回复过长无法完成，以下是开头的部分内容" } }
+            ]
           }),
           { status: 200, headers: { "content-type": "application/json" } }
         )
@@ -281,5 +298,34 @@ describe("OpenAiJsonClient", () => {
 
     expect(error).toMatchObject({ code: "upstream" });
     expect(error?.message).not.toContain(config.apiKey);
+  });
+});
+
+describe("repairTruncatedJson", () => {
+  it("补齐断在字符串中间的尾巴", () => {
+    expect(JSON.parse(repairTruncatedJson('{"a": "bc') ?? "null")).toEqual({ a: "bc" });
+  });
+
+  it("补齐未闭合的数组并清掉悬空逗号", () => {
+    expect(JSON.parse(repairTruncatedJson('{"a": [1, 2,') ?? "null")).toEqual({ a: [1, 2] });
+  });
+
+  it("冒号后截断补 null", () => {
+    expect(JSON.parse(repairTruncatedJson('{"a":') ?? "null")).toEqual({ a: null });
+  });
+
+  it("嵌套结构按栈序全部闭合", () => {
+    expect(JSON.parse(repairTruncatedJson('{"a": [{"b": "c"') ?? "null")).toEqual({
+      a: [{ b: "c" }]
+    });
+  });
+
+  it("转义引号不干扰字符串态判定", () => {
+    expect(JSON.parse(repairTruncatedJson('{"a": "x\\"y') ?? "null")).toEqual({ a: 'x"y' });
+  });
+
+  it("已完整或没有括号时返回 null（不硬修）", () => {
+    expect(repairTruncatedJson('{"a": 1}')).toBeNull();
+    expect(repairTruncatedJson("没有括号的散文")).toBeNull();
   });
 });

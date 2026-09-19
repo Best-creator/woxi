@@ -1,4 +1,6 @@
 import type { LlmProviderConfig } from "@/server/config";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { z } from "zod";
 import { LlmError } from "./errors";
 
@@ -44,6 +46,42 @@ export function extractJsonObject(raw: string): string | null {
 }
 
 /**
+ * 最后一搏：模型偶尔「提前收工」——finish_reason 说 stop，但 JSON 停在半截
+ * （实测：开头完全合法、长度比同类完整样本短一截、解析在中途断掉）。
+ * 按括号栈把缺的尾巴补上：断在字符串里先补引号，再补齐未闭合的 ] }，
+ * 悬空的逗号/冒号尾巴清掉（冒号后补 null）。补完仍要过 Zod，安全；
+ * 没什么可修（括号已平衡且不在字符串里）就返回 null，走纠错重试。
+ */
+export function repairTruncatedJson(raw: string): string | null {
+  const start = raw.indexOf("{");
+  if (start === -1) return null;
+  const text = raw.slice(start);
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+  for (const ch of text) {
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "{" || ch === "[") stack.push(ch);
+    else if (ch === "}" || ch === "]") stack.pop();
+  }
+  if (!inString && stack.length === 0) return null;
+  let repaired = text;
+  if (inString) repaired += '"';
+  repaired = repaired.replace(/,\s*$/, "");
+  if (/:\s*$/.test(repaired)) repaired += " null";
+  while (stack.length) {
+    repaired += stack.pop() === "{" ? "}" : "]";
+  }
+  return repaired;
+}
+
+/**
  * 兼容网关的 content 变体：字符串原样；多段数组（[{type:"text",text:…},…]）拼回一段。
  * 都不是就返回 null（结构异常，走重试）。
  */
@@ -70,17 +108,30 @@ function responseDetail(payload: unknown): string {
 }
 
 /**
- * 把网关的真实坏响应打进服务端控制台——「文本不是合法 JSON」这类报错用户侧无法排查，
- * 只有这里能拿到原始证据（finish_reason / 长度 / 开头 300 字）。只在失败路径触发，不打扰正常流量。
+ * 把网关的真实坏响应打进服务端控制台 + 完整尸体落盘 `.data/llm-invalid/`——
+ * 「文本不是合法 JSON」的缺陷往往藏在响应中段（头 300 字看着完全正常），
+ * 没有全文就没法定位。只在失败路径触发，不打扰正常流量。
  */
-function logInvalidResponse(stage: string, payload: unknown, raw?: string) {
+function logInvalidResponse(stage: string, payload: unknown, raw?: string, parseError?: unknown) {
   const choice = (payload as { choices?: Array<{ finish_reason?: unknown; usage?: unknown }> })
     ?.choices?.[0];
   const finishReason = choice?.finish_reason;
   const parts = [`[llm] ${stage}`];
   if (finishReason !== undefined) parts.push(`finish_reason=${String(finishReason)}`);
+  if (parseError !== undefined) {
+    parts.push(`parse=${JSON.stringify(parseError instanceof Error ? parseError.message : String(parseError))}`);
+  }
   if (typeof raw === "string") {
     parts.push(`长度=${raw.length}`, `开头=${JSON.stringify(raw.slice(0, 300))}`);
+    try {
+      const dir = join(process.cwd(), ".data", "llm-invalid");
+      mkdirSync(dir, { recursive: true });
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      writeFileSync(join(dir, `invalid-${stamp}.txt`), raw, "utf8");
+      parts.push(`全文已存 .data/llm-invalid/invalid-${stamp}.txt`);
+    } catch {
+      parts.push("（尸体落盘失败，不影响主流程）");
+    }
   }
   console.error(parts.join(" | "));
 }
@@ -212,16 +263,21 @@ export class OpenAiJsonClient {
       let parsed: unknown;
       try {
         parsed = JSON.parse(text);
-      } catch {
-        // 直接解析失败 → 掐头去尾抢救一次（散文包裹/<think> 块后面的 JSON）。
+      } catch (parseError) {
+        // 直接解析失败 → 两级抢救：① 掐头去尾（散文包裹/<think> 块后面的 JSON）；
+        // ② 截断修复（模型提前收工，按括号栈补齐缺尾）。修完仍要过 Zod。
         const salvaged = extractJsonObject(text);
-        try {
-          parsed = salvaged ? JSON.parse(salvaged) : undefined;
-        } catch {
-          parsed = undefined;
+        const candidates = [salvaged, repairTruncatedJson(text)];
+        for (const candidate of candidates) {
+          if (parsed !== undefined || !candidate) continue;
+          try {
+            parsed = JSON.parse(candidate);
+          } catch {
+            parsed = undefined;
+          }
         }
         if (parsed === undefined) {
-          logInvalidResponse("文本不是合法 JSON", payload, text);
+          logInvalidResponse("文本不是合法 JSON", payload, text, parseError);
           detail = responseDetail(payload) || "文本不是合法 JSON";
           correctiveNote =
             "上一次的文本不是合法 JSON——可能带了 Markdown 代码围栏或前后多余文字。" + RETRY_NOTE;
