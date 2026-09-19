@@ -70,25 +70,102 @@ export class OpenAiImageGenerator implements ImageGenerator {
       site = resolveImageSite(model, await this.catalog(), this.sites);
     }
 
-    let response: Response;
+    const references = input.referenceImages ?? [];
+    if (references.length === 0) {
+      return await this.requestViaGenerations(site, model, input, []);
+    }
+    // 图生图：标准 edits（multipart）优先。认证失败直接抛（配置问题，降级无意义）；
+    // 冷却错误直接抛（交外层按 reset_seconds 重试，重试仍先走 edits）；其余失败降级 generations。
     try {
-      response = await this.fetchFn(`${site.baseUrl}/v1/images/generations`, {
+      return await this.requestViaEdits(site, model, input, references);
+    } catch (error) {
+      if (
+        error instanceof ImageGeneratorError &&
+        (error.code === "authentication" || error.cooldownSeconds !== null)
+      ) {
+        throw error;
+      }
+    }
+    return await this.requestViaGenerations(site, model, input, references);
+  }
+
+  /** 图生图首选路径：/v1/images/edits，参考图以 multipart 文件字段上传。 */
+  private async requestViaEdits(
+    site: ImageSite,
+    model: string,
+    input: ImageGeneratorInput,
+    references: NonNullable<ImageGeneratorInput["referenceImages"]>
+  ): Promise<GeneratedImagePayload> {
+    const formData = new FormData();
+    formData.append("model", model);
+    formData.append("prompt", input.prompt);
+    formData.append("size", sizeForAspectRatio(input.aspectRatio));
+    formData.append("response_format", "b64_json");
+    references.forEach((reference, index) => {
+      formData.append(
+        "image",
+        // Uint8Array 显式转一层：Buffer 的 ArrayBufferLike 与 BlobPart 的 ArrayBuffer 方差不兼容。
+        new Blob([new Uint8Array(reference.data)], { type: reference.mimeType }),
+        `reference-${index + 1}.img`
+      );
+    });
+    return await this.executeRequest(
+      `${site.baseUrl}/v1/images/edits`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${site.apiKey}` },
+        body: formData,
+        signal: AbortSignal.timeout(IMAGE_GENERATION_TIMEOUT_MS)
+      },
+      model
+    );
+  }
+
+  /** 文生图，或 edits 渠道不可用时的降级路径；有参考图时以 image data URL 数组携带。 */
+  private async requestViaGenerations(
+    site: ImageSite,
+    model: string,
+    input: ImageGeneratorInput,
+    references: NonNullable<ImageGeneratorInput["referenceImages"]>
+  ): Promise<GeneratedImagePayload> {
+    const body: Record<string, unknown> = {
+      model,
+      prompt: input.prompt,
+      size: sizeForAspectRatio(input.aspectRatio),
+      n: 1,
+      // 强制内联返回 base64：部分网关的图床域名（url 指向的文件服务）
+      // 从用户网络不可达，内联数据可直接落盘并经本地 content 路由分发。
+      response_format: "b64_json"
+    };
+    if (references.length > 0) {
+      body.image = references.map(
+        (reference) => `data:${reference.mimeType};base64,${reference.data.toString("base64")}`
+      );
+    }
+    return await this.executeRequest(
+      `${site.baseUrl}/v1/images/generations`,
+      {
         method: "POST",
         headers: {
           Authorization: `Bearer ${site.apiKey}`,
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({
-          model,
-          prompt: input.prompt,
-          size: sizeForAspectRatio(input.aspectRatio),
-          n: 1,
-          // 强制内联返回 base64：部分网关的图床域名（url 指向的文件服务）
-          // 从用户网络不可达，内联数据可直接落盘并经本地 content 路由分发。
-          response_format: "b64_json"
-        }),
+        body: JSON.stringify(body),
         signal: AbortSignal.timeout(IMAGE_GENERATION_TIMEOUT_MS)
-      });
+      },
+      model
+    );
+  }
+
+  /** 发请求 + 统一错误映射 + 解析 data[0]（两个端点的响应形态一致）。 */
+  private async executeRequest(
+    url: string,
+    init: RequestInit,
+    model: string
+  ): Promise<GeneratedImagePayload> {
+    let response: Response;
+    try {
+      response = await this.fetchFn(url, init);
     } catch (error) {
       if (isTimeout(error)) {
         throw new ImageGeneratorError("timeout", "图片生成响应超时，请稍后重试。");

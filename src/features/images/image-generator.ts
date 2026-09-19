@@ -12,11 +12,22 @@ export interface GeneratedImagePayload {
   format: string;
 }
 
+/** 图生图参考图：data 为原始二进制，mimeType 如 image/png。 */
+export interface ReferenceImage {
+  data: Buffer;
+  mimeType: string;
+}
+
 export interface ImageGeneratorInput {
   prompt: string;
   aspectRatio: ImageAspectRatio;
   /** 生图模型 id；缺省用服务端配置的默认模型。跨站模型由服务端按目录路由。 */
   model?: string;
+  /**
+   * 参考形象图（图生图）：非空时适配器优先走 /v1/images/edits（multipart 文件字段），
+   * 渠道不可用再降级 /v1/images/generations + image data URL 数组。
+   */
+  referenceImages?: ReferenceImage[];
 }
 
 export interface ImageGenerator {

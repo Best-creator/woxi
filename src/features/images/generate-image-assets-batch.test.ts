@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { SqliteArticleRepository } from "@/features/articles/sqlite-repository";
 import type { ImagePlanSuggestion } from "./domain";
 import { generateImageAssetsBatch } from "./generate-image-assets-batch";
-import type { GeneratedImagePayload } from "./image-generator";
+import type { GeneratedImagePayload, ImageGeneratorInput } from "./image-generator";
 import type { ImageAssetRepository } from "./repository";
 import { SqliteImageAssetRepository } from "./sqlite-repository";
 import { createTestDatabase } from "../../../tests/helpers/test-db";
@@ -172,5 +172,59 @@ describe("generateImageAssetsBatch", () => {
     // 一张都没落成 → 整体 conflict；已落盘的半成品必须清掉。
     expect(result).toEqual({ kind: "conflict" });
     expect(await readdir(storageDir)).toEqual([]);
+  });
+
+  it("applies the style and character enhancements to every frame in the batch", async () => {
+    const fixture = await createPlannedFixture(2);
+    const inputs: ImageGeneratorInput[] = [];
+
+    const result = await generateImageAssetsBatch(fixture, {
+      images: fixture.imagesRepo,
+      generator: {
+        generate: async (input) => {
+          inputs.push(input);
+          return payloadWith("ok");
+        }
+      },
+      planSettings: {
+        get: async () => ({ style: "扁平插画，暖色调", characterId: "char-1" }),
+        set: async () => undefined
+      },
+      characters: {
+        list: async () => [],
+        findById: async (id: string) =>
+          id === "char-1"
+            ? {
+                id: "char-1",
+                name: "蘑菇老师",
+                persona: "科普老师",
+                description: "戴圆框眼镜的蘑菇头卡通形象",
+                mimeType: "image/png",
+                filePath: "",
+                publicUrl: "/api/characters/char-1/image",
+                createdAt: "2026-09-18T00:00:00.000Z",
+                updatedAt: "2026-09-18T00:00:00.000Z"
+              }
+            : null,
+        create: async () => {
+          throw new Error("not used in this test");
+        },
+        update: async () => null,
+        remove: async () => false
+      }
+    });
+
+    if (result.kind !== "saved") throw new Error(`expected saved, got ${result.kind}`);
+    expect(result.succeeded).toBe(2);
+    expect(inputs).toHaveLength(2);
+    // 每一帧的 prompt 都被前置了同一份画风 + 参考形象文本。
+    for (const input of inputs) {
+      expect(input.prompt).toContain("【绘制风格】");
+      expect(input.prompt).toContain("扁平插画，暖色调");
+      expect(input.prompt).toContain("【参考形象】蘑菇老师（科普老师）");
+      expect(input.prompt.indexOf("【绘制风格】")).toBeLessThan(input.prompt.indexOf("提示词-"));
+    }
+    // 参考形象没配文件路径 → 无参考图二进制，生成输入不带 referenceImages。
+    expect(inputs.every((input) => input.referenceImages === undefined)).toBe(true);
   });
 });

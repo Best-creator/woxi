@@ -6,6 +6,12 @@ import { removeGenerationFile } from "./generation-files";
 import type { ImageGenerator } from "./image-generator";
 import { ImageGeneratorError } from "./image-generator";
 import { persistImage } from "./generate-image-asset";
+import {
+  buildGenerationEnhancements,
+  composeEnhancedPrompt,
+  referenceImagesField,
+  type GenerationEnhancementDependencies
+} from "./generation-enhancements";
 import type { ImageAssetRepository } from "./repository";
 
 export type GenerateImageAssetsBatchResult =
@@ -22,7 +28,7 @@ export type GenerateImageAssetsBatchResult =
   | { kind: "conflict" }
   | { kind: "nothing_pending" };
 
-export interface GenerateImageAssetsBatchDependencies {
+export interface GenerateImageAssetsBatchDependencies extends GenerationEnhancementDependencies {
   images: ImageAssetRepository;
   generator: ImageGenerator;
   /** 生成文件的落盘目录（默认 .data/generated-images），测试可注入临时目录。 */
@@ -65,6 +71,9 @@ export async function generateImageAssetsBatch(
   const pending = all.filter(isPending);
   if (!pending.length) return { kind: "nothing_pending" };
 
+  // 画风/参考形象增强整批构建一次（同批帧共享同一份偏好）；读不到时是空增强。
+  const enhancements = await buildGenerationEnhancements(input.articleId, dependencies);
+
   // ── 阶段 1：串行占位。conflict/not_found 就整批不打上游。──
   let token = input.expectedUpdatedAt;
   const started: ImageAsset[] = [];
@@ -82,8 +91,9 @@ export async function generateImageAssetsBatch(
   const settled = await Promise.allSettled(
     started.map((asset) =>
       dependencies.generator.generate({
-        prompt: asset.prompt,
+        prompt: composeEnhancedPrompt(asset.prompt, enhancements),
         aspectRatio: asset.aspectRatio,
+        ...referenceImagesField(enhancements),
         ...(input.model ? { model: input.model } : {})
       })
     )

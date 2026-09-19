@@ -815,6 +815,7 @@ export function ArticleWorkspace({
                   readOnly={isNarrowViewport}
                   disabled={isDirty || autosaveBlocked || saveState === "saving"}
                   onResult={applyImageResult}
+                  planSettingsEnabled={imageGenerationEnabled}
                   updateAsset={(assetId, input) =>
                     beginImageOperation(() =>
                       updateImageAsset(articleRef.current.id, assetId, input)

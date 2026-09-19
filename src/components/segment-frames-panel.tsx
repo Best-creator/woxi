@@ -47,6 +47,17 @@ function isPendingFrame(asset: ImageAsset) {
   return asset.status !== "disabled" && asset.status !== "generated" && asset.status !== "generating";
 }
 
+/** 第四步帧生成的可选偏好：画风（风格库条目引用或空）与参考形象 id 或空。 */
+export interface PlanSettingsChoice {
+  style: string;
+  characterId: string | null;
+}
+
+interface PlanSettingsOption {
+  value: string;
+  label: string;
+}
+
 export interface SegmentFramesPanelProps {
   article: Article;
   assets: ImageAsset[];
@@ -72,6 +83,8 @@ export interface SegmentFramesPanelProps {
     assetId: string,
     input: ImageAssetPatch & { expectedUpdatedAt: string }
   ) => Promise<ImageMutationPayload>;
+  /** 已配置生图服务时为 true：显示「绘制风格 + 参考形象」配置行（保存到 image-settings）。 */
+  planSettingsEnabled?: boolean;
 }
 
 export function SegmentFramesPanel({
@@ -84,7 +97,8 @@ export function SegmentFramesPanel({
   generateBatch,
   refreshPlaceholder,
   selectGeneration,
-  updateAsset
+  updateAsset,
+  planSettingsEnabled = false
 }: SegmentFramesPanelProps) {
   const [busyAssetId, setBusyAssetId] = useState<string | null>(null);
   const [batchBusy, setBatchBusy] = useState(false);
@@ -97,6 +111,12 @@ export function SegmentFramesPanel({
     kind: SpeechLineKind;
     value: string;
   } | null>(null);
+  // 生成偏好：settingsSaved 是已保存基线（用于 dirty 判断），settingsDraft 是表单草稿。
+  const [settingsSaved, setSettingsSaved] = useState<PlanSettingsChoice | null>(null);
+  const [settingsDraft, setSettingsDraft] = useState<PlanSettingsChoice | null>(null);
+  const [styleOptions, setStyleOptions] = useState<PlanSettingsOption[]>([]);
+  const [characterOptions, setCharacterOptions] = useState<PlanSettingsOption[]>([]);
+  const [settingsBusy, setSettingsBusy] = useState(false);
 
   const segments = useMemo(
     () => [...(article.planning.storyboardSegments ?? [])].sort((left, right) => left.order - right.order),
@@ -139,6 +159,81 @@ export function SegmentFramesPanel({
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void refreshGenerations();
   }, [refreshGenerations]);
+
+  const loadPlanSettings = useCallback(async () => {
+    // 偏好 + 画风库 + 参考形象三路并行；任一失败配置行保持隐藏（静默降级，同 refreshGenerations）。
+    try {
+      const [settingsResponse, stylesResponse, charactersResponse] = await Promise.all([
+        fetch(`/api/articles/${article.id}/image-settings`),
+        fetch("/api/style-library"),
+        fetch("/api/characters")
+      ]);
+      if (!settingsResponse.ok || !stylesResponse.ok || !charactersResponse.ok) return;
+      const settings = (await settingsResponse.json()) as Partial<PlanSettingsChoice>;
+      const stylesPayload = (await stylesResponse.json()) as {
+        styles?: Array<{ id: string; name: string }>;
+      };
+      const charactersPayload = (await charactersResponse.json()) as {
+        characters?: Array<{ id: string; name: string }>;
+      };
+      const initial: PlanSettingsChoice = {
+        style: settings.style ?? "",
+        characterId: settings.characterId ?? null
+      };
+      setSettingsSaved(initial);
+      setSettingsDraft(initial);
+      setStyleOptions(
+        (stylesPayload.styles ?? []).map((style) => ({
+          value: `library:${style.id}`,
+          label: style.name
+        }))
+      );
+      setCharacterOptions(
+        (charactersPayload.characters ?? []).map((character) => ({
+          value: character.id,
+          label: character.name
+        }))
+      );
+    } catch {
+      // 离线/测试环境：配置行保持隐藏，不影响生成主链路。
+    }
+  }, [article.id]);
+
+  useEffect(() => {
+    if (!planSettingsEnabled) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadPlanSettings();
+  }, [planSettingsEnabled, loadPlanSettings]);
+
+  const settingsDirty = useMemo(() => {
+    if (!settingsDraft || !settingsSaved) return false;
+    return (
+      settingsDraft.style !== settingsSaved.style ||
+      (settingsDraft.characterId ?? "") !== (settingsSaved.characterId ?? "")
+    );
+  }, [settingsDraft, settingsSaved]);
+
+  async function savePlanSettings() {
+    if (!settingsDraft) return;
+    setSettingsBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/articles/${article.id}/image-settings`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ style: settingsDraft.style, characterId: settingsDraft.characterId })
+      });
+      if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(data?.error || "生成偏好保存失败，请稍后重试");
+      }
+      setSettingsSaved({ ...settingsDraft });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "操作失败，请稍后重试");
+    } finally {
+      setSettingsBusy(false);
+    }
+  }
 
   const locked = readOnly || disabled || batchBusy || busyAssetId !== null;
   const generationEnabled = Boolean(generateImage);
@@ -233,6 +328,68 @@ export function SegmentFramesPanel({
           出齐后即可在下方拼接段图。
         </p>
       </div>
+
+      {planSettingsEnabled && settingsDraft ? (
+        <form
+          className="segment-frames-settings"
+          aria-label="生成偏好"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void savePlanSettings();
+          }}
+        >
+          <label className="segment-frames-settings-field">
+            <span>绘制风格</span>
+            <select
+              value={settingsDraft.style}
+              disabled={locked || settingsBusy}
+              aria-label="绘制风格"
+              onChange={(event) =>
+                setSettingsDraft((current) =>
+                  current ? { ...current, style: event.target.value } : current
+                )
+              }
+            >
+              <option value="">跟随设计稿（不额外注入）</option>
+              {styleOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="segment-frames-settings-field">
+            <span>参考形象</span>
+            <select
+              value={settingsDraft.characterId ?? ""}
+              disabled={locked || settingsBusy}
+              aria-label="参考形象"
+              onChange={(event) =>
+                setSettingsDraft((current) =>
+                  current ? { ...current, characterId: event.target.value || null } : current
+                )
+              }
+            >
+              <option value="">不使用</option>
+              {characterOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            className="button button-secondary segment-frames-settings-save"
+            type="submit"
+            disabled={locked || settingsBusy || !settingsDirty}
+          >
+            {settingsBusy ? "保存中..." : "保存偏好"}
+          </button>
+          <p className="segment-frames-settings-note">
+            对之后新发起的帧生成生效：画风注入每帧提示词；参考形象同时附上形象图做图生图，保持角色一致。
+          </p>
+        </form>
+      ) : null}
 
       {generateBatch && pendingFrames.length ? (
         <div className="segment-frames-batch">

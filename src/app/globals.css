@@ -3277,6 +3277,37 @@ h2 {
   display: flex;
 }
 
+.segment-frames-settings {
+  align-items: end;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  padding: 10px 12px;
+}
+
+.segment-frames-settings-field {
+  display: grid;
+  gap: 4px;
+}
+
+.segment-frames-settings-field span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.segment-frames-settings-field select {
+  min-width: 180px;
+}
+
+.segment-frames-settings-note {
+  color: var(--muted);
+  flex-basis: 100%;
+  font-size: 12px;
+  margin: 0;
+}
+
 .segment-frames-list {
   display: grid;
   gap: 12px;

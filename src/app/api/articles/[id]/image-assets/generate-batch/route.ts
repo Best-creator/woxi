@@ -4,9 +4,18 @@ import {
   generateImageAssetsBatch,
   type GenerateImageAssetsBatchDependencies
 } from "@/features/images/generate-image-assets-batch";
+import type { GenerationEnhancementDependencies } from "@/features/images/generation-enhancements";
 import type { ImageGenerator } from "@/features/images/image-generator";
+import { SqliteImagePlanSettingsRepository } from "@/features/images/plan-settings";
 import type { ImageAssetRepository } from "@/features/images/repository";
-import { getArticleRepository, getImageGenerator, getImageAssetRepository } from "@/server/services";
+import {
+  getArticleRepository,
+  getDatabase,
+  getImageGenerator,
+  getImageAssetRepository,
+  getReferenceCharacterRepository,
+  getStyleLibraryRepository
+} from "@/server/services";
 
 export const runtime = "nodejs";
 // 批量并行生成的耗时≈最慢一张，放宽到与单张生成一致的上限。
@@ -47,7 +56,9 @@ export function createImageAssetBatchRouteHandler(
   articles: ArticleRepository,
   images: ImageAssetRepository,
   generator: ImageGenerator | null,
-  storageDir?: string
+  storageDir?: string,
+  /** 画风/参考形象增强依赖；缺省为空（生成退化为纯 prompt）。 */
+  enhancements: GenerationEnhancementDependencies = {}
 ) {
   return async function POST(request: Request, context: RouteContext) {
     if (!generator) {
@@ -68,7 +79,11 @@ export function createImageAssetBatchRouteHandler(
       return Response.json({ error: "文章版本信息无效" }, { status: 400 });
     }
 
-    const dependencies: GenerateImageAssetsBatchDependencies = { images, generator };
+    const dependencies: GenerateImageAssetsBatchDependencies = {
+      images,
+      generator,
+      ...enhancements
+    };
     if (storageDir) dependencies.storageDir = storageDir;
     return batchResponse(
       await generateImageAssetsBatch(
@@ -87,6 +102,12 @@ export function POST(request: Request, context: RouteContext) {
   return createImageAssetBatchRouteHandler(
     getArticleRepository(),
     getImageAssetRepository(),
-    getImageGenerator()
+    getImageGenerator(),
+    undefined,
+    {
+      planSettings: new SqliteImagePlanSettingsRepository(getDatabase()),
+      characters: getReferenceCharacterRepository(),
+      styleLibrary: getStyleLibraryRepository()
+    }
   )(request, context);
 }

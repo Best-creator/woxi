@@ -4,9 +4,18 @@ import {
   generateImageAsset,
   type GenerateImageAssetDependencies
 } from "@/features/images/generate-image-asset";
+import type { GenerationEnhancementDependencies } from "@/features/images/generation-enhancements";
 import type { ImageGenerator } from "@/features/images/image-generator";
+import { SqliteImagePlanSettingsRepository } from "@/features/images/plan-settings";
 import type { ImageAssetRepository } from "@/features/images/repository";
-import { getArticleRepository, getImageGenerator, getImageAssetRepository } from "@/server/services";
+import {
+  getArticleRepository,
+  getDatabase,
+  getImageGenerator,
+  getImageAssetRepository,
+  getReferenceCharacterRepository,
+  getStyleLibraryRepository
+} from "@/server/services";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -50,7 +59,9 @@ export function createImageAssetGenerateRouteHandler(
   _articles: ArticleRepository,
   images: ImageAssetRepository,
   generator: ImageGenerator | null,
-  storageDir?: string
+  storageDir?: string,
+  /** 画风/参考形象增强依赖；缺省为空（生成退化为纯 prompt）。 */
+  enhancements: GenerationEnhancementDependencies = {}
 ) {
   return async function POST(request: Request, context: RouteContext) {
     if (!generator) {
@@ -68,7 +79,7 @@ export function createImageAssetGenerateRouteHandler(
       return Response.json({ error: "文章版本信息无效" }, { status: 400 });
     }
 
-    const dependencies: GenerateImageAssetDependencies = { images, generator };
+    const dependencies: GenerateImageAssetDependencies = { images, generator, ...enhancements };
     if (storageDir) dependencies.storageDir = storageDir;
     return generationResponse(
       await generateImageAsset(
@@ -88,6 +99,12 @@ export function POST(request: Request, context: RouteContext) {
   return createImageAssetGenerateRouteHandler(
     getArticleRepository(),
     getImageAssetRepository(),
-    getImageGenerator()
+    getImageGenerator(),
+    undefined,
+    {
+      planSettings: new SqliteImagePlanSettingsRepository(getDatabase()),
+      characters: getReferenceCharacterRepository(),
+      styleLibrary: getStyleLibraryRepository()
+    }
   )(request, context);
 }

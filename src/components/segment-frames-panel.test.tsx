@@ -100,6 +100,7 @@ function setup(overrides: {
   withGeneration?: boolean;
   withSelectGeneration?: boolean;
   withUpdateAsset?: boolean;
+  planSettingsEnabled?: boolean;
 } = {}) {
   const withGeneration = overrides.withGeneration ?? true;
   const withUpdateAsset = overrides.withUpdateAsset ?? true;
@@ -125,7 +126,8 @@ function setup(overrides: {
       : undefined,
     updateAsset: withUpdateAsset
       ? vi.fn().mockResolvedValue({ article: segmentArticle(), assets: [] })
-      : undefined
+      : undefined,
+    planSettingsEnabled: overrides.planSettingsEnabled
   };
   render(<SegmentFramesPanel {...props} />);
   return props;
@@ -418,5 +420,103 @@ describe("SegmentFramesPanel 帧版本抽屉", () => {
 
     expect(screen.getByText("段 1 · 开场")).toBeInTheDocument();
     expect(screen.queryByText(/已生成 \d+ 版/)).toBeNull();
+  });
+});
+
+describe("SegmentFramesPanel 生成偏好配置行", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** stub 偏好三接口（image-settings / style-library / characters）与素材库。 */
+  function stubPlanSettingsFetch(
+    settings: { style: string; characterId: string | null } = { style: "", characterId: null }
+  ) {
+    const fetchMock = vi.fn(async (url: unknown, init?: RequestInit) => {
+      const href = String(url);
+      if (href.includes("/image-settings")) {
+        if (init?.method === "PUT") {
+          return { ok: true, json: async () => ({}) };
+        }
+        return { ok: true, json: async () => settings };
+      }
+      if (href.includes("/style-library")) {
+        return { ok: true, json: async () => ({ styles: [{ id: "s1", name: "暖调扁平" }] }) };
+      }
+      if (href.includes("/characters")) {
+        return { ok: true, json: async () => ({ characters: [{ id: "c1", name: "蘑菇老师" }] }) };
+      }
+      return { ok: true, json: async () => ({ generations: [] }) };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it("stays hidden unless plan settings are explicitly enabled", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+    vi.stubGlobal("fetch", fetchMock);
+    setup();
+
+    expect(screen.getByText("段 1 · 开场")).toBeInTheDocument();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    // 素材库照常拉取，但偏好接口一个都不碰。
+    expect(fetchMock.mock.calls.every(([url]) => !String(url).includes("image-settings"))).toBe(true);
+    expect(screen.queryByRole("form", { name: "生成偏好" })).toBeNull();
+  });
+
+  it("loads the saved style and character choices with dropdown options", async () => {
+    stubPlanSettingsFetch({ style: "library:s1", characterId: "c1" });
+    setup({ planSettingsEnabled: true });
+
+    const styleSelect = (await screen.findByLabelText("绘制风格")) as HTMLSelectElement;
+    expect(styleSelect.value).toBe("library:s1");
+    expect(screen.getByRole("option", { name: "跟随设计稿（不额外注入）" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "暖调扁平" })).toBeInTheDocument();
+
+    const characterSelect = screen.getByLabelText("参考形象") as HTMLSelectElement;
+    expect(characterSelect.value).toBe("c1");
+    expect(screen.getByRole("option", { name: "不使用" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "蘑菇老师" })).toBeInTheDocument();
+  });
+
+  it("saves the changed choices through PUT only after the user edits them", async () => {
+    const fetchMock = stubPlanSettingsFetch({ style: "", characterId: null });
+    setup({ planSettingsEnabled: true });
+
+    const saveButton = await screen.findByRole("button", { name: "保存偏好" });
+    expect(saveButton).toBeDisabled();
+
+    await userEvent.selectOptions(screen.getByLabelText("绘制风格"), "library:s1");
+    await userEvent.selectOptions(screen.getByLabelText("参考形象"), "c1");
+    expect(saveButton).toBeEnabled();
+
+    await userEvent.click(saveButton);
+
+    const put = fetchMock.mock.calls.find(
+      ([, init]) => (init as RequestInit | undefined)?.method === "PUT"
+    );
+    expect(put).toBeTruthy();
+    expect(JSON.parse(String((put![1] as RequestInit).body))).toEqual({
+      style: "library:s1",
+      characterId: "c1"
+    });
+    // 保存成功后回到未修改基线，按钮再次禁用。
+    await waitFor(() => expect(saveButton).toBeDisabled());
+  });
+
+  it("keeps the row hidden when the settings fetch fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: unknown) => {
+        if (String(url).includes("/image-settings")) {
+          return { ok: false, json: async () => ({}) };
+        }
+        return { ok: true, json: async () => ({}) };
+      })
+    );
+    setup({ planSettingsEnabled: true });
+
+    expect(screen.getByText("段 1 · 开场")).toBeInTheDocument();
+    expect(screen.queryByLabelText("绘制风格")).toBeNull();
   });
 });

@@ -1,13 +1,19 @@
 // @vitest-environment node
 
-import { mkdtemp, readFile, readdir } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { SqliteArticleRepository } from "@/features/articles/sqlite-repository";
+import type {
+  ReferenceCharacter,
+  ReferenceCharacterRepository
+} from "@/features/characters/domain";
+import type { StyleLibraryEntry, StyleLibraryRepository, StyleProfile } from "@/features/style-library/domain";
+import type { ImagePlanSettingsRepository } from "./plan-settings";
 import type { ImagePlanSuggestion } from "./domain";
 import { generateImageAsset } from "./generate-image-asset";
-import type { GeneratedImagePayload, ImageGenerator } from "./image-generator";
+import type { GeneratedImagePayload, ImageGenerator, ImageGeneratorInput } from "./image-generator";
 import type { ImageAssetRepository } from "./repository";
 import { SqliteImageAssetRepository } from "./sqlite-repository";
 import { createTestDatabase } from "../../../tests/helpers/test-db";
@@ -213,5 +219,172 @@ describe("generateImageAsset", () => {
       { images: imagesRepo, generator: generatorReturning({ remoteUrl: null, binary: null, format: "png" }) }
     );
     expect(conflicted).toEqual({ kind: "conflict" });
+  });
+
+  it("keeps the plain prompt when no plan-settings dependency is provided", async () => {
+    const fixture = await createPlannedFixture();
+    const inputs: ImageGeneratorInput[] = [];
+    const result = await generateImageAsset(fixture, {
+      images: fixture.imagesRepo,
+      generator: {
+        generate: async (input) => {
+          inputs.push(input);
+          return { remoteUrl: null, binary: Buffer.from("img"), format: "png" };
+        }
+      }
+    });
+    expect(result.kind).toBe("saved");
+    expect(inputs[0]?.prompt).toBe("机会成本的清晰中文信息图");
+    expect(inputs[0]?.referenceImages).toBeUndefined();
+  });
+});
+
+describe("generateImageAsset with plan-settings enhancements", () => {
+  function settingsReturning(settings: { style: string; characterId: string | null }): ImagePlanSettingsRepository {
+    return { get: async () => settings, set: async () => undefined };
+  }
+
+  function characterFixture(overrides: Partial<ReferenceCharacter> = {}): ReferenceCharacter {
+    return {
+      id: "char-1",
+      name: "蘑菇老师",
+      persona: "科普老师",
+      description: "戴圆框眼镜的蘑菇头卡通形象",
+      mimeType: "image/png",
+      filePath: "",
+      publicUrl: "/api/characters/char-1/image",
+      createdAt: "2026-09-18T00:00:00.000Z",
+      updatedAt: "2026-09-18T00:00:00.000Z",
+      ...overrides
+    };
+  }
+
+  function charactersReturning(records: ReferenceCharacter[]): ReferenceCharacterRepository {
+    return {
+      list: async () => records,
+      findById: async (id: string) => records.find((record) => record.id === id) ?? null,
+      create: async () => {
+        throw new Error("not used in this test");
+      },
+      update: async () => null,
+      remove: async () => false
+    };
+  }
+
+  const PROFILE: StyleProfile = {
+    name: "暖调扁平",
+    summary: "暖色扁平插画风格，适合科普配图",
+    palette: ["#F5E6D3", "#E8927C", "#3E6B48"],
+    lineWork: "圆润均匀的描边，无渐变",
+    characterDesign: "圆润简洁的卡通角色，比例 2 头身",
+    composition: "中心构图，主体突出",
+    background: "单色或简单几何背景",
+    textRendering: "无文字或少量清晰中文标注",
+    promptTemplate: "扁平插画：暖纸底色，柔和阴影，色块干净，边线圆润，整体像绘本内页"
+  };
+
+  function styleLibraryReturning(entries: StyleLibraryEntry[]): StyleLibraryRepository {
+    return {
+      list: async () => entries,
+      findById: async (id: string) => entries.find((entry) => entry.id === id) ?? null,
+      upsert: async () => {
+        throw new Error("not used in this test");
+      }
+    };
+  }
+
+  function capturingGenerator(inputs: ImageGeneratorInput[]): ImageGenerator {
+    return {
+      generate: async (input) => {
+        inputs.push(input);
+        return { remoteUrl: null, binary: Buffer.from("img"), format: "png" };
+      }
+    };
+  }
+
+  it("injects style text, character text and the reference image into the generator input", async () => {
+    const fixture = await createPlannedFixture();
+    const storageDir = await mkdtemp(join(tmpdir(), "wo-xi-gen-"));
+    const referencePng = Buffer.from("reference-character-png");
+    const referencePath = join(storageDir, "character.png");
+    await writeFile(referencePath, referencePng);
+
+    const inputs: ImageGeneratorInput[] = [];
+    const result = await generateImageAsset(fixture, {
+      images: fixture.imagesRepo,
+      generator: capturingGenerator(inputs),
+      storageDir,
+      planSettings: settingsReturning({ style: "扁平插画，暖色调", characterId: "char-1" }),
+      characters: charactersReturning([characterFixture({ filePath: referencePath })])
+    });
+
+    expect(result.kind).toBe("saved");
+    expect(inputs).toHaveLength(1);
+    const input = inputs[0]!;
+    expect(input.prompt).toContain("【绘制风格】");
+    expect(input.prompt).toContain("扁平插画，暖色调");
+    expect(input.prompt).toContain("【参考形象】蘑菇老师（科普老师）");
+    expect(input.prompt).toContain("外形描述：戴圆框眼镜的蘑菇头卡通形象");
+    // 原 prompt 仍在增强文本之后，作为画面主描述。
+    expect(input.prompt.indexOf("【绘制风格】")).toBeLessThan(input.prompt.indexOf("机会成本的清晰中文信息图"));
+    expect(input.referenceImages).toHaveLength(1);
+    expect(input.referenceImages?.[0]?.data.equals(referencePng)).toBe(true);
+    expect(input.referenceImages?.[0]?.mimeType).toBe("image/png");
+  });
+
+  it("resolves a library style reference to the full style guide text", async () => {
+    const fixture = await createPlannedFixture();
+    const entry: StyleLibraryEntry = {
+      id: "style-9",
+      name: "暖调扁平",
+      profile: PROFILE,
+      source: "test",
+      createdAt: "2026-09-18T00:00:00.000Z",
+      updatedAt: "2026-09-18T00:00:00.000Z"
+    };
+    const inputs: ImageGeneratorInput[] = [];
+    const result = await generateImageAsset(fixture, {
+      images: fixture.imagesRepo,
+      generator: capturingGenerator(inputs),
+      planSettings: settingsReturning({ style: "library:style-9", characterId: null }),
+      characters: charactersReturning([]),
+      styleLibrary: styleLibraryReturning([entry])
+    });
+
+    expect(result.kind).toBe("saved");
+    expect(inputs[0]?.prompt).toContain("【画风】扁平插画：暖纸底色");
+    expect(inputs[0]?.prompt).toContain("【主色板】");
+    expect(inputs[0]?.referenceImages).toBeUndefined();
+  });
+
+  it("skips only the reference image when the character file is unreadable", async () => {
+    const fixture = await createPlannedFixture();
+    const inputs: ImageGeneratorInput[] = [];
+    const result = await generateImageAsset(fixture, {
+      images: fixture.imagesRepo,
+      generator: capturingGenerator(inputs),
+      planSettings: settingsReturning({ style: "", characterId: "char-1" }),
+      characters: charactersReturning([characterFixture({ filePath: join(tmpdir(), "no-such-file.png") })])
+    });
+
+    expect(result.kind).toBe("saved");
+    expect(inputs[0]?.prompt).toContain("【参考形象】蘑菇老师（科普老师）");
+    expect(inputs[0]?.prompt).not.toContain("【绘制风格】");
+    expect(inputs[0]?.referenceImages).toBeUndefined();
+  });
+
+  it("degrades to the plain prompt when the configured library style no longer exists", async () => {
+    const fixture = await createPlannedFixture();
+    const inputs: ImageGeneratorInput[] = [];
+    const result = await generateImageAsset(fixture, {
+      images: fixture.imagesRepo,
+      generator: capturingGenerator(inputs),
+      planSettings: settingsReturning({ style: "library:gone", characterId: null }),
+      styleLibrary: styleLibraryReturning([])
+    });
+
+    expect(result.kind).toBe("saved");
+    expect(inputs[0]?.prompt).toBe("机会成本的清晰中文信息图");
+    expect(inputs[0]?.referenceImages).toBeUndefined();
   });
 });

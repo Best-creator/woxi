@@ -226,4 +226,112 @@ describe("OpenAiImageGenerator", () => {
     expect(error).toBeInstanceOf(Error);
     expect(error.message).toBe("服务不可用");
   });
+
+  it("posts reference images to the edits endpoint as multipart files", async () => {
+    let capturedUrl = "";
+    let capturedInit: RequestInit | undefined;
+    const fetchFn = async (url: unknown, init?: RequestInit) => {
+      capturedUrl = String(url);
+      capturedInit = init;
+      return generationResponse({ b64_json: SAMPLE_PNG.toString("base64") });
+    };
+    const generator = new OpenAiImageGenerator([site], fetchFn as typeof fetch);
+
+    const payload = await generator.generate({
+      prompt: "画蘑菇老师讲课",
+      aspectRatio: "portrait",
+      referenceImages: [{ data: SAMPLE_PNG, mimeType: "image/png" }]
+    });
+
+    expect(capturedUrl).toBe("https://image.example.test/api/v1/images/edits");
+    expect(capturedInit?.body).toBeInstanceOf(FormData);
+    const formData = capturedInit?.body as FormData;
+    expect(formData.get("model")).toBe("test-image-model");
+    expect(formData.get("prompt")).toBe("画蘑菇老师讲课");
+    expect(formData.get("size")).toBe("1024x1536");
+    expect(formData.get("response_format")).toBe("b64_json");
+    const file = formData.get("image");
+    expect(file).toBeInstanceOf(Blob);
+    expect((file as Blob).type).toBe("image/png");
+    expect(Buffer.from(await (file as Blob).arrayBuffer()).equals(SAMPLE_PNG)).toBe(true);
+    expect(payload.binary?.equals(SAMPLE_PNG)).toBe(true);
+  });
+
+  it("falls back to generations with data-url references when the edits endpoint fails", async () => {
+    const calledUrls: string[] = [];
+    let capturedBody: unknown;
+    const fetchFn = async (url: unknown, init?: RequestInit) => {
+      calledUrls.push(String(url));
+      if (calledUrls.length === 1) {
+        return new Response("edits channel unavailable", { status: 503 });
+      }
+      capturedBody = JSON.parse(String(init?.body));
+      return generationResponse({ b64_json: SAMPLE_PNG.toString("base64") });
+    };
+    const generator = new OpenAiImageGenerator([site], fetchFn as typeof fetch);
+
+    const payload = await generator.generate({
+      prompt: "x",
+      aspectRatio: "square",
+      referenceImages: [{ data: SAMPLE_PNG, mimeType: "image/png" }]
+    });
+
+    expect(calledUrls).toEqual([
+      "https://image.example.test/api/v1/images/edits",
+      "https://image.example.test/api/v1/images/generations"
+    ]);
+    expect(capturedBody).toMatchObject({
+      model: "test-image-model",
+      prompt: "x",
+      size: "1024x1024",
+      image: [`data:image/png;base64,${SAMPLE_PNG.toString("base64")}`]
+    });
+    expect(payload.binary?.equals(SAMPLE_PNG)).toBe(true);
+  });
+
+  it("does not fall back when the edits endpoint rejects the credentials", async () => {
+    const calledUrls: string[] = [];
+    const fetchFn = async (url: unknown) => {
+      calledUrls.push(String(url));
+      return new Response("denied", { status: 401 });
+    };
+    const generator = new OpenAiImageGenerator([site], fetchFn as typeof fetch);
+
+    await expect(
+      generator.generate({
+        prompt: "x",
+        aspectRatio: "square",
+        referenceImages: [{ data: SAMPLE_PNG, mimeType: "image/png" }]
+      })
+    ).rejects.toMatchObject({ code: "authentication" });
+    expect(calledUrls).toEqual(["https://image.example.test/api/v1/images/edits"]);
+  });
+
+  it("does not fall back on cooldown so the outer retry loop reruns the edits path", async () => {
+    let attempts = 0;
+    const calledUrls: string[] = [];
+    const fetchFn = async (url: unknown) => {
+      attempts++;
+      calledUrls.push(String(url));
+      if (attempts === 1) {
+        return new Response(JSON.stringify({ error: { message: '冷却中，"reset_seconds": 0' } }), {
+          status: 429
+        });
+      }
+      return generationResponse({ b64_json: SAMPLE_PNG.toString("base64") });
+    };
+    const generator = new OpenAiImageGenerator([site], fetchFn as typeof fetch);
+
+    const payload = await generator.generate({
+      prompt: "x",
+      aspectRatio: "square",
+      referenceImages: [{ data: SAMPLE_PNG, mimeType: "image/png" }]
+    });
+
+    expect(calledUrls).toEqual([
+      "https://image.example.test/api/v1/images/edits",
+      "https://image.example.test/api/v1/images/edits"
+    ]);
+    expect(payload.binary?.equals(SAMPLE_PNG)).toBe(true);
+  });
 });

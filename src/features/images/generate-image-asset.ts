@@ -7,6 +7,12 @@ import { removeGenerationFile } from "./generation-files";
 import type { ImageAssetRepository, ImagePlanMutationResult } from "./repository";
 import { ImageGeneratorError } from "./image-generator";
 import type { ImageGenerator } from "./image-generator";
+import {
+  buildGenerationEnhancements,
+  composeEnhancedPrompt,
+  referenceImagesField,
+  type GenerationEnhancementDependencies
+} from "./generation-enhancements";
 
 export type GenerateImageAssetResult =
   | { kind: "saved"; article: Article; assets: ImageAsset[] }
@@ -24,7 +30,7 @@ export type GenerateImageAssetResult =
       assets?: ImageAsset[];
     };
 
-export interface GenerateImageAssetDependencies {
+export interface GenerateImageAssetDependencies extends GenerationEnhancementDependencies {
   images: ImageAssetRepository;
   generator: ImageGenerator;
   /** 生成文件的落盘目录（默认 .data/generated-images），测试可注入临时目录。 */
@@ -94,9 +100,12 @@ export async function generateImageAsset(
   let filePath: string | null = null;
 
   try {
+    // 画风/参考形象增强：读不到偏好时是空增强，prompt 与旧行为完全一致。
+    const enhancements = await buildGenerationEnhancements(input.articleId, dependencies);
     const payload = await dependencies.generator.generate({
-      prompt: asset.prompt,
+      prompt: composeEnhancedPrompt(asset.prompt, enhancements),
       aspectRatio: asset.aspectRatio,
+      ...referenceImagesField(enhancements),
       ...(input.model ? { model: input.model } : {})
     });
 
