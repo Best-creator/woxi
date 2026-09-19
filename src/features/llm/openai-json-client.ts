@@ -69,6 +69,22 @@ function responseDetail(payload: unknown): string {
   return choice?.finish_reason === "length" ? "回复超出长度上限被截断" : "";
 }
 
+/**
+ * 把网关的真实坏响应打进服务端控制台——「文本不是合法 JSON」这类报错用户侧无法排查，
+ * 只有这里能拿到原始证据（finish_reason / 长度 / 开头 300 字）。只在失败路径触发，不打扰正常流量。
+ */
+function logInvalidResponse(stage: string, payload: unknown, raw?: string) {
+  const choice = (payload as { choices?: Array<{ finish_reason?: unknown; usage?: unknown }> })
+    ?.choices?.[0];
+  const finishReason = choice?.finish_reason;
+  const parts = [`[llm] ${stage}`];
+  if (finishReason !== undefined) parts.push(`finish_reason=${String(finishReason)}`);
+  if (typeof raw === "string") {
+    parts.push(`长度=${raw.length}`, `开头=${JSON.stringify(raw.slice(0, 300))}`);
+  }
+  console.error(parts.join(" | "));
+}
+
 /** 重试时附在对话末尾的纠错指令（角色用 user，兼容性比第二条 system 消息好）。 */
 const RETRY_NOTE =
   "上一次回复没有通过校验。请重新生成一次，只输出一个合法的 JSON 对象——不要 Markdown 代码块、注释或任何解释文字。";
@@ -165,10 +181,12 @@ export class OpenAiJsonClient {
         throw new LlmError("upstream", "语言模型服务暂时不可用，请稍后重试。");
       }
 
+      const rawBody = await response.text();
       let payload: unknown;
       try {
-        payload = await response.json();
+        payload = JSON.parse(rawBody) as unknown;
       } catch {
+        logInvalidResponse("响应体不是合法 JSON", undefined, rawBody);
         detail = "响应体不是合法 JSON";
         correctiveNote = RETRY_NOTE;
         continue;
@@ -180,6 +198,11 @@ export class OpenAiJsonClient {
         : undefined;
       const content = normalizeContent(rawContent);
       if (content === null) {
+        logInvalidResponse(
+          "回复内容为空或格式异常",
+          payload,
+          typeof rawContent === "string" ? rawContent : undefined
+        );
         detail = responseDetail(payload) || "回复内容为空或格式异常";
         correctiveNote = RETRY_NOTE;
         continue;
@@ -198,6 +221,7 @@ export class OpenAiJsonClient {
           parsed = undefined;
         }
         if (parsed === undefined) {
+          logInvalidResponse("文本不是合法 JSON", payload, text);
           detail = responseDetail(payload) || "文本不是合法 JSON";
           correctiveNote =
             "上一次的文本不是合法 JSON——可能带了 Markdown 代码围栏或前后多余文字。" + RETRY_NOTE;
