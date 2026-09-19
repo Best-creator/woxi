@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
-import type { Article, ContentBlock } from "@/features/articles/domain";
+import {
+  resolveStoryboardPresentation,
+  type Article,
+  type ArticlePlanning,
+  type ContentBlock,
+  type StoryboardPresentation
+} from "@/features/articles/domain";
 import type { ArticleRepository } from "@/features/articles/repository";
 import type { SourceRepository } from "@/features/sources/repository";
 import { readySourceContext } from "@/features/outlines/generate-outline";
@@ -16,6 +22,11 @@ export interface GenerateContentCommand {
   expectedUpdatedAt: string;
   model?: string;
   styleProfile: StyleProfile;
+  /**
+   * 呈现形态（界面上的「讲解式 / 剧情漫画」开关）：给了就以它为准并落库；
+   * 没给按文章推断——没设计过分镜的新文默认剧情漫画，已设计过的旧文保持讲解式。
+   */
+  presentation?: StoryboardPresentation;
   /** 绘制风格；缺省时设计器按默认（日系动漫）设计分镜。 */
   drawingStyle?: string;
   /** 参考形象摘要（名称 + 身份 + 外形基准），烘进每帧分镜 prompt。 */
@@ -38,7 +49,9 @@ interface ImageAssetRepositoryLike {
   applyStoryboardPlan: (
     articleId: string,
     expectedUpdatedAt: string,
-    segments: StoryboardSegmentPlan[]
+    segments: StoryboardSegmentPlan[],
+    /** 与设计同一次落库的 planning 字段（呈现形态），避免多一次带乐观锁的写。 */
+    planningPatch?: Partial<ArticlePlanning>
   ) => Promise<
     | { kind: "saved"; article: Article; removedFilePaths: string[] }
     | { kind: "not_found" }
@@ -140,6 +153,8 @@ export async function generateContent(
 
   const sourceContext = readySourceContext(await dependencies.sources.list(article.id));
   const model = resolveContentModel(command.model, dependencies.defaultModel);
+  // 呈现形态：命令优先（界面上刚改的那个开关），没给就按文章推断。
+  const presentation = command.presentation ?? resolveStoryboardPresentation(article.planning);
   let blocks: ContentBlock[];
   let plans: StoryboardSegmentPlan[];
   let title: string;
@@ -158,6 +173,7 @@ export async function generateContent(
       })),
       recommendedTotalWords: article.planning.recommendedTotalWords as number,
       styleProfile: command.styleProfile,
+      presentation,
       ...(command.drawingStyle ? { drawingStyle: command.drawingStyle } : {}),
       ...(command.character ? { character: command.character } : {}),
       ...(sourceContext ? { sourceContext } : {}),
@@ -191,12 +207,13 @@ export async function generateContent(
     return { kind: "save_error", message: "保存正文失败，请刷新后重试" };
   }
 
-  // 展开桥后半段：创建分镜帧资产 + 写 planning.storyboardSegments。
+  // 展开桥后半段：创建分镜帧资产 + 写 planning.storyboardSegments（顺带把呈现形态落库）。
   // 上一步返回的 updatedAt 是这两次写之间的乐观锁令牌。
   const planned = await dependencies.images.applyStoryboardPlan(
     article.id,
     saved.article.updatedAt,
-    plans
+    plans,
+    { presentation }
   );
   if (planned.kind === "saved") {
     return { kind: "generated", article: planned.article, revision: saved.revision };

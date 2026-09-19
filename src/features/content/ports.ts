@@ -1,4 +1,8 @@
-import type { KnowledgeBrief, StoryboardRoute } from "@/features/articles/domain";
+import type {
+  KnowledgeBrief,
+  StoryboardPresentation,
+  StoryboardRoute
+} from "@/features/articles/domain";
 import type { StyleProfile } from "./style-profile";
 
 export const CONTENT_BLOCK_TYPES = [
@@ -27,6 +31,12 @@ export interface GenerateContentInput {
   recommendedTotalWords: number;
   styleProfile: StyleProfile;
   sourceContext?: string;
+  /**
+   * 呈现形态：story_comic=剧情漫画（一段一个梗 + 群体拟人化演出），
+   * illustrated=讲解式（知识写进图文卡，旧行为）。
+   * 缺省按讲解式处理——调用点统一用 resolveStoryboardPresentation 解析后再传进来。
+   */
+  presentation?: StoryboardPresentation;
   /** 绘制风格；缺省时按提示词里的默认（日系动漫）设计分镜。 */
   drawingStyle?: string;
   /** 参考形象摘要；缺省时不强制统一主角。 */
@@ -90,6 +100,8 @@ export interface ReviseStoryboardDesignInput {
   reviewFeedback?: StoryboardReviewFeedback;
   /** 作者自然语言修改要求；优先级最高，给了它就不再要求先有审核记录。 */
   userInstructions?: string;
+  /** 呈现形态：与初版同一口径，决定修订用哪套编排提示词与红线。 */
+  presentation?: StoryboardPresentation;
   drawingStyle?: string;
   character?: StoryboardCharacterBrief;
   sourceContext?: string;
@@ -122,6 +134,8 @@ export interface ContentReviewResult {
   beginnerFriendliness: number;
   coherence: number;
   engagement: number;
+  /** 钩子强度：前几句话抓不抓得住人（剧情漫画形态的主要考核项）。 */
+  hookStrength: number;
   outlineCoverage: number;
   sourceFidelity: number | null;
   styleMatch: number;
@@ -142,6 +156,11 @@ export interface ReviewContentInput {
   blocks: ReviewableContentBlock[];
   outline: GenerateContentOutlineSection[];
   sourceContext?: string;
+  /**
+   * 呈现形态：story_comic 时审核要按剧情漫画的红线判（每段 60 字、每句 22 字、
+   * 不许教科书式连接词），并由服务端补一遍机械检查；illustrated（默认）按原口径。
+   */
+  presentation?: StoryboardPresentation;
   model?: string;
 }
 

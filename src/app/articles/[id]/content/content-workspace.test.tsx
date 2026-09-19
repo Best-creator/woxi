@@ -111,6 +111,7 @@ function reviewWith(status: ContentReviewResult["status"], blockIds: string[] = 
       beginnerFriendliness: 5,
       coherence: 4,
       engagement: 4,
+      hookStrength: 4,
       outlineCoverage: 5,
       sourceFidelity: null,
       styleMatch: 4,
@@ -148,6 +149,53 @@ describe("ContentWorkspace", () => {
     }));
     // 生成成功后交代分镜结构：2 段、各 1 帧（storyboardSegments fixture 的帧数之和）。
     expect(await screen.findByText("分镜脚本已生成：2 段，共 2 帧待生成")).toBeVisible();
+  });
+
+  it("defaults a brand-new article to the story comic form and submits the author's choice", async () => {
+    const user = userEvent.setup();
+    const generateContent = vi.fn(async () => ({
+      article: storyboardArticle,
+      revision: revision()
+    }));
+    render(
+      <ContentWorkspace
+        article={readyArticle}
+        llmConfig={{ enabled: false, availableModels: [], defaultModel: null }}
+        prepareArticle={async () => readyArticle}
+        onArticleChange={vi.fn()}
+        onEditBlocks={vi.fn()}
+        generateContent={generateContent}
+      />
+    );
+
+    // 没设计过分镜的新文：默认剧情漫画，等于已落库的推断值，所以不提示「待生效」。
+    const select = screen.getByLabelText("呈现形态");
+    expect(select).toHaveValue("story_comic");
+    expect(screen.queryByText("这一形态会在下次「生成分镜脚本」时生效。")).not.toBeInTheDocument();
+
+    await user.selectOptions(select, "illustrated");
+    // 改了但还没生成：明确提示这不是已生效的形态。
+    expect(screen.getByText("这一形态会在下次「生成分镜脚本」时生效。")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "生成分镜脚本" }));
+
+    expect(generateContent).toHaveBeenCalledWith(
+      expect.objectContaining({ presentation: "illustrated" })
+    );
+  });
+
+  it("keeps an article that already has a storyboard design on the illustrated form", () => {
+    render(
+      <ContentWorkspace
+        article={storyboardArticle}
+        llmConfig={{ enabled: false, availableModels: [], defaultModel: null }}
+        prepareArticle={async () => storyboardArticle}
+        onArticleChange={vi.fn()}
+        onEditBlocks={vi.fn()}
+      />
+    );
+
+    // 旧文（有 segments、planning 里没有形态字段）不会因为新默认而变形。
+    expect(screen.getByLabelText("呈现形态")).toHaveValue("illustrated");
   });
 
   it("saves the pending draft before reviewing", async () => {

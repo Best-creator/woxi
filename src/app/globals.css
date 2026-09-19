@@ -2503,6 +2503,17 @@ h2 {
   margin: 0;
 }
 
+/* 呈现形态开关：与生成设置里其它控件同构，多一条「改了但还没生成」的提醒色。 */
+.presentation-control {
+  display: grid;
+  gap: 6px;
+}
+
+.presentation-pending-hint {
+  color: var(--accent-strong, #b45309);
+  font-weight: 500;
+}
+
 .review-scores {
   display: grid;
   gap: 2px 12px;

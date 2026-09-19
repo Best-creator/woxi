@@ -1,4 +1,4 @@
-import type { Article, StoryboardRoute } from "@/features/articles/domain";
+import type { Article, ArticlePlanning, StoryboardRoute } from "@/features/articles/domain";
 import type { ComicStripModeDecision } from "./comic-strip-mode-router";
 import type {
   ComicStripMode,
@@ -221,11 +221,15 @@ export interface ImageAssetRepository {
    * 段图拼接（comic_strip + consumedContent）负责最终的图文合一。
    *
    * 被删旧帧的生成文件路径通过 removedFilePaths 交回上层清理磁盘。
+   *
+   * planningPatch：与本次设计同时要写进 planning 的字段（如呈现形态 presentation）。
+   * 由调用方一次带过来，避免「设计落库」与「设置落库」变成两次带乐观锁的写。
    */
   applyStoryboardPlan(
     articleId: string,
     expectedUpdatedAt: string,
-    segments: StoryboardSegmentPlan[]
+    segments: StoryboardSegmentPlan[],
+    planningPatch?: Partial<ArticlePlanning>
   ): Promise<StoryboardPlanMutationResult>;
   /**
    * 分镜修订的外科手术式落库（与 applyStoryboardPlan 的全量重建相对）：

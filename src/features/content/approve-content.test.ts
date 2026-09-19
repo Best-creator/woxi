@@ -16,6 +16,7 @@ function reviewerWith(status: ContentReviewStatus, severity: "warning" | "blocki
         beginnerFriendliness: 4,
         coherence: 4,
         engagement: 3,
+        hookStrength: 3,
         outlineCoverage: 4,
         sourceFidelity: null,
         styleMatch: 4,

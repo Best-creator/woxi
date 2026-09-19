@@ -56,6 +56,25 @@ describe("reviewContent", () => {
     await expect(fixture.contentWorkflow.listContentVersions(fixture.article.id)).resolves.toHaveLength(1);
   });
 
+  it("tells the reviewer which form it is reviewing", async () => {
+    const fixture = await articleWithGeneratedContent();
+    const seen: Array<{ presentation?: string }> = [];
+    const reviewer: ContentReviewer = {
+      async review(input) {
+        seen.push({ presentation: input.presentation });
+        return fixture.reviewer.review(input);
+      }
+    };
+
+    await reviewContent(
+      { articleId: fixture.article.id, expectedUpdatedAt: fixture.article.updatedAt },
+      { articles: fixture.articles, sources: fixture.sources, reviewer, workflow: fixture.contentWorkflow }
+    );
+
+    // 新文默认剧情漫画：审核也会按剧情漫画的红线走（sanitizeContentReview 的补检同源）。
+    expect(seen).toEqual([{ presentation: "story_comic" }]);
+  });
+
   it("creates a new content revision after the body is edited", async () => {
     const fixture = await articleWithGeneratedContent();
     const edited = {
@@ -139,6 +158,7 @@ describe("reviewContent", () => {
         beginnerFriendliness: 5,
         coherence: 5,
         engagement: 4,
+        hookStrength: 4,
         outlineCoverage: 5,
         sourceFidelity: null,
         styleMatch: 5,

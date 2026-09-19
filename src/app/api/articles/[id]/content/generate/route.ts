@@ -53,6 +53,8 @@ const generateContentRequestSchema = z.object({
   expectedUpdatedAt: z.iso.datetime(),
   model: z.string().trim().min(1).optional(),
   styleProfile: styleProfileRequestSchema,
+  /** 呈现形态开关（第三步界面上选）：缺省由文章推断（新文剧情漫画 / 旧文讲解式）。 */
+  presentation: z.enum(["illustrated", "story_comic"]).optional(),
   drawingStyle: z.string().trim().min(1).max(600).optional(),
   character: characterSchema.optional()
 });

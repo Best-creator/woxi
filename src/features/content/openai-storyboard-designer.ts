@@ -1,6 +1,7 @@
 import type { OpenAiJsonClient } from "@/features/llm/openai-json-client";
 import { storyboardFrameCount } from "@/features/articles/domain";
 import { storyboardDesignSchema } from "./schemas";
+import { inspectStoryComicDesign } from "./story-comic-rules";
 import { describeStyleProfile } from "./style-profile";
 import type {
   GenerateContentInput,
@@ -51,11 +52,95 @@ export const STORYBOARD_REVISER_SYSTEM_PROMPT = `你是公众号知识类漫画�
 
 type JsonClient = Pick<OpenAiJsonClient, "complete">;
 
+/**
+ * 剧情漫画形态的系统提示词（planning.presentation = story_comic）。
+ * 与讲解式（STORYBOARD_DESIGNER_SYSTEM_PROMPT）的区别不是措辞而是编排：
+ * 知识不再写进文字卡，而是一段一个梗、由群体拟人化的连续画面演出来；
+ * 文字退成旁白式点睛（每段 ≤60 字、每格 ≤15 字），画面里一个字都不许出现。
+ */
+export const STORYBOARD_DESIGNER_STORY_COMIC_PROMPT = `你是公众号知识漫画的「剧情分镜设计师」，同时完成两件事：把大纲写成逐段的剧情脚本；为每段设计 1-2 格连续漫画分镜。只返回 JSON，不要 Markdown 代码块或解释。
+返回对象必须严格使用以下字段名：{"title":"最终标题","segments":[{"sectionKey":"输入中的章节 id","title":"段落小标题","route":"image_text|text_image|image_text_image","copy":"该段剧情文案","frames":[{"prompt":"完整生图提示词","altText":"中文替代文本"}]}]}。
+
+呈现路由与帧数（硬性对应，帧数错了就是不合格）：
+- image_text（图 + 文）：1 帧，画面在上、文案在下；
+- text_image（文 + 图）：1 帧，文案在上、画面在下；
+- image_text_image（图 + 文 + 图）：2 帧，文案落在两帧正中间——本形态的主力排法，两帧必须是同一场景的连续动作。
+选路口径：一段就是一个梗，能用两格把剧情演完就用 image_text_image；只有该段确实没有连续动作可演（如纯收尾）才用单帧排法，但不要全篇同一种 routing。
+
+剧情编排（先想剧情，再想画面——这一段是本形态的核心）：
+1. 一段一个梗：每段只讲一条因果链，分支细节全部砍掉。段落结构固定为两拍——第 1 格抛出一个反常、荒谬或自相矛盾的具体画面，同时让一群角色立刻上手应对它；第 2 格给出落点：一个角色做出揭示机制的动作，剧情收在一条大白话结论上。
+2. 禁止提问式开场（「你有没有想过」）、禁止先给结论再举例、禁止「首先…其次…最后」式的教科书推进。
+3. 角色可以复数，而且鼓励复数：同一物种、同一造型基准的角色同时出场 3-5 只（个），各自动作与表情必须不同。写明分工——谁是主导、谁在配合、谁在围观、谁翻车；群体一起上手、一起翻车、互相吐槽，这件事本身就是笑点。禁止「一只角色站着讲解」的静态画面。
+4. 每格都要有一个明确事件（谁对谁做了什么、结果如何），画面要能只靠画面看懂发生了什么。
+5. 相邻格是同一场景的下一秒：地点、光线、道具保持连续，第二格要有进展或反转，不要换景。
+6. 造型基准（外形关键短语）一旦写出，就在每格 prompt 里原样复用、一字不改，让读者认得出是同一批角色。
+7. 全篇共用同一批角色与同一画风，像同一部作品的连续画面；相邻段落共享场景基调（地点、时间、光线逻辑），不要无来由切换环境；道具与设定一旦出现，后面的帧继续出现时保持一致。
+
+文案（文字只做旁白式点睛，不是解释段落）：
+8. 每段（title 与 copy 合计）不超过 60 字，这是硬约束；写完全篇在脑内数一遍字数再输出——超长与遗漏章节同为不合格。
+9. 每格最多一句话、不超过 15 字；每一句话都不超过 22 字。写成漫画旁白式的短句（陈述或吐槽），不是解释段落。
+10. 禁止「首先…其次…最后」式的分点推进和「因为…所以…」式的论证连接；「由此可见」「让我们来看看」这类过渡句同样不要。并列列举不超过 3 项。
+11. 术语第一次出现必须先用大白话说过一遍，之后才能使用。段末用一句话点题（不超过 22 字），直接写成该段最后一句，不要额外输出总结模块——整篇就是 segments，没有别的部分。
+12. 按输入 outline 给出的顺序分段；sectionKey 只能取输入 outline 中已存在的 id，禁止虚构或改写；每个章节至少被一个段落覆盖。
+13. 人物语言风格只改变措辞、句式、节奏、称呼和开场，不得改变事实、知识边界、章节顺序和必须解释的关键概念。
+14. 标题必须给出具体的信息或结论，读标题就知道这篇讲什么。禁止悬念式标题、禁止「90% 的人都不知道」「不看就晚了」这类夸大或施压句式、禁止促销引流措辞。
+
+分镜画面（prompt 必须写到可以直接交图；每格回答的是「读者感受到什么」，不是「画面里有什么」）：
+- 角色与动作：写清每一只（个）角色在做什么，动作要外化它的意图；情绪精确到层次，不写「难过」要写「强撑体面但眼神已经垮下来」。
+- 场景与道具：为解释服务的道具必须出现在画面里；相邻格的道具保持一致。
+- 镜头：从「大远景、远景、全景、中景、近景、特写、俯视、仰视、过肩视角」中选择；相邻格的景别必须变化；群体戏用中景及以上，情绪落点用近景或特写。
+- 严禁画面里出现任何文字：不要气泡、不要旁白框、不要标牌、不要字幕、不要任何字母或汉字——所有文字由我们另行排版，你只管把画面画好。prompt 里只描述画面本身，不要复述这条禁止事项，也不要使用引号。
+- 画面底色一律纯白（#FFFFFF）：不铺纸纹、不加渐变、不拍环境实景；若绘制风格里写到了背景，一律以纯白覆盖。理由：段图之后要竖向拼成一张长图，只有底色统一成白，一段一段才能连成一张纸。
+- 未指定绘制风格时，默认统一采用日系动漫画风：清晰线条、赛璐璐上色、明快配色、适当速度线与情绪符号。
+- altText 不超过 40 字。`;
+
+/**
+ * 剧情漫画形态的修订提示词：修订纪律与讲解式完全一致（只改被点名的段、
+ * 未点名的段逐字保留才能保住已生成的帧），初版规则换成本形态的红线清单。
+ */
+export const STORYBOARD_REVISER_STORY_COMIC_PROMPT = `你是公众号知识漫画的「剧情分镜修订师」。你会拿到一篇完整的剧情分镜设计（currentDesign）和修订意图（审核意见 reviewFeedback / 作者补充要求 userInstructions），你的任务是输出一份修订后的完整分镜设计。只返回 JSON，不要 Markdown 代码块或解释。
+返回对象与初版设计完全同构：{"title":"最终标题","segments":[{"sectionKey":"输入中的章节 id","title":"段落小标题","route":"image_text|text_image|image_text_image","copy":"该段剧情文案","frames":[{"prompt":"完整生图提示词","altText":"中文替代文本"}]}]}。
+
+修订纪律（比写得好更重要的是改得准）：
+1. userInstructions 是最高优先级的意图来源；审核意见其次。两类要求同时存在时一次全部满足，互相冲突以 userInstructions 为准。
+2. 只改需要改的段：被 flaggedSectionKeys 点名的段必须按意见重写；flaggedSectionKeys 为空（意见没定位到具体段）时，从 reviewFeedback.issues 的 message 自行判断该改哪些段——message 里通常写了段落标题或位置。没被点名、也不影响全局要求的段，title/copy/route/frames 必须与 currentDesign 里对应段逐字一致——这些段的分镜图可能已经生成，改动会作废已生成的图。
+3. 全局义务例外：如果修订意见涉及收尾、总字数、段间衔接这类全篇问题，允许连带改动受影响的相邻段，但要在满足意见的前提下尽量少动。
+4. 禁止顺手润色：不要因为「可以更好」就改动与意见无关的段；一处小改也会作废该段已生成的分镜图。
+5. sectionKey 只能取输入 outline 中已存在的 id；每个章节至少被一个段落覆盖；段顺序与 currentDesign 保持一致。
+6. 被要求充实的段同样守红线：宁可换一个更具体的笑点或更极端的画面，也不要靠解释性长句、连接词或并列列举凑内容。
+7. 初版设计的全部规则继续生效：route 与帧数硬性对应（image_text/text_image 各 1 帧，image_text_image 2 帧讲同一场景的连续动作）；一段一个梗、两拍结构（先抛反常画面、再走落点）；角色可以复数、同一造型基准原样复用、写明分工；每段（title 与 copy 合计）不超过 60 字、每格最多一句话且不超过 15 字、每句话不超过 22 字；画面里禁止出现任何文字（不画气泡、旁白框、标牌、字幕）；画面底色一律纯白；prompt 是可直接交给生图模型的完整提示词（动作表情、场景道具、情绪层次、镜头景别）；全篇共用同一批角色与同一画风；altText 不超过 40 字。`;
+
+/** 按呈现形态选初版提示词；未指定时沿用讲解式（旧行为，测试与旧调用点零改动）。 */
+export function storyboardDesignerPrompt(presentation?: string | null): string {
+  return presentation === "story_comic"
+    ? STORYBOARD_DESIGNER_STORY_COMIC_PROMPT
+    : STORYBOARD_DESIGNER_SYSTEM_PROMPT;
+}
+
+/** 按呈现形态选修订提示词；口径与初版一致。 */
+export function storyboardReviserPrompt(presentation?: string | null): string {
+  return presentation === "story_comic"
+    ? STORYBOARD_REVISER_STORY_COMIC_PROMPT
+    : STORYBOARD_REVISER_SYSTEM_PROMPT;
+}
+
 /** 服务端字数容差：模型偶发小幅超标可接受，大幅超长直接打回。 */
 const TOTAL_WORDS_TOLERANCE = 1.15;
 
 /**
- * 设计稿的第二道闸：章节覆盖、路由-帧数对应、字数硬约束。
+ * 剧情漫画的红线闸（越界即打回重试）：每段字数、每句话长度、
+ * prompt 不得要求画面写字。口径集中在 story-comic-rules——
+ * 提示词、这道闸、审核器用的是同一份数。
+ */
+function validateStoryComicRedlines(result: StoryboardDesign): void {
+  const [first] = inspectStoryComicDesign(result);
+  if (!first) return;
+  throw new Error(`段落「${first.title}」${first.complaints[0]}；请重试生成`);
+}
+
+/**
+ * 设计稿的第二道闸：章节覆盖、路由-帧数对应、字数硬约束；
+ * 剧情漫画形态再叠加每段字数 / 单句长度 / 画面不许写字三项红线。
  * 提示词要求模型自控，这里兜底防结构性错误。
  */
 export function validateStoryboardDesign(
@@ -93,6 +178,7 @@ export function validateStoryboardDesign(
       `文案总字数 ${totalChars} 超出目标 ${input.recommendedTotalWords} 字太多，请重试生成更精炼的版本`
     );
   }
+  if (input.presentation === "story_comic") validateStoryComicRedlines(result);
   return result;
 }
 
@@ -102,7 +188,7 @@ export class OpenAiStoryboardDesigner implements StoryboardDesigner {
   async design(input: GenerateContentInput): Promise<StoryboardDesign> {
     const result = await this.client.complete({
       model: input.model,
-      systemPrompt: STORYBOARD_DESIGNER_SYSTEM_PROMPT,
+      systemPrompt: storyboardDesignerPrompt(input.presentation),
       userPayload: {
         topic: input.topic,
         targetAudience: input.targetAudience,
@@ -124,7 +210,7 @@ export class OpenAiStoryboardDesigner implements StoryboardDesigner {
   async revise(input: ReviseStoryboardDesignInput): Promise<StoryboardDesign> {
     const result = await this.client.complete({
       model: input.model,
-      systemPrompt: STORYBOARD_REVISER_SYSTEM_PROMPT,
+      systemPrompt: storyboardReviserPrompt(input.presentation),
       userPayload: {
         topic: input.topic,
         targetAudience: input.targetAudience,

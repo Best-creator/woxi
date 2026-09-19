@@ -17,6 +17,7 @@ const ALL_PRESETS: StylePreset[] = [
   "rational_analyst",
   "friend_chat",
   "storyteller",
+  "funny_storyteller",
   "knowledge_cards",
   "custom"
 ];
@@ -70,9 +71,33 @@ describe("plain explainer preset", () => {
     const plain = STYLE_PRESETS.plain_explainer;
 
     // 动漫感只允许出现在「像动画旁白」的画面叙事里；
-    // 分镜结构已被移除且用户明确不再往分镜化方向加，这里要钉死边界。
+    // 需要分镜结构的是剧情漫画形态（presentation=story_comic）与「搞笑剧情解说」预设，
+    // 这个预设保持纯文风，不引入分镜。
     expect(plain.explanationStyle).toContain("像动画旁白");
     expect(plain.explanationStyle).not.toContain("分镜");
+  });
+});
+
+describe("funny storyteller preset", () => {
+  it("writes one gag per segment with short spoken lines", () => {
+    const funny = STYLE_PRESETS.funny_storyteller;
+
+    expect(funny.humorLevel).toBe("high");
+    expect(funny.contentDensity).toBe("low");
+    expect(funny.explanationStyle).toContain("一段一个梗");
+    expect(funny.sentenceStyle).toContain("22 字");
+    expect(funny.avoid).toContain("教科书式解释");
+    expect(funny.avoid).toContain("超过 22 字的长句");
+    // 术语必须晚于大白话出现（与剧情漫画提示词同口径）。
+    expect(funny.explanationStyle).toContain("术语第一次出现前必须先用大白话说过一遍");
+  });
+
+  it("is selectable through resolveStyleProfile", () => {
+    expect(resolveStyleProfile("funny_storyteller")).toMatchObject({
+      preset: "funny_storyteller",
+      humorLevel: "high"
+    });
+    expect(STYLE_PRESET_LABELS.funny_storyteller).toBe("搞笑剧情解说");
   });
 });
 

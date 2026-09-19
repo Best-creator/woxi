@@ -45,6 +45,12 @@ export interface ArticlePlanning {
    * 缩到约 0.32 倍，所以「字够不够大」只能靠这里调。空值/未知 id 回落标准档。
    */
   storyboardTextScaleId?: string | null;
+  /**
+   * 呈现形态（story_comic=剧情漫画 / illustrated=讲解式）：第三步生成分镜时写入。
+   * 原样透传，消费端一律走 resolveStoryboardPresentation 解析——未设置时按
+   * 「是否已经设计过分镜」推断，旧文零迁移、新文默认剧情漫画。
+   */
+  presentation?: string | null;
 }
 
 /**
@@ -72,6 +78,42 @@ export function isStoryboardRoute(value: unknown): value is StoryboardRoute {
 /** 路由需要的分镜帧数：图+文 / 文+图 各 1 帧，图+文+图 2 帧。 */
 export function storyboardFrameCount(route: StoryboardRoute): 1 | 2 {
   return route === "image_text_image" ? 2 : 1;
+}
+
+/**
+ * 呈现形态：第三步「设计正文分镜」的两套编排。
+ * - illustrated（讲解式）：知识写进文案块、画面当配图，每块 30-60 字（旧行为）；
+ * - story_comic（剧情漫画）：一段一个梗、群体拟人化演出，文字只做旁白式点睛（每段 ≤60 字）。
+ * 形态只改「怎么编排」，不改呈现路由与渲染引擎：两种形态共用同一套 route 与段图拼接。
+ */
+export type StoryboardPresentation = "illustrated" | "story_comic";
+
+export const STORYBOARD_PRESENTATIONS: readonly StoryboardPresentation[] = [
+  "illustrated",
+  "story_comic"
+];
+
+export const STORYBOARD_PRESENTATION_LABELS: Record<StoryboardPresentation, string> = {
+  illustrated: "讲解式",
+  story_comic: "剧情漫画"
+};
+
+export function isStoryboardPresentation(value: unknown): value is StoryboardPresentation {
+  return (
+    typeof value === "string" && (STORYBOARD_PRESENTATIONS as readonly string[]).includes(value)
+  );
+}
+
+/**
+ * 解析文章的呈现形态。未设置或取值非法时按「新旧」推断，避免做数据迁移：
+ * 已经设计过分镜的（有 segments）视为旧文 → illustrated，产物一个字不变；
+ * 还没设计过的新文 → story_comic（新形态默认）。
+ */
+export function resolveStoryboardPresentation(
+  planning: Pick<ArticlePlanning, "presentation" | "storyboardSegments">
+): StoryboardPresentation {
+  if (isStoryboardPresentation(planning.presentation)) return planning.presentation;
+  return planning.storyboardSegments?.length ? "illustrated" : "story_comic";
 }
 
 /**

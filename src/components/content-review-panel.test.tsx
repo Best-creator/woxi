@@ -19,6 +19,7 @@ function reviewWith(result: Partial<ContentReviewResult>, id = "review-1"): Arti
       beginnerFriendliness: 4,
       coherence: 4,
       engagement: 3,
+      hookStrength: 4,
       outlineCoverage: 5,
       sourceFidelity: null,
       styleMatch: 4,
@@ -29,7 +30,7 @@ function reviewWith(result: Partial<ContentReviewResult>, id = "review-1"): Arti
 }
 
 describe("ContentReviewPanel", () => {
-  it("shows the verdict, the seven dimensions and lets issues jump to their blocks", async () => {
+  it("shows the verdict, the eight dimensions and lets issues jump to their blocks", async () => {
     const onLocateIssue = vi.fn();
     render(
       <ContentReviewPanel
@@ -47,6 +48,7 @@ describe("ContentReviewPanel", () => {
 
     expect(screen.getByText("需要修订")).toBeVisible();
     expect(screen.getByText("清晰度")).toBeVisible();
+    expect(screen.getByText("钩子强度")).toBeVisible();
     expect(screen.getByText("风格匹配")).toBeVisible();
     expect(screen.getByText("资料一致")).toBeVisible();
 

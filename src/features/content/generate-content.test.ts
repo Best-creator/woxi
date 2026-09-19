@@ -7,7 +7,7 @@ import { DEMO_CONTENT_MODEL } from "./model";
 import { resolveStyleProfile } from "./style-profile";
 import type { StoryboardDesigner } from "./ports";
 import { DemoStoryboardDesigner } from "./demo-storyboard-designer";
-import { articleWithConfirmedOutline } from "../../../tests/helpers/content-fixture";
+import { articleWithConfirmedOutline, articleWithGeneratedContent } from "../../../tests/helpers/content-fixture";
 
 /** 只关心 design 的假设计器：revise 不该在生成链路里被调用。 */
 function fakeDesigner(design: StoryboardDesigner["design"]): StoryboardDesigner {
@@ -395,5 +395,89 @@ describe("splitStoryboardCopy", () => {
       "第一块第一行。\n第一块第二行。",
       "第二块。"
     ]);
+  });
+});
+
+describe("generateContent 的呈现形态", () => {
+  async function generate(fixture: Awaited<ReturnType<typeof articleWithConfirmedOutline>>, extra: { presentation?: "illustrated" | "story_comic" } = {}) {
+    return generateContent(
+      {
+        articleId: fixture.article.id,
+        expectedUpdatedAt: fixture.article.updatedAt,
+        styleProfile: resolveStyleProfile("popular_science_teacher"),
+        ...extra
+      },
+      {
+        articles: fixture.articles,
+        sources: fixture.sources,
+        designer: new DemoStoryboardDesigner(),
+        workflow: fixture.contentWorkflow,
+        images: fixture.imageAssets
+      }
+    );
+  }
+
+  it("defaults brand-new articles to the story comic form and writes it into planning", async () => {
+    const fixture = await articleWithConfirmedOutline();
+    const result = await generate(fixture);
+    if (result.kind !== "generated") throw new Error("expected generated");
+
+    expect(result.article.planning.presentation).toBe("story_comic");
+    // 剧情漫画的演示文案是短旁白，不是讲解式那种整段解释。
+    expect(result.article.blocks.some((block) => block.content.includes("小家伙"))).toBe(true);
+    expect(result.article.blocks.some((block) => block.content.includes("先从一个具体场景说起"))).toBe(false);
+  });
+
+  it("honours the form chosen in the workspace", async () => {
+    const fixture = await articleWithConfirmedOutline();
+    const result = await generate(fixture, { presentation: "illustrated" });
+    if (result.kind !== "generated") throw new Error("expected generated");
+
+    expect(result.article.planning.presentation).toBe("illustrated");
+    expect(result.article.blocks.some((block) => block.content.includes("先从一个具体场景说起"))).toBe(true);
+  });
+
+  it("keeps articles designed before this change on the illustrated path", async () => {
+    const fixture = await articleWithGeneratedContent();
+    // 模拟旧文：有分镜设计，但没有形态字段（本次改动之前写入的行就是这样）。
+    await fixture.articles.save(
+      {
+        ...fixture.article,
+        planning: { ...fixture.article.planning, presentation: undefined }
+      },
+      fixture.article.updatedAt
+    );
+    const legacy = await fixture.articles.findById(fixture.article.id);
+    if (!legacy) throw new Error("expected article");
+
+    const result = await generate({ ...fixture, article: legacy });
+    if (result.kind !== "generated") throw new Error("expected generated");
+    expect(result.article.planning.presentation).toBe("illustrated");
+  });
+
+  it("hands the resolved form to the designer", async () => {
+    const fixture = await articleWithConfirmedOutline();
+    const seen: Array<{ presentation?: string }> = [];
+    const designer = fakeDesigner(async (input) => {
+      seen.push({ presentation: input.presentation });
+      return new DemoStoryboardDesigner().design(input);
+    });
+
+    await generateContent(
+      {
+        articleId: fixture.article.id,
+        expectedUpdatedAt: fixture.article.updatedAt,
+        styleProfile: resolveStyleProfile("popular_science_teacher")
+      },
+      {
+        articles: fixture.articles,
+        sources: fixture.sources,
+        designer,
+        workflow: fixture.contentWorkflow,
+        images: fixture.imageAssets
+      }
+    );
+
+    expect(seen).toEqual([{ presentation: "story_comic" }]);
   });
 });

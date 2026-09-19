@@ -681,7 +681,8 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
   async applyStoryboardPlan(
     articleId: string,
     expectedUpdatedAt: string,
-    segments: StoryboardSegmentPlan[]
+    segments: StoryboardSegmentPlan[],
+    planningPatch?: Partial<ArticlePlanning>
   ): Promise<StoryboardPlanMutationResult> {
     return this.inTransaction(() => {
       const article = this.currentArticle(articleId, expectedUpdatedAt);
@@ -760,7 +761,11 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
 
       // planning 先行落库，saveBlocksAggregate 返回的文章带上新 planning，
       // 让设计视图与拼接阶段立即可见。
-      const planning: ArticlePlanning = { ...article.planning, storyboardSegments: persisted };
+      const planning: ArticlePlanning = {
+        ...article.planning,
+        ...planningPatch,
+        storyboardSegments: persisted
+      };
       this.db
         .prepare("UPDATE articles SET planning_json = ? WHERE id = ?")
         .run(JSON.stringify(planning), articleId);

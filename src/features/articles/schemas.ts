@@ -60,7 +60,12 @@ export const articlePlanningSchema = z.object({
   // 正文分镜设计（第三步写入）：原样透传，拼接阶段按段路由消费。
   storyboardSegments: z.array(storyboardSegmentSchema).nullable().optional(),
   // 分段拼接字体 id：原样透传，拼接时用 resolveStoryboardFont 解析（未知 id 回落默认字体）。
-  storyboardFontId: z.string().trim().max(64).nullable().optional()
+  storyboardFontId: z.string().trim().max(64).nullable().optional(),
+  // 分段拼接文字大小档位：原样透传，拼接时用 resolveStoryboardTextScale 解析。
+  // 必须在此登记：整篇文章的 PATCH 会带 planning 过一遍本 schema，未登记的字段会被 strip 掉。
+  storyboardTextScaleId: z.string().trim().max(64).nullable().optional(),
+  // 呈现形态（剧情漫画 / 讲解式）：原样透传，消费端用 resolveStoryboardPresentation 解析。
+  presentation: z.string().trim().max(64).nullable().optional()
 });
 
 export const knowledgeBriefSchema = z.object({

@@ -13,6 +13,7 @@ export const stylePresetSchema = z.enum([
   "rational_analyst",
   "friend_chat",
   "storyteller",
+  "funny_storyteller",
   "knowledge_cards",
   "custom"
 ]);
@@ -27,7 +28,7 @@ export const styleProfileSchema = z.object({
   readerAddress: z.string().trim().min(1).max(40),
   sentenceStyle: z.string().trim().min(1).max(300),
   explanationStyle: z.string().trim().min(1).max(300),
-  humorLevel: z.enum(["none", "light", "moderate"]),
+  humorLevel: z.enum(["none", "light", "moderate", "high"]),
   questionFrequency: z.enum(["low", "moderate", "high"]),
   contentDensity: z.enum(["low", "medium", "high"]),
   customInstructions: z.string().trim().max(MAX_CUSTOM_INSTRUCTIONS_LENGTH),
@@ -84,7 +85,13 @@ function normalizeContentReview(value: unknown) {
   const input = record(value);
   const scores = record(input?.scores);
   const hasAlternateFields = Boolean(
-    input && (scores || "overallAssessment" in input || "recommendation" in input)
+    input &&
+      (scores ||
+        "overallAssessment" in input ||
+        "recommendation" in input ||
+        // 后加的维度（hookStrength）老模型可能不返回：缺维也要走一遍净化补中性分，
+        // 而不是让整份审核在校验层作废。
+        !("hookStrength" in input))
   );
   if (!input || !hasAlternateFields) return value;
 
@@ -100,6 +107,7 @@ function normalizeContentReview(value: unknown) {
     beginnerFriendliness: reviewScore(input.beginnerFriendliness ?? scores?.beginnerFriendliness),
     coherence: reviewScore(input.coherence ?? scores?.coherence),
     engagement: reviewScore(input.engagement ?? scores?.engagement),
+    hookStrength: reviewScore(input.hookStrength ?? scores?.hookStrength),
     outlineCoverage: reviewScore(input.outlineCoverage ?? scores?.outlineCoverage),
     sourceFidelity: input.sourceFidelity === null || scores?.sourceFidelity === null
       ? null
@@ -131,6 +139,7 @@ export const contentReviewResultSchema = z.preprocess(normalizeContentReview, z.
   beginnerFriendliness: z.number().int().min(1).max(5),
   coherence: z.number().int().min(1).max(5),
   engagement: z.number().int().min(1).max(5),
+  hookStrength: z.number().int().min(1).max(5),
   outlineCoverage: z.number().int().min(1).max(5),
   sourceFidelity: z.number().int().min(1).max(5).nullable(),
   styleMatch: z.number().int().min(1).max(5),

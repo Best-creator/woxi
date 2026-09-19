@@ -22,6 +22,7 @@ const presetOrder: StylePreset[] = [
   "rational_analyst",
   "friend_chat",
   "storyteller",
+  "funny_storyteller",
   "knowledge_cards",
   "custom"
 ];

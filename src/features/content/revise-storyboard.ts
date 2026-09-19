@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
-import type { Article, ContentBlock, StoryboardSegment } from "@/features/articles/domain";
+import {
+  resolveStoryboardPresentation,
+  type Article,
+  type ContentBlock,
+  type StoryboardSegment
+} from "@/features/articles/domain";
 import type { ArticleRepository } from "@/features/articles/repository";
 import type { SourceRepository } from "@/features/sources/repository";
 import { readySourceContext } from "@/features/outlines/generate-outline";
@@ -220,6 +225,8 @@ export async function reviseStoryboard(
     })),
     recommendedTotalWords: article.planning.recommendedTotalWords as number,
     styleProfile: command.styleProfile,
+    // 形态从文章推断（生成时就落库了）：修订必须用与初版同一套编排提示词与红线。
+    presentation: resolveStoryboardPresentation(article.planning),
     currentDesign: {
       title: article.title,
       segments: currentPairs.map((pair) => pair.design)

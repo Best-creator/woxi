@@ -184,4 +184,29 @@ Phase 3 格数放宽到 4 后，中间插入**张力格**：把荒谬推到极�
 
 ## 十、实施记录
 
-（Phase 1 开工后填写）
+### Phase 1：编排与提示词（2026-09-19 完成）
+
+| # | 改动 | 落点 |
+|---|------|------|
+| 1 | 呈现形态模型 + 解析 | `articles/domain.ts`：`StoryboardPresentation` / `STORYBOARD_PRESENTATION_LABELS` / `isStoryboardPresentation` / `resolveStoryboardPresentation`；`ArticlePlanning.presentation` |
+| 2 | planning 字段登记 | `articles/schemas.ts`：登记 `presentation`；**顺手补上漏登记的 `storyboardTextScaleId`**（整篇 PATCH 会 strip 未登记字段，字号选择此前会被静默丢掉） |
+| 3 | 两套系统提示词 | `openai-storyboard-designer.ts`：`STORYBOARD_DESIGNER_STORY_COMIC_PROMPT` / `STORYBOARD_REVISER_STORY_COMIC_PROMPT` + 选词函数 `storyboardDesignerPrompt` / `storyboardReviserPrompt` |
+| 4 | 机械红线单一事实源 | 新模块 `content/story-comic-rules.ts`：每段 60 字、每句 22 字、prompt 不许写字、成对解释连接词、顿号 >3 项；`inspectStoryComicSegment` / `inspectStoryComicDesign` |
+| 5 | 生成闸门 | `validateStoryboardDesign` 在 story_comic 下叠加第 4 项的检查（容差 1.15，与总字数闸同口径） |
+| 6 | 文风预设 | `style-profile.ts` 新增 `funny_storyteller`（humor `high`，density `low`）；`HumorLevel` 增加 `high`；修正 `plain_explainer` 的历史注释（预设本身不动） |
+| 7 | 形态开关 | 第三步「生成设置」新增「呈现形态」下拉（剧情漫画 / 讲解式）+ 待生效提示；`GenerateContent` 请求带 `presentation`，`content/generate` 路由校验 |
+| 8 | 落库一次写 | `generateContent` 解析形态 → 传设计器 → 随 `applyStoryboardPlan(…, planningPatch)` 与 segments 同时落 planning（不引入第二次乐观锁写） |
+| 9 | 修订同源 | `reviseStoryboard` 从文章的 planning 解析形态，传给修订器并跑同一道红线闸 |
+| 10 | 审核 | `ContentReviewResult.hookStrength` 新维度（面板「钩子强度」）；`sanitizeContentReview` 在 story_comic 下按第 4 项补 warning 级意见（定位到该段小标题块，不改 status） |
+| 11 | Demo | `DemoStoryboardDesigner` 按形态产出：剧情漫画 = 短旁白（一段一个梗）+ 三只柴犬的分工演出 + 画面不写字 |
+
+**默认规则（D1 落地口径）**：`resolveStoryboardPresentation` —— 显式值优先；未设置时「已设计过分镜」= 旧文 → `illustrated`，「没设计过」= 新文 → `story_comic`。旧文零迁移，重拼也不变形。
+
+**误伤修正（实测踩到）**：连接词判据一开始是「出现 最后 / 因为 / 所以 即违规」，把 Demo 的「最后还是最小的那只先找对了门道」判成了教科书连接——改成**成对出现**才算（首先…其次 / 首先…最后 / 因为…所以）+ 书面过渡语句表（由此可见 / 综上所述 / 总之 / 让我们来看看 / 值得注意的是）。规则比提示词松一档是对的：提示词劝模型别这么写，闸门只拦真正读起来像课本的。
+
+**Phase 1 未做（有意挪到 Phase 2）**：段图的「旁白条」块类型。文案已缩到每段 60 字内，现有文字带就是「标题卡 + 1-2 行短句」，视觉占比不再压倒画面；把它做成独立块类型要动渲染引擎（`comic-strip.ts` 的块类型与排版），与 Phase 2 的 overlay 一起做更省事。
+
+**验证**：`tsc` 0 错误；`eslint` 0 问题；单元测试 **879 passed + 2 skipped / 126 文件**；E2E **10 passed / 10 skipped**（1.4 分钟）。
+
+**顺带修掉的验证基建**：E2E 以前必须等本机 dev server 停掉才能跑（Next 16 的 dev 锁落在 `<distDirRoot>/dev/lock`，第二个实例直接退出）。查证发现 `next({ conf: { distDir } })` 在 Next 16 已失效——自定义服务器（`NextCustomServer.prepare`）调用 `getRequestHandlers` 时不转发 `conf`，distDir 被静默忽略。改为：`next.config.ts` 读环境变量 `WO_XI_DIST_DIR`（未设置时行为完全不变），E2E 启动器设 `WO_XI_DIST_DIR=.next/e2e-dev` → 锁落在独立目录，**可与使用中的 3000 端口 dev server 并行跑**。代价：首跑冷编译一次，之后复用缓存；`tsconfig.json` 被 Next 自动加了两个 include（`.next/e2e-dev/**`），留着以保证后续运行幂等。
+

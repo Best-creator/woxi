@@ -10,6 +10,7 @@ export class DemoContentReviewer implements ContentReviewer {
       beginnerFriendliness: 5,
       coherence: 5,
       engagement: 4,
+      hookStrength: 4,
       outlineCoverage: 5,
       sourceFidelity: hasSource ? 5 : null,
       styleMatch: 4,

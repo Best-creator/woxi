@@ -26,6 +26,7 @@ function reviewResult(overrides: Partial<ContentReviewResult> = {}): ContentRevi
     beginnerFriendliness: 4,
     coherence: 4,
     engagement: 4,
+    hookStrength: 4,
     outlineCoverage: 4,
     sourceFidelity: null,
     styleMatch: 4,
@@ -96,5 +97,88 @@ describe("sanitizeContentReview", () => {
     );
 
     expect(sanitized.status).toBe("blocked");
+  });
+});
+
+describe("sanitizeContentReview 的剧情漫画红线", () => {
+  /** 剧情漫画的审核输入：每段 = 小标题块 + 文案块（与生成落库的形态一致）。 */
+  function storyComicInput(overrides: Partial<ReviewContentInput> = {}): ReviewContentInput {
+    return reviewInput({
+      presentation: "story_comic",
+      blocks: [
+        { id: "seg1-h", type: "heading", content: "开场", order: 0 },
+        { id: "seg1-p", type: "paragraph", content: "一群小家伙围上来。", order: 1 },
+        { id: "seg2-h", type: "heading", content: "机制", order: 2 },
+        { id: "seg2-p", type: "paragraph", content: "带头的先跳上去。", order: 3 }
+      ],
+      ...overrides
+    });
+  }
+
+  it("adds nothing when the copy keeps the red lines", () => {
+    const result = reviewResult({ status: "passed" });
+    expect(sanitizeContentReview(result, storyComicInput()).issues).toEqual([]);
+  });
+
+  it("flags an over-long segment against its own heading block", () => {
+    const input = storyComicInput({
+      blocks: [
+        { id: "seg1-h", type: "heading", content: "开场", order: 0 },
+        { id: "seg1-p", type: "paragraph", content: "字".repeat(80), order: 1 }
+      ]
+    });
+
+    const sanitized = sanitizeContentReview(reviewResult({ status: "passed" }), input);
+
+    // 同一段既超段长又超句长：两条都贴出来，都定位到该段的小标题块。
+    expect(sanitized.issues).toHaveLength(2);
+    expect(sanitized.issues[0]).toMatchObject({ blockIds: ["seg1-h"], severity: "warning" });
+    expect(sanitized.issues[0]!.message).toContain("「开场」段");
+    expect(sanitized.issues[0]!.message).toContain("超过剧情漫画每段 60 字");
+    expect(sanitized.issues[1]!.message).toContain("长句");
+    // 只贴意见，不改结论：要不要改由作者决定（生成阶段已经拦过一遍模型产物）。
+    expect(sanitized.status).toBe("passed");
+  });
+
+  it("flags long sentences, explanatory connectives and long enumerations", () => {
+    const input = storyComicInput({
+      blocks: [
+        { id: "seg1-h", type: "heading", content: "开场", order: 0 },
+        { id: "seg1-p", type: "paragraph", content: "首先说清背景；其次再讲代价。", order: 1 },
+        { id: "seg1-p2", type: "paragraph", content: "苹果、香蕉、橘子、梨、葡萄都摆着。", order: 2 },
+        { id: "seg1-p3", type: "paragraph", content: "这句话故意写得很长很长，就是要超过二十二个字的限制才行。", order: 3 }
+      ]
+    });
+
+    const messages = sanitizeContentReview(reviewResult({ status: "passed" }), input).issues.map(
+      (issue) => issue.message
+    );
+
+    expect(messages.some((message) => message.includes("长句"))).toBe(true);
+    expect(messages.some((message) => message.includes("分点推进"))).toBe(true);
+    expect(messages.some((message) => message.includes("并列列举"))).toBe(true);
+  });
+
+  it("does not mistake a plain spoken 「最后」 for a textbook connective", () => {
+    const input = storyComicInput({
+      blocks: [
+        { id: "seg1-h", type: "heading", content: "开场", order: 0 },
+        { id: "seg1-p", type: "paragraph", content: "最后还是最小的那只先找对了门道。", order: 1 }
+      ]
+    });
+
+    expect(sanitizeContentReview(reviewResult({ status: "passed" }), input).issues).toEqual([]);
+  });
+
+  it("leaves the illustrated form alone", () => {
+    const input = storyComicInput({
+      presentation: "illustrated",
+      blocks: [
+        { id: "seg1-h", type: "heading", content: "开场", order: 0 },
+        { id: "seg1-p", type: "paragraph", content: "字".repeat(80), order: 1 }
+      ]
+    });
+
+    expect(sanitizeContentReview(reviewResult({ status: "passed" }), input).issues).toEqual([]);
   });
 });

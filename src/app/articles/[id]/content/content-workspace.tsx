@@ -8,11 +8,14 @@ import { ModelSelect } from "@/components/model-select";
 import { StyleProfileControl } from "@/components/style-profile-control";
 import { VersionHistory } from "@/components/version-history";
 import { StoryboardSegmentList } from "@/components/storyboard-segment-list";
-import type {
-  Article,
-  ArticlePlanning,
-  ContentBlock,
-  StoryboardRoute
+import {
+  STORYBOARD_PRESENTATION_LABELS,
+  resolveStoryboardPresentation,
+  type Article,
+  type ArticlePlanning,
+  type ContentBlock,
+  type StoryboardPresentation,
+  type StoryboardRoute
 } from "@/features/articles/domain";
 import { textBlocksOf } from "@/features/content/content-version";
 import type { ContentReviewResult } from "@/features/content/ports";
@@ -54,7 +57,19 @@ export type GenerateContent = (input: {
   expectedUpdatedAt: string;
   model?: string;
   styleProfile: StyleProfile;
+  /** 呈现形态（讲解式 / 剧情漫画）：随生成请求提交并落库。 */
+  presentation?: StoryboardPresentation;
 }) => Promise<ContentMutationResult>;
+
+/** 形态开关的下拉顺序：默认形态（剧情漫画）在前。 */
+const PRESENTATION_ORDER: StoryboardPresentation[] = ["story_comic", "illustrated"];
+
+const PRESENTATION_HINTS: Record<StoryboardPresentation, string> = {
+  story_comic:
+    "一段一个梗：一群小家伙用连续画面把知识演出来，文字只做旁白式点睛（每段 60 字内）。推荐搭配「搞笑剧情解说」风格。",
+  illustrated:
+    "讲解式图文卡：知识写在文字块里、画面当配图（每块 30-60 字）。旧文章原本的形态。"
+};
 
 export type ReviseContent = (input: {
   expectedUpdatedAt: string;
@@ -190,6 +205,11 @@ export function ContentWorkspace({
     llmConfig.enabled ? llmConfig.defaultModel ?? llmConfig.availableModels[0] ?? "" : ""
   );
   const [styleProfile, setStyleProfile] = useState<StyleProfile>(article.styleProfile);
+  // 呈现形态：随生成请求提交，所以是本地状态（与风格预设同款），不即时落库。
+  // 初值按文章推断——没设计过分镜的新文默认剧情漫画，已设计过的旧文保持讲解式。
+  const [presentation, setPresentation] = useState<StoryboardPresentation>(() =>
+    resolveStoryboardPresentation(article.planning)
+  );
   const [highlightedBlockIds, setHighlightedBlockIds] = useState<readonly string[]>([]);
   const [operation, setOperation] = useState<
     "idle" | "generating" | "reviewing" | "revising" | "approving" | "saving" | "restoring"
@@ -199,6 +219,11 @@ export function ContentWorkspace({
   const [message, setMessage] = useState("");
 
   const isBusy = operation !== "idle";
+  // 已落库的形态：用来提示「改了但还没生成」，也用来判断切换是否真的改变了什么。
+  const persistedPresentation = useMemo(
+    () => resolveStoryboardPresentation(article.planning),
+    [article.planning]
+  );
   const textBlocks = useMemo(() => textBlocksOf(article.blocks), [article.blocks]);
   // 分镜设计视图（第三步中栏）：正文按段拆卡渲染。拼过段图后 copyBlockIds 指向的块
   // 已从 article.blocks 消失，必须先在 withStripsRestored 的还原视图上解析；
@@ -328,7 +353,8 @@ export function ContentWorkspace({
       const result = await (generateContent ?? generateContentRequest(saved.id))({
         expectedUpdatedAt: saved.updatedAt,
         ...(model ? { model } : {}),
-        styleProfile
+        styleProfile,
+        presentation
       });
       onArticleChange(result.article);
       setVersions((items) => addVersion(items, result.revision));
@@ -545,6 +571,30 @@ export function ContentWorkspace({
               onRefresh={() => void refreshModels()}
               onChange={setModel}
             />
+            <div className="presentation-control">
+              <label className="field-label" htmlFor="storyboard-presentation">
+                呈现形态
+              </label>
+              <select
+                id="storyboard-presentation"
+                className="field-control"
+                value={presentation}
+                disabled={isBusy || isPreviewing}
+                onChange={(event) => setPresentation(event.target.value as StoryboardPresentation)}
+              >
+                {PRESENTATION_ORDER.map((value) => (
+                  <option key={value} value={value}>
+                    {STORYBOARD_PRESENTATION_LABELS[value]}
+                  </option>
+                ))}
+              </select>
+              <p className="style-profile-hint">{PRESENTATION_HINTS[presentation]}</p>
+              {presentation !== persistedPresentation ? (
+                <p className="style-profile-hint presentation-pending-hint">
+                  这一形态会在下次「生成分镜脚本」时生效。
+                </p>
+              ) : null}
+            </div>
             <StyleProfileControl
               value={styleProfile}
               disabled={isBusy || isPreviewing}

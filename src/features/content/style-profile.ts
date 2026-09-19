@@ -6,10 +6,15 @@ export type StylePreset =
   | "rational_analyst"
   | "friend_chat"
   | "storyteller"
+  | "funny_storyteller"
   | "knowledge_cards"
   | "custom";
 
-export type HumorLevel = "none" | "light" | "moderate";
+/**
+ * 幽默程度。`high` 是给「搞笑剧情解说」用的：允许并鼓励段子与吐槽，
+ * 与 moderate（朋友聊天式的轻幽默）区分开。
+ */
+export type HumorLevel = "none" | "light" | "moderate" | "high";
 export type QuestionFrequency = "low" | "moderate" | "high";
 export type ContentDensity = "low" | "medium" | "high";
 
@@ -45,6 +50,7 @@ export const STYLE_PRESET_LABELS: Record<StylePreset, string> = {
   rational_analyst: "理性分析者",
   friend_chat: "朋友聊天式",
   storyteller: "故事讲述者",
+  funny_storyteller: "搞笑剧情解说",
   knowledge_cards: "简洁知识卡片",
   custom: "自定义"
 };
@@ -69,8 +75,9 @@ export const STYLE_PRESETS: Record<Exclude<StylePreset, "custom">, StylePresetSh
     tone: "接地气、轻松、有画面感；不端着、不装、不唬人",
     readerAddress: "你",
     sentenceStyle: "大白话短句为主；复杂概念先用生活画面讲出来，再给概念名称，禁止术语先行",
-    // 「动漫感」落在文风层面：像动画旁白一样有画面、有情节地讲述。
-    // 刻意不引入分镜结构/对白气泡——那是已移除的漫画脚本预设，用户明确不再往分镜化方向加。
+    // 「动漫感」落在文风层面：像动画旁白一样有画面、有情节地讲述，但结构仍是讲解式图文卡。
+    // 需要「一段一个梗 + 群体拟人化演出」的剧情漫画编排，由呈现形态（planning.presentation =
+    // story_comic）与「搞笑剧情解说」预设负责；这里保持纯文风，不引入分镜结构。
     explanationStyle:
       "每个知识点都按「先画面、再拆解、后回生活」讲：先用一段像动画旁白的具体场景把读者拉进来——谁、在哪、发生了什么；" +
       "再用大白话一层层拆开背后的机制，比喻只取吃饭、通勤、手机、家务这类日常事物；" +
@@ -122,6 +129,22 @@ export const STYLE_PRESETS: Record<Exclude<StylePreset, "custom">, StylePresetSh
     contentDensity: "medium",
     customInstructions: "",
     avoid: ["流水账式叙事", "只有情节没有概念", "人物动机模糊", "结尾强行升华"]
+  },
+  funny_storyteller: {
+    preset: "funny_storyteller",
+    persona: "会写段子的漫画编剧，最擅长把知识点编成一群小角色的搞笑日常",
+    tone: "幽默、有节奏、全是口语；吐槽点到为止，不贫嘴、不掉书袋",
+    readerAddress: "你",
+    sentenceStyle: "全部口语短句，一句话只说一件事，不写超过 22 字的长句",
+    explanationStyle:
+      "一段一个梗：先用反常或荒谬的画面把人拽进来——谁在干什么、结果翻了个什么车；" +
+      "再让角色用一句大白话把道理点破。只讲一条因果链，分支细节一律砍掉；" +
+      "笑点来自角色的反应与翻车，不来自形容词堆砌；术语第一次出现前必须先用大白话说过一遍。",
+    humorLevel: "high",
+    questionFrequency: "low",
+    contentDensity: "low",
+    customInstructions: "",
+    avoid: ["教科书式解释", "超过 22 字的长句", "术语先行", "平铺直叙", "并列列举"]
   },
   knowledge_cards: {
     preset: "knowledge_cards",
@@ -185,6 +208,7 @@ const STYLE_PRESET_VALUES = [
   "rational_analyst",
   "friend_chat",
   "storyteller",
+  "funny_storyteller",
   "knowledge_cards",
   "custom"
 ] as const;

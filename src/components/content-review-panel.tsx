@@ -46,6 +46,7 @@ const dimensionLabels: Array<[keyof ContentReviewResult, string]> = [
   ["beginnerFriendliness", "零基础友好"],
   ["coherence", "连贯性"],
   ["engagement", "吸引力"],
+  ["hookStrength", "钩子强度"],
   ["outlineCoverage", "大纲覆盖"],
   ["sourceFidelity", "资料一致"],
   ["styleMatch", "风格匹配"]

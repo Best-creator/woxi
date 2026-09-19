@@ -5,7 +5,9 @@ import type { KnowledgeBrief, OutlineSection } from "@/features/articles/domain"
 import { resolveStyleProfile } from "./style-profile";
 import {
   OpenAiStoryboardDesigner,
+  STORYBOARD_DESIGNER_STORY_COMIC_PROMPT,
   STORYBOARD_DESIGNER_SYSTEM_PROMPT,
+  STORYBOARD_REVISER_STORY_COMIC_PROMPT,
   STORYBOARD_REVISER_SYSTEM_PROMPT,
   validateStoryboardDesign
 } from "./openai-storyboard-designer";
@@ -96,6 +98,67 @@ describe("validateStoryboardDesign", () => {
   });
 });
 
+/** 剧情漫画形态的合规样例：一段一个梗、旁白式短句、画面里不写字。 */
+function storyComicDesign(): StoryboardDesign {
+  return {
+    title: "三只柴犬推箱子",
+    segments: [
+      {
+        sectionKey: "section-1",
+        title: "什么是机会成本",
+        route: "image_text",
+        copy: "一群小家伙围上来。\n\n谁都不肯先动手。",
+        frames: [{ prompt: "全景。三只柴犬围着食盆探头探脑。纯白背景。", altText: "三只柴犬围观" }]
+      },
+      {
+        sectionKey: "section-2",
+        title: "怎么权衡",
+        route: "image_text_image",
+        copy: "带头的先跳上去。\n\n它滑倒了。",
+        frames: [
+          { prompt: "中景。三只柴犬一起推着大箱子。纯白背景。", altText: "一起推箱子" },
+          { prompt: "近景。同一场景的下一秒，箱子翻了。纯白背景。", altText: "箱子翻了" }
+        ]
+      }
+    ]
+  };
+}
+
+describe("validateStoryboardDesign 的剧情漫画红线", () => {
+  const storyComicInput: GenerateContentInput = { ...baseInput, presentation: "story_comic" };
+
+  it("accepts a compliant story comic design", () => {
+    const design = storyComicDesign();
+    expect(validateStoryboardDesign(design, storyComicInput)).toBe(design);
+  });
+
+  it("rejects a segment whose title plus copy runs past 60 characters", () => {
+    const design = storyComicDesign();
+    design.segments[0]!.copy = "字".repeat(70);
+    expect(() => validateStoryboardDesign(design, storyComicInput)).toThrow("超过剧情漫画每段 60 字");
+  });
+
+  it("rejects a single sentence longer than 22 characters", () => {
+    const design = storyComicDesign();
+    design.segments[0]!.copy = "长".repeat(30);
+    expect(() => validateStoryboardDesign(design, storyComicInput)).toThrow("每句话不超过 22 字");
+  });
+
+  it("rejects prompts that ask the image model to draw text", () => {
+    const design = storyComicDesign();
+    design.segments[0]!.frames[0]!.prompt = "全景。三只柴犬。画面文字：对白气泡『上啊』";
+    expect(() => validateStoryboardDesign(design, storyComicInput)).toThrow("不得出现任何文字");
+  });
+
+  it("leaves the illustrated form on its own rules", () => {
+    // 同一份「违规」设计在讲解式下不做剧情漫画的红线检查（旧文产物一个字不变）。
+    const design = storyComicDesign();
+    design.segments[0]!.copy = "字".repeat(70);
+    design.segments[0]!.frames[0]!.prompt = "全景。三只柴犬。画面文字：对白气泡『上啊』";
+    expect(() => validateStoryboardDesign(design, baseInput)).not.toThrow();
+  });
+});
+
 describe("OpenAiStoryboardDesigner", () => {
   it("sends style, character and outline to the JSON client and validates the payload", async () => {
     const complete = vi.fn(async (request: { schema: { parse: (value: unknown) => unknown }; userPayload: Record<string, unknown> }) => {
@@ -147,6 +210,41 @@ describe("OpenAiStoryboardDesigner", () => {
   it("anchors the ending instruction in the system prompt (D1：收尾烘进末段，不输出知识卡片)", async () => {
     expect(STORYBOARD_DESIGNER_SYSTEM_PROMPT).toContain("末段必须自然收尾");
     expect(STORYBOARD_DESIGNER_SYSTEM_PROMPT).toContain("知识卡片");
+  });
+
+  it("switches to the story comic prompt when the form is 剧情漫画", async () => {
+    const complete = vi.fn(async (request: { schema: { parse: (value: unknown) => unknown } }) => {
+      const raw = { title: "三只柴犬推箱子", segments: storyComicDesign().segments };
+      request.schema.parse(raw);
+      return raw as never;
+    });
+    const designer = new OpenAiStoryboardDesigner({ complete } as never);
+
+    await designer.design({ ...baseInput, presentation: "story_comic" });
+    const designRequest = complete.mock.calls[0]?.[0] as unknown as { systemPrompt: string };
+    expect(designRequest.systemPrompt).toBe(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT);
+
+    const revised = complete.mock.calls.length;
+    await designer.revise({
+      ...baseInput,
+      presentation: "story_comic",
+      currentDesign: storyComicDesign(),
+      flaggedSectionKeys: []
+    });
+    const reviseRequest = complete.mock.calls[revised]?.[0] as unknown as { systemPrompt: string };
+    expect(reviseRequest.systemPrompt).toBe(STORYBOARD_REVISER_STORY_COMIC_PROMPT);
+  });
+
+  it("anchors the group-anthropomorphism and no-text rules in the story comic prompts", () => {
+    // 群体拟人化（R5）与「画面里不写字」是新形态的两条命脉，钉在提示词里防回退。
+    expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).toContain("角色可以复数");
+    expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).toContain("不超过 60 字");
+    expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).toContain("一段一个梗");
+    expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).toContain("严禁画面里出现任何文字");
+    // 旧的「画面文字：对白气泡『XXX』」条款必须只剩讲解式那套，不能出现在剧情漫画里。
+    expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).not.toContain("画面文字：");
+    expect(STORYBOARD_REVISER_STORY_COMIC_PROMPT).toContain("不超过 60 字");
+    expect(STORYBOARD_REVISER_STORY_COMIC_PROMPT).not.toContain("画面文字：");
   });
 
   it("anchors the short-card rhythm discipline in both prompts（copy 空行分块）", () => {
@@ -312,5 +410,48 @@ describe("DemoStoryboardDesigner.revise", () => {
     for (const [index, segment] of revised.segments.entries()) {
       expect(segment.copy).not.toBe(current.segments[index]!.copy);
     }
+  });
+});
+
+describe("DemoStoryboardDesigner 的剧情漫画形态", () => {
+  const storyComicInput: GenerateContentInput = { ...baseInput, presentation: "story_comic" };
+
+  it("produces short narration copy that clears the story comic red lines", async () => {
+    const { DemoStoryboardDesigner } = await import("./demo-storyboard-designer");
+    const design = await new DemoStoryboardDesigner().design(storyComicInput);
+
+    expect(() => validateStoryboardDesign(design, storyComicInput)).not.toThrow();
+    for (const segment of design.segments) {
+      expect((segment.title + segment.copy).replace(/\s/g, "").length).toBeLessThanOrEqual(60);
+    }
+    // 群体拟人化：同一物种的复数角色一起演出，且不要求生图模型画字。
+    const frames = design.segments.flatMap((segment) => segment.frames);
+    expect(frames.length).toBeGreaterThan(0);
+    expect(frames.every((frame) => frame.prompt.includes("三只"))).toBe(true);
+    expect(frames.some((frame) => frame.prompt.includes("画面文字"))).toBe(false);
+    // 末段不再追加「一句话记住」（落点由梗本身收尾，避免超出 60 字）。
+    expect(design.segments.at(-1)!.copy).not.toContain("一句话记住");
+  });
+
+  it("keeps the illustrated demo copy untouched by default", async () => {
+    const { DemoStoryboardDesigner } = await import("./demo-storyboard-designer");
+    const design = await new DemoStoryboardDesigner().design(baseInput);
+    expect(design.segments[0]!.copy).toContain("先从一个具体场景说起");
+  });
+
+  it("revises story comic segments into a different beat", async () => {
+    const { DemoStoryboardDesigner } = await import("./demo-storyboard-designer");
+    const designer = new DemoStoryboardDesigner();
+    const current = await designer.design(storyComicInput);
+
+    const revised = await designer.revise({
+      ...storyComicInput,
+      currentDesign: current,
+      flaggedSectionKeys: [],
+      userInstructions: "全部重来"
+    });
+
+    expect(revised.segments[0]!.copy).not.toBe(current.segments[0]!.copy);
+    expect(() => validateStoryboardDesign(revised, storyComicInput)).not.toThrow();
   });
 });
