@@ -31,6 +31,44 @@ export function stripJsonFences(raw: string): string {
   return (fenced ? (fenced[1] ?? trimmed) : trimmed).trim();
 }
 
+/**
+ * 从一段散文里抠出最外层的 JSON 对象文本（首个 { 到最后一个 }）。
+ * 模型偶发把 JSON 烘在解释文字或 <think> 块后面——抠出来仍要过 Zod，安全；
+ * 抠不出（没有大括号）或抠出来是碎的（截断/多对象）就返回 null，走纠错重试。
+ */
+export function extractJsonObject(raw: string): string | null {
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start === -1 || end <= start) return null;
+  return raw.slice(start, end + 1);
+}
+
+/**
+ * 兼容网关的 content 变体：字符串原样；多段数组（[{type:"text",text:…},…]）拼回一段。
+ * 都不是就返回 null（结构异常，走重试）。
+ */
+function normalizeContent(content: unknown): string | null {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    const parts = content
+      .map(
+        (part) =>
+          part && typeof part === "object" && typeof (part as { text?: unknown }).text === "string"
+            ? (part as { text: string }).text
+            : ""
+      )
+      .filter(Boolean);
+    if (parts.length) return parts.join("\n");
+  }
+  return null;
+}
+
+/** finish_reason=length 说明回复被长度上限掐断——JSON 八成缺了尾巴，报错里点名它。 */
+function responseDetail(payload: unknown): string {
+  const choice = (payload as { choices?: Array<{ finish_reason?: unknown }> })?.choices?.[0];
+  return choice?.finish_reason === "length" ? "回复超出长度上限被截断" : "";
+}
+
 /** 重试时附在对话末尾的纠错指令（角色用 user，兼容性比第二条 system 消息好）。 */
 const RETRY_NOTE =
   "上一次回复没有通过校验。请重新生成一次，只输出一个合法的 JSON 对象——不要 Markdown 代码块、注释或任何解释文字。";
@@ -131,27 +169,40 @@ export class OpenAiJsonClient {
       try {
         payload = await response.json();
       } catch {
+        detail = "响应体不是合法 JSON";
         correctiveNote = RETRY_NOTE;
         continue;
       }
 
       const choices = (payload as { choices?: unknown })?.choices;
-      const content = Array.isArray(choices)
+      const rawContent = Array.isArray(choices)
         ? (choices[0] as { message?: { content?: unknown } } | undefined)?.message?.content
         : undefined;
-      if (typeof content !== "string") {
+      const content = normalizeContent(rawContent);
+      if (content === null) {
+        detail = responseDetail(payload) || "回复内容为空或格式异常";
         correctiveNote = RETRY_NOTE;
         continue;
       }
 
+      const text = stripJsonFences(content);
       let parsed: unknown;
       try {
-        parsed = JSON.parse(stripJsonFences(content));
+        parsed = JSON.parse(text);
       } catch {
-        detail = "文本不是合法 JSON";
-        correctiveNote =
-          "上一次的文本不是合法 JSON——可能带了 Markdown 代码围栏或前后多余文字。" + RETRY_NOTE;
-        continue;
+        // 直接解析失败 → 掐头去尾抢救一次（散文包裹/<think> 块后面的 JSON）。
+        const salvaged = extractJsonObject(text);
+        try {
+          parsed = salvaged ? JSON.parse(salvaged) : undefined;
+        } catch {
+          parsed = undefined;
+        }
+        if (parsed === undefined) {
+          detail = responseDetail(payload) || "文本不是合法 JSON";
+          correctiveNote =
+            "上一次的文本不是合法 JSON——可能带了 Markdown 代码围栏或前后多余文字。" + RETRY_NOTE;
+          continue;
+        }
       }
 
       const result = request.schema.safeParse(parsed);

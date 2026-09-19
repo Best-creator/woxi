@@ -186,6 +186,64 @@ describe("OpenAiJsonClient", () => {
     expect(calls).toBe(1);
   });
 
+  it("salvages a JSON object baked into prose without consuming the retry", async () => {
+    let calls = 0;
+    const fetchFn = (async () => {
+      calls += 1;
+      return completion('好的，这是你要的结果：\n{"answer": "4"}\n请查收。');
+    }) as typeof fetch;
+
+    // 散文包裹是最常见的「文本不是合法 JSON」来源——掐头去尾抠出 {} 直接救回，
+    // 省掉一整轮纠错重试（抠出来的仍要过 Zod，安全）。
+    await expect(new OpenAiJsonClient(config, fetchFn).complete(request)).resolves.toEqual({
+      answer: "4"
+    });
+    expect(calls).toBe(1);
+  });
+
+  it("joins multi-part content arrays that some gateways return", async () => {
+    const fetchFn = (async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: [
+                  { type: "text", text: '{"answer":' },
+                  { type: "text", text: '"4"}' }
+                ]
+              }
+            }
+          ]
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )) as typeof fetch;
+
+    await expect(new OpenAiJsonClient(config, fetchFn).complete(request)).resolves.toEqual({
+      answer: "4"
+    });
+  });
+
+  it("names truncation in the error when finish_reason is length", async () => {
+    const error = (await new OpenAiJsonClient(
+      config,
+      fetchResponse(() =>
+        new Response(
+          JSON.stringify({
+            choices: [{ finish_reason: "length", message: { content: '{"answer": "4' } }]
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+    )
+      .complete(request)
+      .catch((reason: LlmError) => reason)) as LlmError;
+
+    // 被长度上限掐断的 JSON 缺尾巴，抢救救不回来——但报错要直说原因，别让用户猜。
+    expect(error).toMatchObject({ code: "invalid_response", name: "LlmError" });
+    expect(error.message).toContain("截断");
+  });
+
   it("does not retry HTTP status errors", async () => {
     let calls = 0;
     const fetchFn = (async () => {
