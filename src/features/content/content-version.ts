@@ -92,7 +92,8 @@ export function enrichStoryboardSnapshotSegments(
       frames.push({
         prompt: asset.prompt,
         altText: asset.altText,
-        aspectRatio: asset.aspectRatio
+        aspectRatio: asset.aspectRatio,
+        ...(asset.speechLine ? { speechLine: asset.speechLine } : {})
       });
     }
     return { ...segment, frames };

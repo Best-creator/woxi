@@ -5,7 +5,7 @@ import type {
   OutlineSection,
   StoryboardRoute
 } from "@/features/articles/domain";
-import type { ImageAspectRatio } from "@/features/images/domain";
+import type { ImageAspectRatio, SpeechLine } from "@/features/images/domain";
 import type { StyleProfile } from "@/features/content/style-profile";
 
 export type RevisionScope = "outline" | "content";
@@ -23,6 +23,8 @@ export interface StoryboardFrameSnapshot {
   prompt: string;
   altText: string;
   aspectRatio?: ImageAspectRatio;
+  /** 帧的台词/旁白（可选）：恢复版本时随帧一起还原，烘段图时渲染成橙条。 */
+  speechLine?: SpeechLine | null;
 }
 
 /**

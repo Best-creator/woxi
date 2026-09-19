@@ -38,10 +38,21 @@ export const styleProfileSchema = z.object({
 /** 分镜段的呈现路由；取值与 articles/domain 的 StoryboardRoute 一致。 */
 export const storyboardRouteSchema = z.enum(["image_text", "text_image", "image_text_image"]);
 
+/**
+ * 帧的台词/旁白。text 上限 30 是**结构闸**（放得进 JSON 就收）：
+ * 精确的字数红线（对白 ≤10 / 旁白 ≤25，含容差）由 story-comic-rules 的红线闸报，
+ * 那里的错误信息才带「该改成什么样」的指引。
+ */
+export const speechLineSchema = z.object({
+  kind: z.enum(["dialogue", "narration"]),
+  text: z.string().trim().min(1).max(30)
+});
+
 export const storyboardDesignFrameSchema = z.object({
   // 完整生图提示词：角色动作、场景道具、情绪氛围、镜头景别 + 画面文字。
   prompt: z.string().trim().min(1).max(2_000),
-  altText: z.string().trim().min(1).max(120)
+  altText: z.string().trim().min(1).max(120),
+  speechLine: speechLineSchema.nullish()
 });
 
 export const storyboardDesignSegmentSchema = z.object({

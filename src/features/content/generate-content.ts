@@ -135,7 +135,8 @@ function buildSegmentBlocks(design: StoryboardDesign): {
       copyBlockIds: [headingId, ...copyIds],
       frames: segment.frames.map((frame) => ({
         prompt: frame.prompt,
-        altText: frame.altText
+        altText: frame.altText,
+        ...(frame.speechLine ? { speechLine: frame.speechLine } : {})
       }))
     });
   }

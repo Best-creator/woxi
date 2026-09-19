@@ -283,6 +283,7 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
           publicUrl: null,
           manuallyEdited: false,
           consumedContent: null,
+          speechLine: null,
           createdAt: assetTimestamp,
           updatedAt: assetTimestamp
         };
@@ -333,6 +334,7 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
       const contentEdited =
         Object.hasOwn(patch, "prompt") ||
         Object.hasOwn(patch, "altText") ||
+        Object.hasOwn(patch, "speechLine") ||
         hasAnchorPatch ||
         Object.hasOwn(patch, "aspectRatio");
       const status =
@@ -347,6 +349,8 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
         prompt: patch.prompt ?? asset.prompt,
         altText: patch.altText ?? asset.altText,
         aspectRatio: patch.aspectRatio ?? asset.aspectRatio,
+        // 显式传 null 是「清除台词」，没传就保持原样
+        ...(Object.hasOwn(patch, "speechLine") ? { speechLine: patch.speechLine ?? null } : {}),
         status,
         manuallyEdited: contentEdited ? true : asset.manuallyEdited,
         updatedAt: nextTimestamp(asset.updatedAt)
@@ -390,6 +394,7 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
         publicUrl: null,
         manuallyEdited: false,
         consumedContent: null,
+        speechLine: null,
         createdAt: timestamp,
         updatedAt: timestamp
       };
@@ -741,6 +746,8 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
             publicUrl: null,
             manuallyEdited: false,
             consumedContent: null,
+            // 台词跟着帧走：重设计换帧时旧台词随旧帧退役，新帧带新台词。
+            speechLine: frame.speechLine ?? null,
             createdAt: assetTimestamp,
             updatedAt: assetTimestamp
           };
@@ -867,6 +874,7 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
               publicUrl: null,
               manuallyEdited: false,
               consumedContent: null,
+              speechLine: frame.speechLine ?? null,
               createdAt: assetTimestamp,
               updatedAt: assetTimestamp
             };
@@ -986,6 +994,7 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
           blocks: input.consumedContent.blocks.map((block) => ({ ...block })),
           resumeBeforeBlockId: input.consumedContent.resumeBeforeBlockId
         },
+        speechLine: null,
         createdAt: timestamp,
         updatedAt: timestamp
       },
@@ -1160,8 +1169,8 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
         INSERT INTO image_assets (
           id, article_id, anchor_block_id, type, purpose, prompt, alt_text,
           aspect_ratio, status, placeholder_url, file_path, public_url,
-          consumed_blocks, manually_edited, position, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          consumed_blocks, speech_line, manually_edited, position, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         asset.id,
@@ -1177,6 +1186,7 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
         asset.filePath,
         asset.publicUrl,
         asset.consumedContent ? JSON.stringify(asset.consumedContent) : null,
+        asset.speechLine ? JSON.stringify(asset.speechLine) : null,
         asset.manuallyEdited ? 1 : 0,
         position,
         asset.createdAt,
@@ -1190,7 +1200,7 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
         UPDATE image_assets
         SET anchor_block_id = ?, prompt = ?, alt_text = ?, aspect_ratio = ?,
             status = ?, placeholder_url = ?, file_path = ?, public_url = ?,
-            consumed_blocks = ?, manually_edited = ?, updated_at = ?
+            consumed_blocks = ?, speech_line = ?, manually_edited = ?, updated_at = ?
         WHERE id = ? AND article_id = ?
       `)
       .run(
@@ -1203,6 +1213,7 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
         asset.filePath,
         asset.publicUrl,
         asset.consumedContent ? JSON.stringify(asset.consumedContent) : null,
+        asset.speechLine ? JSON.stringify(asset.speechLine) : null,
         asset.manuallyEdited ? 1 : 0,
         asset.updatedAt,
         asset.id,

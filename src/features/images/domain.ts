@@ -52,6 +52,27 @@ export type ImageAssetStatus =
   | "disabled"
   | "failed";
 
+/**
+ * 分镜帧的台词/旁白（剧情漫画形态）。
+ *
+ * 文字不进生图（D2/D3 红线），台词由拼接渲染器烘成图外的条块：
+ * - dialogue（对白）：角色嘴里的短句，渲染成白底橙描边条，≤10 字；
+ * - narration（旁白）：画外音吐槽，渲染成橙底条 + 固定头像位，≤25 字。
+ * 存在帧资产上而不是正文块里：它是画面的附属品，重生成帧时随帧走。
+ */
+export type SpeechLineKind = "dialogue" | "narration";
+
+export const SPEECH_LINE_KINDS: readonly SpeechLineKind[] = ["dialogue", "narration"];
+
+export function isSpeechLineKind(value: unknown): value is SpeechLineKind {
+  return typeof value === "string" && (SPEECH_LINE_KINDS as readonly string[]).includes(value);
+}
+
+export interface SpeechLine {
+  kind: SpeechLineKind;
+  text: string;
+}
+
 export type ImageAspectRatio = "cover" | "landscape" | "square" | "portrait";
 
 export interface ImagePlanSuggestion {
@@ -97,6 +118,11 @@ export interface ImageAsset extends ImagePlanSuggestion {
   manuallyEdited: boolean;
   /** 普通配图是 null；漫画长图带一份被它替换掉的正文快照，用于随时撤销。 */
   consumedContent: ConsumedContent | null;
+  /**
+   * 帧的台词/旁白，仅分镜帧（type=storyboard）会带；缺省/null = 没有台词，
+   * 渲染时直接跳过——旧帧零迁移。
+   */
+  speechLine?: SpeechLine | null;
   createdAt: string;
   updatedAt: string;
 }

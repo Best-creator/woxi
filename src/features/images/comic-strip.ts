@@ -1,4 +1,5 @@
 import sharp from "sharp";
+import type { SpeechLineKind } from "./domain";
 
 /**
  * 把「分镜图」和「文字」烘进同一张长图。
@@ -22,7 +23,20 @@ export interface ComicStripTextBlock {
   body: string;
 }
 
-export type ComicStripBlock = ComicStripImageBlock | ComicStripTextBlock;
+/**
+ * 帧的台词/旁白条（剧情漫画形态）：挂在帧后面的一小块横条。
+ *
+ * - narration（旁白）：橙底圆角条 + 固定头像位（红衣青年侧脸——混知式「作者画外音」）；
+ * - dialogue（对白）：白底橙描边条，角色嘴里的短句。
+ * 与「卡片段落」（text）的区别在形态与信息量：条是旁白式的一句话，卡才是知识本体。
+ */
+export interface ComicStripSpeechBlock {
+  kind: "speech";
+  speechKind: SpeechLineKind;
+  text: string;
+}
+
+export type ComicStripBlock = ComicStripImageBlock | ComicStripTextBlock | ComicStripSpeechBlock;
 
 export interface ComicStripMetrics {
   /** 画布宽度（微信正文安全宽度内，1080 是缩放进正文后仍清晰的下限）。 */
@@ -116,6 +130,28 @@ const TEXT_CARD_SHADOW = "#E7ECE3";
 const TEXT_CARD_RADIUS = 16;
 const TEXT_CARD_SHADOW_OFFSET = 5;
 
+/**
+ * 正文断行的硬上限（每行全角字数）：混知式知识条漫的正文是**居中短行**，
+ * 行宽一满整个卡片就退回「语文课本」。13 字 ≈ 手机宽度下两眼扫完一行。
+ */
+export const TEXT_BAND_MAX_CHARS_PER_LINE = 13;
+
+// 台词/旁白条的固定视觉参数（橙条家族，与暖纸白文字卡同属一个设计语言）。
+const SPEECH_BAR_RADIUS = 16;
+const SPEECH_BAR_SHADOW_OFFSET = 5;
+const SPEECH_NARRATION_BACKGROUND = "#FFB03A";
+const SPEECH_NARRATION_BORDER = "#E8960F";
+const SPEECH_NARRATION_TEXT = "#4A2B00";
+const SPEECH_DIALOGUE_BACKGROUND = "#FFFFFF";
+const SPEECH_DIALOGUE_BORDER = "#FFB03A";
+const SPEECH_DIALOGUE_TEXT = "#3D2817";
+// 旁白条左侧的固定头像位（红衣青年）：直径按正文字号推，字号档位变它跟着变。
+const SPEECH_AVATAR_SIZE_RATIO = 2.1;
+const SPEECH_AVATAR_SKIN = "#FFD9B3";
+const SPEECH_AVATAR_HAIR = "#2A2A2A";
+const SPEECH_AVATAR_SHIRT = "#C7331F";
+const SPEECH_AVATAR_LINE = "#3D2817";
+
 export interface ComicStripTextLayout {
   titleLines: string[];
   bodyLines: string[];
@@ -182,10 +218,12 @@ export function layoutComicStripTextBlock(
   // 预算扣掉阴影偏移：卡片本体比带子窄一拍，折行不能贴到阴影里去。
   const contentWidth =
     metrics.width - metrics.padding * 2 - metrics.textPadX * 2 - TEXT_CARD_SHADOW_OFFSET;
+  // 正文是居中短行：即使卡片很宽，每行也最多 13 个全角字——行宽吃满就是课文脸。
+  const bodyBudget = Math.min(contentWidth, metrics.bodySize * TEXT_BAND_MAX_CHARS_PER_LINE);
   const title = block.title?.trim() ?? "";
   const body = block.body.trim();
   const titleLines = title ? wrapText(title, contentWidth, metrics.titleSize) : [];
-  const bodyLines = body ? wrapText(body, contentWidth, metrics.bodySize) : [];
+  const bodyLines = body ? wrapText(body, bodyBudget, metrics.bodySize) : [];
   const height =
     metrics.textPadY * 2 +
     titleLines.length * metrics.titleLineHeight +
@@ -215,10 +253,12 @@ function renderComicStripTextBlockSvg(
     );
   }
   if (layout.titleLines.length && layout.bodyLines.length) y += titleGap(metrics);
+  // 正文居中（P3）：混知式短行从卡片中线向两边排，标题保持左对齐 + 竖条。
+  const bodyCenterX = Math.round(blockWidth / 2);
   for (const line of layout.bodyLines) {
     y += metrics.bodyLineHeight;
     parts.push(
-      `<text x="${textLeft}" y="${y}" font-family="${escapeXml(metrics.fontFamily)}" font-size="${metrics.bodySize}" fill="${metrics.textColor}">${escapeXml(line)}</text>`
+      `<text x="${bodyCenterX}" y="${y}" text-anchor="middle" font-family="${escapeXml(metrics.fontFamily)}" font-size="${metrics.bodySize}" fill="${metrics.textColor}">${escapeXml(line)}</text>`
     );
   }
 
@@ -256,6 +296,115 @@ async function renderComicStripTextBlock(
     input: binary,
     width: layout.width - metrics.padding * 2,
     height: layout.height + TEXT_CARD_SHADOW_OFFSET
+  };
+}
+
+export interface ComicStripSpeechLayout {
+  lines: string[];
+  /** 头像直径；对白条为 0。 */
+  avatarSize: number;
+  width: number;
+  height: number;
+}
+
+/** 旁白条头像直径：正文字号 × 比例，字号档位变它跟着变。 */
+function speechAvatarSize(metrics: ComicStripMetrics): number {
+  return Math.round(metrics.bodySize * SPEECH_AVATAR_SIZE_RATIO);
+}
+
+/**
+ * 台词条排版：文本折行预算要给旁白头像让位，条高取「文字高度」与「头像呼吸高度」的较大者。
+ * 与文字卡同一套纯函数约定——高度直接决定长图尺寸，必须可钉死在测试里。
+ */
+export function layoutComicStripSpeechBlock(
+  block: ComicStripSpeechBlock,
+  metrics: ComicStripMetrics = DEFAULT_COMIC_STRIP_METRICS
+): ComicStripSpeechLayout {
+  const blockWidth = metrics.width - metrics.padding * 2 - SPEECH_BAR_SHADOW_OFFSET;
+  const avatarSize = block.speechKind === "narration" ? speechAvatarSize(metrics) : 0;
+  const avatarGap = avatarSize ? Math.round(metrics.bodySize * 0.45) : 0;
+  const budget =
+    blockWidth - metrics.textPadX * 2 - avatarSize - avatarGap;
+  const lines = wrapText(block.text.trim(), budget, metrics.bodySize);
+  const padY = Math.round(metrics.textPadY * 0.6);
+  const textHeight = lines.length * metrics.bodyLineHeight;
+  const height = Math.max(
+    textHeight + padY * 2,
+    avatarSize ? avatarSize + Math.round(metrics.textPadY * 0.4) : 0
+  );
+  return { lines, avatarSize, width: metrics.width, height };
+}
+
+/** 旁白条左侧的固定头像（红衣青年简笔）：脸 + 头发 + 五官 + 底部一截红衣。 */
+function renderNarrationAvatarSvg(cx: number, cy: number, radius: number): string {
+  const eyeOffsetX = Math.round(radius * 0.35);
+  const eyeOffsetY = Math.round(radius * 0.08);
+  const eyeRadius = Math.max(2, Math.round(radius * 0.09));
+  return `
+  <circle cx="${cx}" cy="${cy}" r="${radius}" fill="${SPEECH_AVATAR_SKIN}" stroke="${SPEECH_AVATAR_LINE}" stroke-width="3"/>
+  <ellipse cx="${cx}" cy="${Math.round(cy - radius * 0.5)}" rx="${Math.round(radius * 0.98)}" ry="${Math.round(radius * 0.5)}" fill="${SPEECH_AVATAR_HAIR}"/>
+  <circle cx="${cx - eyeOffsetX}" cy="${cy + eyeOffsetY}" r="${eyeRadius}" fill="${SPEECH_AVATAR_LINE}"/>
+  <circle cx="${cx + eyeOffsetX}" cy="${cy + eyeOffsetY}" r="${eyeRadius}" fill="${SPEECH_AVATAR_LINE}"/>
+  <rect x="${Math.round(cx - radius * 0.22)}" y="${Math.round(cy + radius * 0.4)}" width="${Math.round(radius * 0.44)}" height="${Math.max(3, Math.round(radius * 0.1))}" rx="${Math.round(radius * 0.05)}" fill="${SPEECH_AVATAR_LINE}"/>
+  <path d="M ${Math.round(cx - radius * 0.72)} ${cy + radius} L ${Math.round(cx - radius * 0.72)} ${Math.round(cy + radius * 0.62)} Q ${cx} ${Math.round(cy + radius * 0.38)} ${Math.round(cx + radius * 0.72)} ${Math.round(cy + radius * 0.62)} L ${Math.round(cx + radius * 0.72)} ${cy + radius} Z" fill="${SPEECH_AVATAR_SHIRT}"/>`;
+}
+
+function renderComicStripSpeechBlockSvg(
+  block: ComicStripSpeechBlock,
+  metrics: ComicStripMetrics,
+  layout: ComicStripSpeechLayout
+) {
+  // 与文字卡同一条坐标约定：原点 = 内容区左边缘，不加 padding。
+  const blockWidth = metrics.width - metrics.padding * 2;
+  const isNarration = block.speechKind === "narration";
+  const background = isNarration ? SPEECH_NARRATION_BACKGROUND : SPEECH_DIALOGUE_BACKGROUND;
+  const border = isNarration ? SPEECH_NARRATION_BORDER : SPEECH_DIALOGUE_BORDER;
+  const textColor = isNarration ? SPEECH_NARRATION_TEXT : SPEECH_DIALOGUE_TEXT;
+
+  const cardWidth = blockWidth - SPEECH_BAR_SHADOW_OFFSET;
+  const parts: string[] = [];
+
+  // 文字在条内垂直居中；文本区（旁白 = 头像右侧，对白 = 整条）内水平居中。
+  const textHeight = layout.lines.length * metrics.bodyLineHeight;
+  const textTop = Math.round((layout.height - textHeight) / 2);
+  let y = textTop;
+  const avatarGap = layout.avatarSize ? Math.round(metrics.bodySize * 0.45) : 0;
+  const textStartX = metrics.textPadX + layout.avatarSize + avatarGap;
+  const centerX = Math.round((textStartX + cardWidth) / 2);
+  for (const line of layout.lines) {
+    y += metrics.bodyLineHeight;
+    parts.push(
+      `<text x="${centerX}" y="${y}" text-anchor="middle" font-family="${escapeXml(metrics.fontFamily)}" font-size="${metrics.bodySize}" font-weight="700" fill="${textColor}">${escapeXml(line)}</text>`
+    );
+  }
+
+  const avatarSvg = layout.avatarSize
+    ? renderNarrationAvatarSvg(
+        metrics.textPadX + Math.round(layout.avatarSize / 2),
+        Math.round(layout.height / 2),
+        Math.round(layout.avatarSize / 2)
+      )
+    : "";
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${blockWidth}" height="${layout.height + SPEECH_BAR_SHADOW_OFFSET}">
+  <rect x="${SPEECH_BAR_SHADOW_OFFSET}" y="${SPEECH_BAR_SHADOW_OFFSET}" width="${cardWidth}" height="${layout.height}" rx="${SPEECH_BAR_RADIUS}" fill="${TEXT_CARD_SHADOW}"/>
+  <rect x="0" y="0" width="${cardWidth}" height="${layout.height}" rx="${SPEECH_BAR_RADIUS}" fill="${background}" stroke="${border}" stroke-width="2"/>
+  ${avatarSvg}
+  ${parts.join("\n  ")}
+</svg>`;
+}
+
+async function renderComicStripSpeechBlock(
+  block: ComicStripSpeechBlock,
+  metrics: ComicStripMetrics
+): Promise<{ input: Buffer; width: number; height: number }> {
+  const layout = layoutComicStripSpeechBlock(block, metrics);
+  const svg = renderComicStripSpeechBlockSvg(block, metrics, layout);
+  const binary = await sharp(Buffer.from(svg)).png().toBuffer();
+  return {
+    input: binary,
+    width: layout.width - metrics.padding * 2,
+    height: layout.height + SPEECH_BAR_SHADOW_OFFSET
   };
 }
 
@@ -301,10 +450,12 @@ export async function composeComicStrip(
     const piece =
       block.kind === "image"
         ? await renderComicStripImageBlock(block, metrics)
-        : await renderComicStripTextBlock(block, metrics);
+        : block.kind === "speech"
+          ? await renderComicStripSpeechBlock(block, metrics)
+          : await renderComicStripTextBlock(block, metrics);
     rendered.push({
       input: piece.input,
-      // 图按实际缩放后的宽度居中；文字块本身就是满宽，居中和左对齐等价。
+      // 图按实际缩放后的宽度居中；文字/台词条本身就是满宽，居中和左对齐等价。
       left: metrics.padding + Math.max(0, Math.round((metrics.width - metrics.padding * 2 - piece.width) / 2)),
       top: cursor
     });

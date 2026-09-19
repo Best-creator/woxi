@@ -180,3 +180,66 @@ describe("整份设计", () => {
     expect(inspected[0]?.complaints.length).toBeGreaterThan(0);
   });
 });
+
+describe("台词/旁白红线", () => {
+  it("对白 10 字内合规，超过容差判线打回", () => {
+    expect(
+      inspectStoryComicSegment({
+        title: "排队",
+        copy: "三只柴犬排成一队",
+        speechLines: [{ kind: "dialogue", text: "说好的轮流呢！" }]
+      })
+    ).toEqual([]);
+    expect(
+      inspectStoryComicSegment({
+        title: "排队",
+        copy: "三只柴犬排成一队",
+        speechLines: [{ kind: "dialogue", text: "你们排队排得也太慢了吧真急死我了" }]
+      }).join("")
+    ).toContain("对白");
+  });
+
+  it("旁白 25 字内合规，超长打回并报类型", () => {
+    expect(
+      inspectStoryComicSegment({
+        title: "排队",
+        copy: "三只柴犬排成一队",
+        speechLines: [{ kind: "narration", text: "干活最卖力的往往是饭量最大的那只柴犬。" }]
+      })
+    ).toEqual([]);
+    expect(
+      inspectStoryComicSegment({
+        title: "排队",
+        copy: "三只柴犬排成一队",
+        speechLines: [
+          { kind: "narration", text: "干活最卖力的往往是饭量最大的那只柴犬，这一点从来没有例外过。" }
+        ]
+      }).join("")
+    ).toContain("旁白");
+  });
+
+  it("整份设计检查会读帧上的 speechLine", () => {
+    const design: StoryboardDesign = {
+      title: "插队",
+      segments: [
+        {
+          sectionKey: "cutting",
+          title: "插队",
+          route: "image_text",
+          copy: "三只柴犬排成一队",
+          frames: [
+            {
+              prompt: "一只柴犬挤到队首",
+              altText: "一只柴犬挤到队首",
+              speechLine: { kind: "dialogue", text: "你们排队排得也太慢了吧真急死我了" }
+            }
+          ]
+        }
+      ]
+    };
+
+    const inspected = inspectStoryComicDesign(design);
+    expect(inspected).toHaveLength(1);
+    expect(inspected[0]?.complaints.join("")).toContain("对白");
+  });
+});

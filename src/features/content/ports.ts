@@ -3,6 +3,7 @@ import type {
   StoryboardPresentation,
   StoryboardRoute
 } from "@/features/articles/domain";
+import type { SpeechLine } from "@/features/images/domain";
 import type { StyleProfile } from "./style-profile";
 
 export const CONTENT_BLOCK_TYPES = [
@@ -55,6 +56,11 @@ export interface StoryboardCharacterBrief {
 export interface StoryboardDesignFrame {
   prompt: string;
   altText: string;
+  /**
+   * 帧的台词/旁白（剧情漫画形态，可选）：画面里不写字（D2/D3 红线），
+   * 这句话由拼接渲染器烘成图外的橙条。省略 = 该格没有台词。
+   */
+  speechLine?: SpeechLine | null;
 }
 
 /** 一个分镜段：呈现路由 + 成稿文案 + 该路由所需数量的分镜帧。 */

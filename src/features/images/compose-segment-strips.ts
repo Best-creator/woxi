@@ -295,16 +295,31 @@ export async function composeSegmentStrips(
 
       // 段内路由在设计期就定了：图+文 / 文+图 / 图+文+图，两图夹一文时帧序即设计序。
       // 文案按块拆成多条文字带——每块一条短卡，不再是一整段长文。
+      // 帧与它的台词绑定成组：帧资产带 speechLine 时紧跟一条台词条
+      // （旁白=橙底头像条，对白=白底橙描边条）；旧帧没有台词 → 只有图，零迁移。
+      const frameBlocksWithSpeech = (index: number): ComicStripBlock[] => {
+        const line = entry.frameAssets[index]?.speechLine;
+        const blocks: ComicStripBlock[] = [{ kind: "image", binary: binaries[index]! }];
+        if (line?.text.trim()) {
+          blocks.push({
+            kind: "speech",
+            speechKind: line.kind,
+            text: line.text.trim()
+          });
+        }
+        return blocks;
+      };
+
       const stripBlocks: ComicStripBlock[] =
         entry.segment.route === "text_image"
-          ? [...entry.textBands, { kind: "image", binary: binaries[0]! }]
+          ? [...entry.textBands, ...frameBlocksWithSpeech(0)]
           : entry.segment.route === "image_text_image"
             ? [
-                { kind: "image", binary: binaries[0]! },
+                ...frameBlocksWithSpeech(0),
                 ...entry.textBands,
-                { kind: "image", binary: binaries[1]! }
+                ...frameBlocksWithSpeech(1)
               ]
-            : [{ kind: "image", binary: binaries[0]! }, ...entry.textBands];
+            : [...frameBlocksWithSpeech(0), ...entry.textBands];
 
       const { buffer, width, height } = await composeComicStrip(stripBlocks, metrics);
 

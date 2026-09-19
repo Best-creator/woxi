@@ -222,6 +222,46 @@ describe("composeSegmentStrips", () => {
     expect(metadata.width).toBe(DEFAULT_COMIC_STRIP_METRICS.width);
   });
 
+  it("bakes a frame's speech line as an extra band and keeps it on the asset", async () => {
+    // 帧带台词（剧情漫画）：设计计划 → 帧资产 → 段图台词条的全链路。
+    const plans = segmentPlans().map((segment) => ({
+      ...segment,
+      frames: segment.frames.map((frame, index) => ({
+        ...frame,
+        speechLine:
+          index === 0
+            ? ({ kind: "narration" as const, text: "干活最卖力的，往往是饭量最大的。" } as const)
+            : ({ kind: "dialogue" as const, text: "说好的轮流呢！" } as const)
+      }))
+    }));
+    const fixture = await storyboardFixture({ plans });
+
+    // 台词随帧落库，读回一致（image_assets.speech_line ↔ 域模型的 round-trip）。
+    const segments = fixture.planned.article.planning.storyboardSegments ?? [];
+    const firstFrameId = segments[0]!.frameAssetIds[0]!;
+    const frame = await fixture.images.findById(fixture.articleId, firstFrameId);
+    expect(frame?.speechLine).toEqual({
+      kind: "narration",
+      text: "干活最卖力的，往往是饭量最大的。"
+    });
+
+    const withSpeech = await composeSegmentStrips(
+      { articleId: fixture.articleId, expectedUpdatedAt: fixture.expectedUpdatedAt },
+      { articles: fixture.articles, images: fixture.images, storageDir: fixture.storageDir }
+    );
+    if (withSpeech.kind !== "composed") throw new Error("compose should pass");
+
+    // 同一正文、同一批帧图，带台词条的段图一定更高——台词条是独占一行的块。
+    const baseline = await storyboardFixture();
+    const plain = await composeSegmentStrips(
+      { articleId: baseline.articleId, expectedUpdatedAt: baseline.expectedUpdatedAt },
+      { articles: baseline.articles, images: baseline.images, storageDir: baseline.storageDir }
+    );
+    if (plain.kind !== "composed") throw new Error("baseline compose should pass");
+    expect(withSpeech.strips[0]!.height).toBeGreaterThan(plain.strips[0]!.height);
+    expect(withSpeech.strips[1]!.height).toBeGreaterThan(plain.strips[1]!.height);
+  });
+
   it("bakes the chosen font and persists the choice for recomposition", async () => {
     const fixture = await storyboardFixture();
     const result = await composeSegmentStrips(

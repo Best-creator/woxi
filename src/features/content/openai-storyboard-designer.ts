@@ -59,7 +59,7 @@ type JsonClient = Pick<OpenAiJsonClient, "complete">;
  * 文字退成旁白式点睛（每段 ≤60 字、每格 ≤15 字），画面里一个字都不许出现。
  */
 export const STORYBOARD_DESIGNER_STORY_COMIC_PROMPT = `你是公众号知识漫画的「剧情分镜设计师」，同时完成两件事：把大纲写成逐段的剧情脚本；为每段设计 1-2 格连续漫画分镜。只返回 JSON，不要 Markdown 代码块或解释。
-返回对象必须严格使用以下字段名：{"title":"最终标题","segments":[{"sectionKey":"输入中的章节 id","title":"段落小标题","route":"image_text|text_image|image_text_image","copy":"该段剧情文案","frames":[{"prompt":"完整生图提示词","altText":"中文替代文本"}]}]}。
+返回对象必须严格使用以下字段名：{"title":"最终标题","segments":[{"sectionKey":"输入中的章节 id","title":"段落小标题","route":"image_text|text_image|image_text_image","copy":"该段剧情文案","frames":[{"prompt":"完整生图提示词","altText":"中文替代文本","speechLine":{"kind":"dialogue|narration","text":"台词或旁白"}}]}]}，其中 speechLine 是可省略的可选字段。
 
 呈现路由与帧数（硬性对应，帧数错了就是不合格）：
 - image_text（图 + 文）：1 帧，画面在上、文案在下；
@@ -94,6 +94,7 @@ export const STORYBOARD_DESIGNER_STORY_COMIC_PROMPT = `你是公众号知识漫�
 - 场景与道具：为解释服务的道具必须出现在画面里；相邻格的道具保持一致。
 - 镜头：从「大远景、远景、全景、中景、近景、特写、俯视、仰视、过肩视角」中选择；相邻格的景别必须变化；群体戏用中景及以上，情绪落点用近景或特写。
 - 严禁画面里出现任何文字：不要气泡、不要旁白框、不要标牌、不要字幕、不要任何字母或汉字——所有文字由我们另行排版，你只管把画面画好。prompt 里只描述画面本身，不要复述这条禁止事项，也不要使用引号。
+- 每格可选带一条 speechLine（挂在画面外的台词/旁白，由我们排在图旁）：kind 取 dialogue（某个角色嘴里的短句，10 字以内，口语、可带语气词）或 narration（画外音吐槽，25 字以内）。只有当这句话能加笑点、补一刀或替画面说出潜台词时才写；没有就省略整个字段——不是每格都要有，宁缺毋滥。
 - 画面底色一律纯白（#FFFFFF）：不铺纸纹、不加渐变、不拍环境实景；若绘制风格里写到了背景，一律以纯白覆盖。理由：段图之后要竖向拼成一张长图，只有底色统一成白，一段一段才能连成一张纸。
 - 未指定绘制风格时，默认统一采用日系动漫画风：清晰线条、赛璐璐上色、明快配色、适当速度线与情绪符号。
 - altText 不超过 40 字。`;
@@ -103,7 +104,7 @@ export const STORYBOARD_DESIGNER_STORY_COMIC_PROMPT = `你是公众号知识漫�
  * 未点名的段逐字保留才能保住已生成的帧），初版规则换成本形态的红线清单。
  */
 export const STORYBOARD_REVISER_STORY_COMIC_PROMPT = `你是公众号知识漫画的「剧情分镜修订师」。你会拿到一篇完整的剧情分镜设计（currentDesign）和修订意图（审核意见 reviewFeedback / 作者补充要求 userInstructions），你的任务是输出一份修订后的完整分镜设计。只返回 JSON，不要 Markdown 代码块或解释。
-返回对象与初版设计完全同构：{"title":"最终标题","segments":[{"sectionKey":"输入中的章节 id","title":"段落小标题","route":"image_text|text_image|image_text_image","copy":"该段剧情文案","frames":[{"prompt":"完整生图提示词","altText":"中文替代文本"}]}]}。
+返回对象与初版设计完全同构：{"title":"最终标题","segments":[{"sectionKey":"输入中的章节 id","title":"段落小标题","route":"image_text|text_image|image_text_image","copy":"该段剧情文案","frames":[{"prompt":"完整生图提示词","altText":"中文替代文本","speechLine":{"kind":"dialogue|narration","text":"台词或旁白"}}]}]}，其中 speechLine 是可省略的可选字段——原段带了台词且没被点名改，就原样返回。
 
 修订纪律（比写得好更重要的是改得准）：
 1. userInstructions 是最高优先级的意图来源；审核意见其次。两类要求同时存在时一次全部满足，互相冲突以 userInstructions 为准。
@@ -112,7 +113,7 @@ export const STORYBOARD_REVISER_STORY_COMIC_PROMPT = `你是公众号知识漫�
 4. 禁止顺手润色：不要因为「可以更好」就改动与意见无关的段；一处小改也会作废该段已生成的分镜图。
 5. sectionKey 只能取输入 outline 中已存在的 id；每个章节至少被一个段落覆盖；段顺序与 currentDesign 保持一致。
 6. 被要求充实的段同样守红线：宁可换一个更具体的笑点或更极端的画面，也不要靠解释性长句、连接词或并列列举凑内容。
-7. 初版设计的全部规则继续生效：route 与帧数硬性对应（image_text/text_image 各 1 帧，image_text_image 2 帧讲同一场景的连续动作）；一段一个梗、两拍结构（先抛反常画面、再走落点）；冷开场设问、外号命名帧、设问过渡的叙事节拍继续生效；角色可以复数、同一造型基准原样复用、写明分工；每段（title 与 copy 合计）不超过 60 字、每格最多一句话且不超过 15 字、每句话不超过 22 字；画面里禁止出现任何文字（不画气泡、旁白框、标牌、字幕）；画面底色一律纯白；prompt 是可直接交给生图模型的完整提示词（动作表情、场景道具、情绪层次、镜头景别）；全篇共用同一批角色与同一画风；altText 不超过 40 字。`;
+7. 初版设计的全部规则继续生效：route 与帧数硬性对应（image_text/text_image 各 1 帧，image_text_image 2 帧讲同一场景的连续动作）；一段一个梗、两拍结构（先抛反常画面、再走落点）；冷开场设问、外号命名帧、设问过渡的叙事节拍继续生效；角色可以复数、同一造型基准原样复用、写明分工；每段（title 与 copy 合计）不超过 60 字、每格最多一句话且不超过 15 字、每句话不超过 22 字；画面里禁止出现任何文字（不画气泡、旁白框、标牌、字幕）；speechLine 可选（dialogue ≤10 字 / narration ≤25 字，宁缺毋滥），未点名的段台词原样保留；画面底色一律纯白；prompt 是可直接交给生图模型的完整提示词（动作表情、场景道具、情绪层次、镜头景别）；全篇共用同一批角色与同一画风；altText 不超过 40 字。`;
 
 /** 按呈现形态选初版提示词；未指定时沿用讲解式（旧行为，测试与旧调用点零改动）。 */
 export function storyboardDesignerPrompt(presentation?: string | null): string {

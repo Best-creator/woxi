@@ -139,6 +139,9 @@ function demoStoryComicCopy(index: number): string {
 /**
  * 剧情漫画的演示帧：同一物种的复数角色、各自分工，画面里一个字都不写
  * （真实设计器同样被红线禁止让生图模型画字）。
+ * 台词在部分帧上带（对白 ≤10 字 / 旁白 ≤25 字，与真实红线同口径）、
+ * 部分帧刻意不带——E2E 与组件测试靠它同时覆盖「有台词渲染橙条」
+ * 与「旧帧无台词跳过渲染」两条路径。
  */
 function demoStoryComicFrames(route: StoryboardRoute, title: string) {
   const cast = "三只圆滚滚的柴犬，短腿、卷尾、都围着同一条蓝色围裙";
@@ -147,11 +150,13 @@ function demoStoryComicFrames(route: StoryboardRoute, title: string) {
     return [
       {
         prompt: `中景。${cast}，最胖的那只站在木箱上举爪指挥，另外两只合伙推一只大箱子，表情都在使劲。${style}`,
-        altText: `${title}剧情分镜（推箱子）`
+        altText: `${title}剧情分镜（推箱子）`,
+        speechLine: { kind: "narration" as const, text: "干活最卖力的，往往是饭量最大的。" }
       },
       {
         prompt: `近景。同一场景的下一秒，箱子翻倒，三只柴犬一起摔在地上，最胖那只强撑体面但眼神已经垮下来。${style}`,
-        altText: `${title}剧情分镜（翻了）`
+        altText: `${title}剧情分镜（翻了）`,
+        speechLine: { kind: "dialogue" as const, text: "说好的轮流呢！" }
       }
     ];
   }

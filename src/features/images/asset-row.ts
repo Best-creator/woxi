@@ -1,5 +1,6 @@
 import type { ContentBlock } from "@/features/articles/domain";
-import type { ConsumedContent, ImageAsset, ImageAssetStatus } from "./domain";
+import type { ConsumedContent, ImageAsset, ImageAssetStatus, SpeechLine } from "./domain";
+import { isSpeechLineKind } from "./domain";
 
 /**
  * image_assets 表的一行。
@@ -22,6 +23,7 @@ export interface ImageAssetRow {
   file_path: string | null;
   public_url: string | null;
   consumed_blocks: string | null;
+  speech_line: string | null;
   manually_edited: number;
   position: number;
   created_at: string;
@@ -45,6 +47,22 @@ function parseConsumedContent(value: string | null): ConsumedContent | null {
   }
 }
 
+/**
+ * 台词列存的是自己写进去的 JSON；解析失败/形状不对一律按「没有台词」处理，
+ * 老行是 NULL，手工改坏也不至于让整篇文章读不出来——只损失一条台词。
+ */
+function parseSpeechLine(value: string | null): SpeechLine | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as Partial<SpeechLine>;
+    if (!isSpeechLineKind(parsed.kind)) return null;
+    const text = typeof parsed.text === "string" ? parsed.text.trim() : "";
+    return text ? { kind: parsed.kind, text } : null;
+  } catch {
+    return null;
+  }
+}
+
 export function parseImageAssetRow(row: ImageAssetRow): ImageAsset {
   return {
     id: row.id,
@@ -61,6 +79,7 @@ export function parseImageAssetRow(row: ImageAssetRow): ImageAsset {
     publicUrl: row.public_url,
     manuallyEdited: row.manually_edited === 1,
     consumedContent: parseConsumedContent(row.consumed_blocks),
+    speechLine: parseSpeechLine(row.speech_line),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };

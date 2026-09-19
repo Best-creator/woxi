@@ -210,3 +210,23 @@ Phase 3 格数放宽到 4 后，中间插入**张力格**：把荒谬推到极�
 
 **顺带修掉的验证基建**：E2E 以前必须等本机 dev server 停掉才能跑（Next 16 的 dev 锁落在 `<distDirRoot>/dev/lock`，第二个实例直接退出）。查证发现 `next({ conf: { distDir } })` 在 Next 16 已失效——自定义服务器（`NextCustomServer.prepare`）调用 `getRequestHandlers` 时不转发 `conf`，distDir 被静默忽略。改为：`next.config.ts` 读环境变量 `WO_XI_DIST_DIR`（未设置时行为完全不变），E2E 启动器设 `WO_XI_DIST_DIR=.next/e2e-dev` → 锁落在独立目录，**可与使用中的 3000 端口 dev server 并行跑**。代价：首跑冷编译一次，之后复用缓存；`tsconfig.json` 被 Next 自动加了两个 include（`.next/e2e-dev/**`），留着以保证后续运行幂等。
 
+### Phase 2：台词/旁白条 + 正文居中（2026-09-19 完成）
+
+§八 拍板的「帧增加 `line`（台词/旁白，可选）」落地，字段定名 `speechLine`（结构化两字段：`kind: dialogue|narration` + `text`）。
+
+| # | 改动 | 落点 |
+|---|------|------|
+| 1 | 数据模型 | `image_assets.speech_line` 列（存 JSON，NULL=无台词，ALTER 迁移幂等）；`SpeechLine` / `isSpeechLineKind`（images/domain）；`asset-row.ts` 单点解析（坏 JSON 回落 null，只损失一条台词不伤文章）；`insertAsset` / `updateAsset` SQL 带列 |
+| 2 | 类型贯穿 | `StoryboardFramePlan`（落库输入）→ `ImageAsset.speechLine`（资产）→ `StoryboardDesignFrame`（设计稿）→ `StoryboardFrameSnapshot`（版本快照）四处可选字段；`generate-content.buildSegmentBlocks` / `revise-storyboard`（restoreCurrentDesign、替换段 plans、快照 retained 分支）/ `content-version.enrichStoryboardSnapshotSegments` 全链路透传 |
+| 3 | 设计器 | story_comic 提示词：frames 增加可选 `speechLine`——dialogue=角色嘴里短句 ≤10 字，narration=画外音 ≤25 字，「能加笑点才写，宁缺毋滥」；修订提示词同步（未点名段台词原样保留）；Zod 结构闸 max 30，精确红线留给红线闸报（错误信息才带指引） |
+| 4 | 红线 | `story-comic-rules.ts`：`STORY_COMIC_MAX_DIALOGUE_CHARS=10` / `STORY_COMIC_MAX_NARRATION_CHARS=25`（容差 1.15 → 判定线 12/29）；`inspectStoryComicSegment` 增 `speechLines` 入参，`inspectStoryComicDesign` 从帧透传——生成闸与真实验收同一口径 |
+| 5 | 渲染器 | `comic-strip.ts` 新块类型 `speech`：**旁白=橙底圆角条（#FFB03A）+ 左侧红衣青年简笔头像**（纯 SVG 矢量：肤脸+黑发+红衣，直径 = bodySize×2.1，字号档位变它跟着变）；**对白=白底橙描边条**；与文字卡同款右下硬阴影；条内文字垂直居中加粗 |
+| 6 | 拼接接线 | `compose-segment-strips.ts`：帧与台词绑定成组 `[image, speech?]`，按路由（图+文 / 文+图 / 图+文+图）插进段图；**旧帧无台词 → 只有图，零迁移**（§八 的跳过语义） |
+| 7 | 编辑 | PATCH `/api/articles/:id/image-assets/:assetId` 接受 `speechLine`（null=清除）；仓储 update 把台词编辑计入 contentEdited → manuallyEdited（防批量顶替，与 altText 同语义）。帧卡片上的台词 inline 编辑 UI 待接（PATCH 链路已通） |
+| 8 | 修订一致性 | `revise-storyboard.ts` 的 `sameSegment` 把台词纳入比对：模型改了台词而帧图没换时，段算「变」→ 帧资产随段替换——否则资产上的旧台词会被静默保留，修订等于没生效 |
+| 9 | P3 正文居中 | 文字带正文 `text-anchor="middle"` 卡片内居中 + 每行 ≤13 全角字（`TEXT_BAND_MAX_CHARS_PER_LINE=13`，预算 = min(卡片内容宽, bodySize×13)）；标题保持左对齐 + 竖条——混知式「居中短行」，行宽吃满就是课文脸 |
+
+**Demo 同步**：`demoStoryComicFrames` 在 image_text_image 的两帧上分别带 narration（15 字）与 dialogue（7 字）台词、单帧排法刻意不带——E2E 与组件测试同时覆盖「有台词渲染橙条」与「旧帧跳过」两条路径。E2E 无生图服务，段图端到端由 `compose-segment-strips.test.ts`（真仓储 + 台词 round-trip + 带台词段图更高）与 `comic-strip.test.ts`（条块排版/像素取色/头像位）覆盖。
+
+**验证**：tsc 0；eslint 0；单元测试 **890 passed + 2 skipped / 126 文件**（新增 10 个用例）；真模型 live check（`work/story-comic-live.check.test.ts`）复跑通过，模型开始输出台词、拼图含橙条（产物落 `work/story-comic-live-segment.png` / `-phone.png`）。
+

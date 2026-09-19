@@ -7,7 +7,8 @@ import type {
   ImageAsset,
   ImageGeneration,
   ImageLibraryItem,
-  ImagePlanSuggestion
+  ImagePlanSuggestion,
+  SpeechLine
 } from "./domain";
 
 export type ImagePlanMutationResult =
@@ -24,6 +25,11 @@ export interface StoryboardFramePlan {
   altText: string;
   /** 缺省 landscape：段图竖向拼接，横幅帧是最常见形态。 */
   aspectRatio?: ImageAspectRatio;
+  /**
+   * 帧的台词/旁白（剧情漫画形态，可选）：烘段图时渲染成图外的条块。
+   * 旧设计没有这个字段 → null → 渲染跳过，零迁移。
+   */
+  speechLine?: SpeechLine | null;
 }
 
 /** 一个分镜段的落库输入；id 由编排层生成，正文块的 segmentId 与之对应。 */
@@ -67,6 +73,8 @@ export interface ImageAssetPatch {
   prompt?: string;
   altText?: string;
   aspectRatio?: ImageAspectRatio;
+  /** 台词/旁白编辑；null = 清除（作者删掉了这条台词）。 */
+  speechLine?: SpeechLine | null;
   enabled?: boolean;
 }
 

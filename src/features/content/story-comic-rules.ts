@@ -1,3 +1,4 @@
+import type { SpeechLine } from "@/features/images/domain";
 import type { StoryboardDesign } from "./ports";
 
 /**
@@ -9,6 +10,9 @@ import type { StoryboardDesign } from "./ports";
  */
 export const STORY_COMIC_MAX_SEGMENT_CHARS = 60;
 export const STORY_COMIC_MAX_SENTENCE_CHARS = 22;
+/** 帧台词的红线：对白是角色嘴里的短句，旁白是画外音吐槽。 */
+export const STORY_COMIC_MAX_DIALOGUE_CHARS = 10;
+export const STORY_COMIC_MAX_NARRATION_CHARS = 25;
 
 /**
  * 与总字数闸同口径的容差：模型偶发小幅超标可接受，成段课文直接打回。
@@ -22,6 +26,8 @@ export const STORY_COMIC_SEGMENT_LIMIT = Math.round(
 export const STORY_COMIC_SENTENCE_LIMIT = Math.round(
   STORY_COMIC_MAX_SENTENCE_CHARS * STORY_COMIC_TOLERANCE
 );
+const DIALOGUE_LIMIT = Math.round(STORY_COMIC_MAX_DIALOGUE_CHARS * STORY_COMIC_TOLERANCE);
+const NARRATION_LIMIT = Math.round(STORY_COMIC_MAX_NARRATION_CHARS * STORY_COMIC_TOLERANCE);
 
 /**
  * 「要求生图模型在画面里写字」的字样，含模型惯用的引号。
@@ -64,13 +70,15 @@ function truncate(text: string, max = 20): string {
 }
 
 /**
- * 一段（小标题 + 文案 [+ 该段的分镜提示词]）违反剧情漫画红线的所有理由，合规时为空数组。
+ * 一段（小标题 + 文案 [+ 该段的分镜提示词与台词]）违反剧情漫画红线的所有理由，合规时为空数组。
  * 设计器取第一条抛错（越界即打回重试），审核器逐条贴成警告（定位到该段的小标题块）。
  */
 export function inspectStoryComicSegment(input: {
   title: string;
   copy: string;
   prompts?: string[];
+  /** 该段分镜帧携带的台词/旁白（剧情漫画烘字红线的一部分）。 */
+  speechLines?: SpeechLine[];
 }): string[] {
   const complaints: string[] = [];
   const chars = charCount(input.title + input.copy);
@@ -107,6 +115,17 @@ export function inspectStoryComicSegment(input: {
       complaints.push(`分镜提示词里出现「${hit}」：画面里不得出现任何文字，台词由我们排版`);
     }
   }
+  for (const line of input.speechLines ?? []) {
+    const isDialogue = line.kind === "dialogue";
+    const max = isDialogue ? STORY_COMIC_MAX_DIALOGUE_CHARS : STORY_COMIC_MAX_NARRATION_CHARS;
+    const limit = isDialogue ? DIALOGUE_LIMIT : NARRATION_LIMIT;
+    const length = charCount(line.text);
+    if (length > limit) {
+      complaints.push(
+        `${isDialogue ? "对白" : "旁白"}「${truncate(line.text)}」有 ${length} 字，要求不超过 ${max} 字`
+      );
+    }
+  }
   return complaints;
 }
 
@@ -120,7 +139,10 @@ export function inspectStoryComicDesign(
       complaints: inspectStoryComicSegment({
         title: segment.title,
         copy: segment.copy,
-        prompts: segment.frames.map((frame) => frame.prompt)
+        prompts: segment.frames.map((frame) => frame.prompt),
+        speechLines: segment.frames.flatMap((frame) =>
+          frame.speechLine ? [frame.speechLine] : []
+        )
       })
     }))
     .filter((entry) => entry.complaints.length > 0);

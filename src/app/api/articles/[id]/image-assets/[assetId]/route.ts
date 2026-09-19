@@ -20,6 +20,15 @@ export const updateImageAssetSchema = z.object({
   prompt: z.string().trim().min(1).max(4000).optional(),
   altText: z.string().trim().min(1).max(240).optional(),
   aspectRatio: z.enum(["cover", "landscape", "square", "portrait"]).optional(),
+  // 帧的台词/旁白（剧情漫画）；null = 清除。字数红线（对白≤10/旁白≤25）由生成闸兜底，
+  // 这里只挡结构性错误，作者手动改宽一两个字的容差是允许的。
+  speechLine: z
+    .object({
+      kind: z.enum(["dialogue", "narration"]),
+      text: z.string().trim().min(1).max(60)
+    })
+    .nullable()
+    .optional(),
   enabled: z.boolean().optional()
 }).refine((value) => Object.keys(value).some((key) => key !== "expectedUpdatedAt"), {
   message: "至少提供一项修改"

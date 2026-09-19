@@ -66,6 +66,7 @@ export function migrateDatabase(db: DatabaseSync) {
       file_path TEXT,
       public_url TEXT,
       consumed_blocks TEXT,
+      speech_line TEXT,
       manually_edited INTEGER NOT NULL DEFAULT 0,
       position INTEGER NOT NULL,
       created_at TEXT NOT NULL,
@@ -191,6 +192,11 @@ export function migrateDatabase(db: DatabaseSync) {
     // 老行是 NULL，读出来按「没有替换过正文」处理，语义上等于普通配图。
     if (!imageAssetColumns.some((column) => column.name === "consumed_blocks")) {
       db.exec("ALTER TABLE image_assets ADD COLUMN consumed_blocks TEXT");
+    }
+    // 分镜帧的台词/旁白（{"kind":"dialogue|narration","text":"…"} 的 JSON）。
+    // 剧情漫画形态的文字不进生图，由拼接渲染器烘成橙条；老行是 NULL，渲染时跳过。
+    if (!imageAssetColumns.some((column) => column.name === "speech_line")) {
+      db.exec("ALTER TABLE image_assets ADD COLUMN speech_line TEXT");
     }
     if (!imageAssetColumns.some((column) => column.name === "position")) {
       db.exec(

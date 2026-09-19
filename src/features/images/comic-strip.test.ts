@@ -4,8 +4,10 @@ import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_COMIC_STRIP_METRICS,
+  TEXT_BAND_MAX_CHARS_PER_LINE,
   characterWidthRatio,
   composeComicStrip,
+  layoutComicStripSpeechBlock,
   layoutComicStripTextBlock,
   scaleStripTextMetrics,
   wrapText,
@@ -77,6 +79,61 @@ describe("layoutComicStripTextBlock", () => {
 
     expect(titled.titleLines).toEqual(["第一格"]);
     expect(titled.height).toBeGreaterThan(bare.height);
+  });
+
+  it("caps the body at 13 full-width characters per line on the real canvas", () => {
+    // 默认画布宽 1080，卡片内容区放得下 ~16 字；13 字上限是设计决策（混知式居中短行）。
+    const body = "一二三四五六七八九十一二三四五六七八九十一二三四五六七八九十";
+    const layout = layoutComicStripTextBlock({ kind: "text", body });
+
+    expect(TEXT_BAND_MAX_CHARS_PER_LINE).toBe(13);
+    expect(layout.bodyLines).toEqual([
+      "一二三四五六七八九十一二三",
+      "四五六七八九十一二三四五六",
+      "七八九十"
+    ]);
+  });
+
+  it("still honours the physical card width when it is narrower than 13 characters", () => {
+    // 小画布：物理宽度先触顶，13 字上限不起作用——两者取小。
+    const layout = layoutComicStripTextBlock(
+      { kind: "text", body: "一二三四五六七八九十" },
+      { ...METRICS, textPadX: 20, textPadY: 10 }
+    );
+    expect(layout.bodyLines.length).toBeGreaterThan(1);
+  });
+});
+
+describe("layoutComicStripSpeechBlock", () => {
+  it("keeps a short narration on one line with the avatar slot reserved", () => {
+    // 默认画布下旁白文本区约 14 字宽：9 字短句一行放得下。
+    const layout = layoutComicStripSpeechBlock(
+      { kind: "speech", speechKind: "narration", text: "饭量越大干劲越足。" },
+      DEFAULT_COMIC_STRIP_METRICS
+    );
+
+    expect(layout.lines).toHaveLength(1);
+    expect(layout.avatarSize).toBeGreaterThan(0);
+    // 条高不能小于头像 + 呼吸空间：头像位是旁白条的固定构成。
+    expect(layout.height).toBeGreaterThanOrEqual(
+      layout.avatarSize + Math.round(DEFAULT_COMIC_STRIP_METRICS.textPadY * 0.4)
+    );
+  });
+
+  it("wraps a long narration into more lines and leaves dialogue without an avatar", () => {
+    const narration = layoutComicStripSpeechBlock(
+      { kind: "speech", speechKind: "narration", text: "一句话".repeat(9) },
+      METRICS
+    );
+    const dialogue = layoutComicStripSpeechBlock(
+      { kind: "speech", speechKind: "dialogue", text: "说好的轮流呢！" },
+      METRICS
+    );
+
+    expect(narration.lines.length).toBeGreaterThan(1);
+    expect(dialogue.avatarSize).toBe(0);
+    // 对白没有头像位，同样的文字可用宽度更大、行更少。
+    expect(dialogue.lines.length).toBeLessThan(narration.lines.length);
   });
 });
 
@@ -177,6 +234,57 @@ describe("composeComicStrip", () => {
     expect(height).toBe(METRICS.padding * 2 + METRICS.maxPanelHeight);
     // 不封顶的话按宽度等比缩放会得到 1800 高，这条断言就是用来盯住这个上限的。
     expect(height).toBeLessThan(400);
+  });
+
+  it("centers the body copy instead of hugging the left padding", async () => {
+    // P3：正文是居中短行。一行 3 个字（156px）在默认卡片里居中后，
+    // 最左像素应该远离卡片左内边距——左对齐的老排版会贴在 textPadX 处。
+    const metrics = DEFAULT_COMIC_STRIP_METRICS;
+    const { buffer } = await composeComicStrip(
+      [{ kind: "text", body: "一句话" }],
+      metrics
+    );
+
+    const { data, info } = await sharp(buffer).raw().toBuffer({ resolveWithObject: true });
+    let leftmost = info.width;
+    for (let y = 0; y < info.height; y += 1) {
+      for (let x = 0; x < info.width; x += 1) {
+        const at = (y * info.width + x) * info.channels;
+        const brightness = (data[at]! + data[at + 1]! + data[at + 2]!) / 3;
+        if (brightness < 60) leftmost = Math.min(leftmost, x);
+      }
+    }
+
+    const cardContentLeft = metrics.padding + metrics.textPadX;
+    const cardContentWidth = metrics.width - metrics.padding * 2 - metrics.textPadX * 2;
+    // 居中行起点 ≈ 卡片内容区中线 - 行宽/2，远大于左对齐的 textPadX。
+    expect(leftmost).toBeGreaterThan(cardContentLeft + cardContentWidth * 0.25);
+  });
+
+  it("paints a narration speech bar in orange with the avatar slot", async () => {
+    const { buffer, height } = await composeComicStrip(
+      [{ kind: "speech", speechKind: "narration", text: "干活最卖力的，往往是饭量最大的。" }],
+      METRICS
+    );
+
+    const layout = layoutComicStripSpeechBlock(
+      { kind: "speech", speechKind: "narration", text: "干活最卖力的，往往是饭量最大的。" },
+      METRICS
+    );
+    // 台词条与文字卡同款右下硬阴影。
+    expect(height).toBe(METRICS.padding * 2 + layout.height + 5);
+
+    // 橙条本体取色：头像右侧、文字上方的橙底位置。
+    const avatarRight = METRICS.padding + METRICS.textPadX + layout.avatarSize;
+    const { data } = await sharp(buffer)
+      .extract({ left: Math.round(avatarRight + 20), top: METRICS.padding + 4, width: 1, height: 1 })
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    // #FFB03A = (255, 176, 58)
+    expect(data[0]).toBeGreaterThan(230);
+    expect(data[1]).toBeGreaterThan(140);
+    expect(data[1]).toBeLessThan(210);
+    expect(data[2]).toBeLessThan(100);
   });
 
   it("refuses an empty strip instead of writing a blank image", async () => {

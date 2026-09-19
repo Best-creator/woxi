@@ -23,6 +23,7 @@ import type {
   ReviseStoryboardDesignInput,
   StoryboardDesign,
   StoryboardDesigner,
+  StoryboardDesignFrame,
   StoryboardDesignSegment,
   StoryboardReviewFeedback
 } from "./ports";
@@ -85,7 +86,8 @@ export type ReviseStoryboardResult =
   | { kind: "save_error"; message: string };
 
 /** 段内容是否逐字未变：未变的段才能沿用旧段 id 与帧资产（保住已生成的图）。
- *  copy 先归一化空行再比——分块落库后「还原视图」的空行数与模型原话可能有出入，内容一致就该算未变。 */
+ *  copy 先归一化空行再比——分块落库后「还原视图」的空行数与模型原话可能有出入，内容一致就该算未变。
+ *  台词同样参与比对：模型改了台词而帧没换的话，资产上的旧台词会被静默保留，修订等于没生效。 */
 function sameSegment(left: StoryboardDesignSegment, right: StoryboardDesignSegment): boolean {
   if (left.title.trim() !== right.title.trim()) return false;
   if (left.route !== right.route) return false;
@@ -95,8 +97,15 @@ function sameSegment(left: StoryboardDesignSegment, right: StoryboardDesignSegme
     const other = right.frames[index];
     return Boolean(other) &&
       frame.prompt.trim() === other!.prompt.trim() &&
-      frame.altText.trim() === other!.altText.trim();
+      frame.altText.trim() === other!.altText.trim() &&
+      canonicalSpeechLine(frame.speechLine) === canonicalSpeechLine(other!.speechLine);
   });
+}
+
+/** 台词的比对口径：null/undefined 等同「没有」，text 归一化首尾空白。 */
+function canonicalSpeechLine(line: StoryboardDesignFrame["speechLine"]): string {
+  if (!line?.text.trim()) return "";
+  return `${line.kind}|${line.text.trim()}`;
 }
 
 /** 归一化空行（≥2 个换行折叠成正好一个空行），与 splitStoryboardCopy 的分块口径一致。 */
@@ -131,7 +140,15 @@ function restoreCurrentDesign(
       .join("\n\n");
     const frames = plan.frameAssetIds.flatMap((id) => {
       const asset = assetById.get(id);
-      return asset ? [{ prompt: asset.prompt, altText: asset.altText }] : [];
+      return asset
+        ? [
+            {
+              prompt: asset.prompt,
+              altText: asset.altText,
+              ...(asset.speechLine ? { speechLine: asset.speechLine } : {})
+            }
+          ]
+        : [];
     });
     // 结构残缺的段（块或帧丢失）不进修订输入：模型看不到就改不到，落库时随新设计退役。
     if (!copy.trim() || !frames.length) continue;
@@ -319,7 +336,8 @@ export async function reviseStoryboard(
       copyBlockIds: [headingId, ...copyIds],
       frames: segment.frames.map((frame) => ({
         prompt: frame.prompt,
-        altText: frame.altText
+        altText: frame.altText,
+        ...(frame.speechLine ? { speechLine: frame.speechLine } : {})
       }))
     });
   }
@@ -338,7 +356,14 @@ export async function reviseStoryboard(
       ? plan.retainedFrameAssetIds.flatMap((id) => {
           const asset = assetById.get(id);
           return asset
-            ? [{ prompt: asset.prompt, altText: asset.altText, aspectRatio: asset.aspectRatio }]
+            ? [
+                {
+                  prompt: asset.prompt,
+                  altText: asset.altText,
+                  aspectRatio: asset.aspectRatio,
+                  ...(asset.speechLine ? { speechLine: asset.speechLine } : {})
+                }
+              ]
             : [];
         })
       : plan.frames,
