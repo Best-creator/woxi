@@ -3380,6 +3380,96 @@ h2 {
   padding: 0 8px;
 }
 
+/* 帧台词/旁白：徽章配色与段图台词条同语义（对白=白底橙描边、旁白=橙底），行内可改可清。 */
+.segment-frame-speech {
+  align-items: center;
+  display: flex;
+  font-size: 11px;
+  gap: 4px;
+  min-width: 0;
+}
+
+.segment-frame-speech-kind {
+  border-radius: 4px;
+  flex: 0 0 auto;
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 5px;
+}
+
+.segment-frame-speech-kind-dialogue {
+  background: rgba(232, 133, 12, 0.14);
+  border: 1px solid #e8850c;
+  color: #a85400;
+}
+
+.segment-frame-speech-kind-narration {
+  background: #ffb03a;
+  color: #5c3a00;
+}
+
+.segment-frame-speech-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.segment-frame-speech .icon-button {
+  flex: 0 0 auto;
+  height: 20px;
+  width: 20px;
+}
+
+.segment-frame-speech-form {
+  display: flex;
+  gap: 4px;
+}
+
+.segment-frame-speech-kind-select,
+.segment-frame-speech-input {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 11px;
+  min-width: 0;
+  padding: 4px 6px;
+}
+
+.segment-frame-speech-kind-select {
+  flex: 0 0 auto;
+}
+
+.segment-frame-speech-input {
+  flex: 1 1 auto;
+}
+
+.segment-frame-speech-form .button {
+  flex: 0 0 auto;
+  font-size: 11px;
+  height: 26px;
+  padding: 0 8px;
+}
+
+.segment-frame-speech-add {
+  align-items: center;
+  align-self: flex-start;
+  background: none;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 11px;
+  gap: 4px;
+  padding: 3px 6px;
+}
+
+.segment-frame-speech-add:hover {
+  color: var(--text);
+}
+
 .segment-frames-empty {
   color: var(--muted);
   font-size: 12px;

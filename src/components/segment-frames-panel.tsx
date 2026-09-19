@@ -1,9 +1,15 @@
 "use client";
 
-import { History, Images, Loader2, Pencil, RefreshCw, Wand2 } from "lucide-react";
+import { History, Images, Loader2, MessageSquarePlus, Pencil, RefreshCw, Wand2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { STORYBOARD_ROUTE_LABELS, type Article } from "@/features/articles/domain";
-import type { ImageAsset, ImageLibraryItem } from "@/features/images/domain";
+import {
+  SPEECH_LINE_KINDS,
+  SPEECH_LINE_KIND_LABELS,
+  type ImageAsset,
+  type ImageLibraryItem,
+  type SpeechLineKind
+} from "@/features/images/domain";
 import type { ImageAssetPatch } from "@/features/images/repository";
 import type { ImageMutationPayload } from "./image-planning-panel";
 
@@ -61,7 +67,7 @@ export interface SegmentFramesPanelProps {
     generationId: string,
     expectedUpdatedAt: string
   ) => Promise<ImageMutationPayload>;
-  /** 修改帧信息（当前用于图注 altText）；未提供时图注只读展示。 */
+  /** 修改帧信息（当前用于图注 altText 与台词 speechLine）；未提供时两者只读展示。 */
   updateAsset?: (
     assetId: string,
     input: ImageAssetPatch & { expectedUpdatedAt: string }
@@ -86,6 +92,11 @@ export function SegmentFramesPanel({
   const [generations, setGenerations] = useState<ImageLibraryItem[]>([]);
   const [versionsAssetId, setVersionsAssetId] = useState<string | null>(null);
   const [altEdit, setAltEdit] = useState<{ assetId: string; value: string } | null>(null);
+  const [speechEdit, setSpeechEdit] = useState<{
+    assetId: string;
+    kind: SpeechLineKind;
+    value: string;
+  } | null>(null);
 
   const segments = useMemo(
     () => [...(article.planning.storyboardSegments ?? [])].sort((left, right) => left.order - right.order),
@@ -179,6 +190,27 @@ export function SegmentFramesPanel({
         await updateAsset(altEdit.assetId, { altText, expectedUpdatedAt: article.updatedAt })
       );
       setAltEdit(null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "操作失败，请稍后重试");
+    } finally {
+      setBusyAssetId(null);
+    }
+  }
+
+  async function saveSpeechLine() {
+    if (!speechEdit || !updateAsset) return;
+    const text = speechEdit.value.trim();
+    setBusyAssetId(speechEdit.assetId);
+    setError("");
+    try {
+      // 与图注不同：清空后保存是合法操作 = 删除台词条（PATCH speechLine: null）。
+      onResult(
+        await updateAsset(speechEdit.assetId, {
+          speechLine: text ? { kind: speechEdit.kind, text } : null,
+          expectedUpdatedAt: article.updatedAt
+        })
+      );
+      setSpeechEdit(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "操作失败，请稍后重试");
     } finally {
@@ -309,6 +341,106 @@ export function SegmentFramesPanel({
                           ) : null}
                         </div>
                       )}
+                      {speechEdit?.assetId === asset.id ? (
+                        <form
+                          className="segment-frame-speech-form"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            void saveSpeechLine();
+                          }}
+                        >
+                          <select
+                            className="segment-frame-speech-kind-select"
+                            value={speechEdit.kind}
+                            aria-label={`第 ${segmentIndex + 1} 段帧 ${frameIndex + 1} 台词类型`}
+                            onChange={(event) =>
+                              setSpeechEdit((current) =>
+                                current && current.assetId === asset.id
+                                  ? { ...current, kind: event.target.value as SpeechLineKind }
+                                  : current
+                              )
+                            }
+                          >
+                            {SPEECH_LINE_KINDS.map((kind) => (
+                              <option key={kind} value={kind}>
+                                {SPEECH_LINE_KIND_LABELS[kind]}
+                              </option>
+                            ))}
+                          </select>
+                          <input
+                            className="segment-frame-speech-input"
+                            value={speechEdit.value}
+                            maxLength={60}
+                            placeholder="留空保存即删除台词条"
+                            title="对白 ≤10 字、旁白 ≤25 字；留空后保存即删除台词条"
+                            aria-label={`第 ${segmentIndex + 1} 段帧 ${frameIndex + 1} 台词`}
+                            onChange={(event) =>
+                              setSpeechEdit((current) =>
+                                current && current.assetId === asset.id
+                                  ? { ...current, value: event.target.value }
+                                  : current
+                              )
+                            }
+                          />
+                          <button
+                            className="button button-secondary segment-frame-speech-save"
+                            type="submit"
+                            disabled={locked}
+                          >
+                            保存
+                          </button>
+                          <button
+                            className="button button-secondary segment-frame-speech-cancel"
+                            type="button"
+                            disabled={busyAssetId === asset.id}
+                            onClick={() => setSpeechEdit(null)}
+                          >
+                            取消
+                          </button>
+                        </form>
+                      ) : asset.speechLine ? (
+                        <div className="segment-frame-speech">
+                          <span
+                            className={`segment-frame-speech-kind segment-frame-speech-kind-${asset.speechLine.kind}`}
+                          >
+                            {SPEECH_LINE_KIND_LABELS[asset.speechLine.kind]}
+                          </span>
+                          <span className="segment-frame-speech-text" title={asset.speechLine.text}>
+                            {asset.speechLine.text}
+                          </span>
+                          {!readOnly && updateAsset && asset.status !== "generating" ? (
+                            <button
+                              className="icon-button segment-frame-speech-button"
+                              type="button"
+                              title="编辑台词"
+                              aria-label={`编辑第 ${segmentIndex + 1} 段帧 ${frameIndex + 1} 台词`}
+                              disabled={locked}
+                              onClick={() =>
+                                setSpeechEdit({
+                                  assetId: asset.id,
+                                  kind: asset.speechLine!.kind,
+                                  value: asset.speechLine!.text
+                                })
+                              }
+                            >
+                              <Pencil size={12} aria-hidden="true" />
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : !readOnly && updateAsset && asset.status !== "generating" ? (
+                        <button
+                          className="segment-frame-speech-add"
+                          type="button"
+                          aria-label={`给第 ${segmentIndex + 1} 段帧 ${frameIndex + 1} 加台词`}
+                          disabled={locked}
+                          onClick={() =>
+                            setSpeechEdit({ assetId: asset.id, kind: "dialogue", value: "" })
+                          }
+                        >
+                          <MessageSquarePlus size={12} aria-hidden="true" />
+                          加台词条
+                        </button>
+                      ) : null}
                       {!readOnly && asset.status === "generating" ? (
                         <button
                           className="button button-secondary segment-frame-action"

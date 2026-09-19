@@ -64,6 +64,12 @@ export type SpeechLineKind = "dialogue" | "narration";
 
 export const SPEECH_LINE_KINDS: readonly SpeechLineKind[] = ["dialogue", "narration"];
 
+/** 台词类型的展示名（UI 徽章与下拉共用，与段图台词条的语义一致）。 */
+export const SPEECH_LINE_KIND_LABELS: Record<SpeechLineKind, string> = {
+  dialogue: "对白",
+  narration: "旁白"
+};
+
 export function isSpeechLineKind(value: unknown): value is SpeechLineKind {
   return typeof value === "string" && (SPEECH_LINE_KINDS as readonly string[]).includes(value);
 }

@@ -35,7 +35,11 @@ const BLOCKS: ContentBlock[] = [
   { id: "s2-p", type: "paragraph", content: "第二段文案。", order: 3, segmentId: "seg-2", version: 1 }
 ];
 
-function frame(id: string, status: ImageAsset["status"] = "placeholder"): ImageAsset {
+function frame(
+  id: string,
+  status: ImageAsset["status"] = "placeholder",
+  overrides: Partial<ImageAsset> = {}
+): ImageAsset {
   return {
     id,
     articleId: "article-1",
@@ -52,7 +56,8 @@ function frame(id: string, status: ImageAsset["status"] = "placeholder"): ImageA
     manuallyEdited: false,
     consumedContent: null,
     createdAt: "2026-09-18T00:00:00.000Z",
-    updatedAt: "2026-09-18T00:00:00.000Z"
+    updatedAt: "2026-09-18T00:00:00.000Z",
+    ...overrides
   };
 }
 
@@ -254,6 +259,92 @@ describe("SegmentFramesPanel", () => {
 
     expect(screen.getByText("分镜帧 frame-1")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /编辑第 \d+ 段帧 \d+ 图注/ })).toBeNull();
+  });
+});
+
+describe("SegmentFramesPanel 帧台词条", () => {
+  /** frame-1 带一条旁白，其余帧无台词：覆盖展示 / 编辑 / 添加三种分支。 */
+  function speechSetup() {
+    return setup({
+      assets: [
+        frame("frame-1", "generated", { speechLine: { kind: "narration", text: "饭量越大干劲越足" } }),
+        frame("frame-2"),
+        frame("frame-3")
+      ]
+    });
+  }
+
+  it("shows an existing speech line with its kind badge and add entries for bare frames", () => {
+    speechSetup();
+
+    expect(screen.getByText("旁白")).toBeInTheDocument();
+    expect(screen.getByText("饭量越大干劲越足")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "给第 1 段帧 2 加台词" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "给第 2 段帧 1 加台词" })).toBeInTheDocument();
+  });
+
+  it("hides speech editing entries when updating is not wired", () => {
+    setup({
+      withUpdateAsset: false,
+      assets: [
+        frame("frame-1", "generated", { speechLine: { kind: "dialogue", text: "干饭去喽" } }),
+        frame("frame-2"),
+        frame("frame-3")
+      ]
+    });
+
+    expect(screen.getByText("干饭去喽")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /编辑第 \d+ 段帧 \d+ 台词/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /加台词/ })).toBeNull();
+  });
+
+  it("edits a speech line inline choosing kind and text", async () => {
+    const props = speechSetup();
+
+    await userEvent.click(screen.getByRole("button", { name: "编辑第 1 段帧 1 台词" }));
+
+    const input = screen.getByLabelText("第 1 段帧 1 台词");
+    expect(input).toHaveValue("饭量越大干劲越足");
+    await userEvent.selectOptions(screen.getByLabelText("第 1 段帧 1 台词类型"), "dialogue");
+    await userEvent.clear(input);
+    await userEvent.type(input, "干饭去喽！");
+    await userEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    // 台词走同一个 PATCH；改台词后重新拼接，段图上的台词条随之更新。
+    expect(props.updateAsset).toHaveBeenCalledWith("frame-1", {
+      speechLine: { kind: "dialogue", text: "干饭去喽！" },
+      expectedUpdatedAt: articleFixture().updatedAt
+    });
+    expect(props.onResult).toHaveBeenCalled();
+  });
+
+  it("clears a speech line by saving an emptied text as null", async () => {
+    const props = speechSetup();
+
+    await userEvent.click(screen.getByRole("button", { name: "编辑第 1 段帧 1 台词" }));
+    await userEvent.clear(screen.getByLabelText("第 1 段帧 1 台词"));
+    await userEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    // 与图注不同：清空 = 删除台词条（speechLine: null），保存按钮不因空文本被禁。
+    expect(props.updateAsset).toHaveBeenCalledWith("frame-1", {
+      speechLine: null,
+      expectedUpdatedAt: articleFixture().updatedAt
+    });
+  });
+
+  it("adds a speech line to a frame that has none, defaulting to dialogue", async () => {
+    const props = speechSetup();
+
+    await userEvent.click(screen.getByRole("button", { name: "给第 1 段帧 2 加台词" }));
+
+    expect(screen.getByLabelText("第 1 段帧 2 台词类型")).toHaveValue("dialogue");
+    await userEvent.type(screen.getByLabelText("第 1 段帧 2 台词"), "冲呀！");
+    await userEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    expect(props.updateAsset).toHaveBeenCalledWith("frame-2", {
+      speechLine: { kind: "dialogue", text: "冲呀！" },
+      expectedUpdatedAt: articleFixture().updatedAt
+    });
   });
 });
 
