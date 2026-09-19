@@ -32,8 +32,9 @@ function completion(content: string) {
   );
 }
 
-function fetchResponse(response: Response): typeof fetch {
-  return (async () => response) as typeof fetch;
+function fetchResponse(make: () => Response): typeof fetch {
+  // Response 体只能读一次：工厂每次给一份新的，供重试场景复用。
+  return (async () => make()) as typeof fetch;
 }
 
 async function expectClientError(
@@ -111,18 +112,89 @@ describe("OpenAiJsonClient", () => {
   });
 
   it.each([401, 403])("maps HTTP %i to authentication", async (status) => {
-    await expectClientError(fetchResponse(new Response("unauthorized", { status })), "authentication");
+    await expectClientError(
+      fetchResponse(() => new Response("unauthorized", { status })),
+      "authentication"
+    );
   });
 
   it("maps a non-JSON upstream response to invalid_response", async () => {
     await expectClientError(
-      fetchResponse(new Response("not-json", { status: 200, headers: { "content-type": "text/plain" } })),
+      fetchResponse(
+        () => new Response("not-json", { status: 200, headers: { "content-type": "text/plain" } })
+      ),
       "invalid_response"
     );
   });
 
-  it("maps a response that does not match the schema to invalid_response", async () => {
-    await expectClientError(fetchResponse(completion(JSON.stringify({ answer: 42 }))), "invalid_response");
+  it("maps a response that does not match the schema to invalid_response with the first issue", async () => {
+    const error = (await new OpenAiJsonClient(
+      config,
+      fetchResponse(() => completion(JSON.stringify({ answer: 42 })))
+    )
+      .complete(request)
+      .catch((reason: LlmError) => reason)) as LlmError;
+
+    expect(error).toMatchObject({ code: "invalid_response", name: "LlmError" });
+    // 具体坏在哪要透出到报错里——「answer：…」指到字段，排查不用猜。
+    expect(error.message).toContain("answer");
+    expect(error.message).not.toContain(config.apiKey);
+  });
+
+  it("retries once with a corrective note when the model text is not valid JSON", async () => {
+    const bodies: string[] = [];
+    const fetchFn = (async (_url: string | URL | Request, init?: RequestInit) => {
+      bodies.push(String(init?.body));
+      return completion(bodies.length === 1 ? "这不是JSON" : JSON.stringify({ answer: "4" }));
+    }) as typeof fetch;
+
+    await expect(new OpenAiJsonClient(config, fetchFn).complete(request)).resolves.toEqual({
+      answer: "4"
+    });
+    expect(bodies).toHaveLength(2);
+    const retryMessages = JSON.parse(bodies[1]!).messages as Array<{ role: string; content: string }>;
+    expect(retryMessages).toHaveLength(3);
+    expect(retryMessages[2]).toMatchObject({ role: "user" });
+    expect(retryMessages[2]!.content).toContain("不是合法 JSON");
+  });
+
+  it("retries once when the upstream body itself is not JSON", async () => {
+    let calls = 0;
+    const fetchFn = (async () => {
+      calls += 1;
+      return calls === 1
+        ? new Response("gateway blip", { status: 200, headers: { "content-type": "text/plain" } })
+        : completion(JSON.stringify({ answer: "4" }));
+    }) as typeof fetch;
+
+    await expect(new OpenAiJsonClient(config, fetchFn).complete(request)).resolves.toEqual({
+      answer: "4"
+    });
+    expect(calls).toBe(2);
+  });
+
+  it("recovers without a retry when the content is wrapped in Markdown code fences", async () => {
+    let calls = 0;
+    const fetchFn = (async () => {
+      calls += 1;
+      return completion("```json\n" + JSON.stringify({ answer: "4" }) + "\n```");
+    }) as typeof fetch;
+
+    await expect(new OpenAiJsonClient(config, fetchFn).complete(request)).resolves.toEqual({
+      answer: "4"
+    });
+    expect(calls).toBe(1);
+  });
+
+  it("does not retry HTTP status errors", async () => {
+    let calls = 0;
+    const fetchFn = (async () => {
+      calls += 1;
+      return new Response("gateway failure", { status: 502 });
+    }) as typeof fetch;
+
+    await expectClientError(fetchFn, "upstream");
+    expect(calls).toBe(1);
   });
 
   it("maps AbortError fetch failures to timeout and passes an abort signal", async () => {
@@ -143,7 +215,7 @@ describe("OpenAiJsonClient", () => {
     try {
       await new OpenAiJsonClient(
         config,
-        fetchResponse(new Response("gateway failure", { status: 502 }))
+        fetchResponse(() => new Response("gateway failure", { status: 502 }))
       ).complete(request);
     } catch (reason) {
       error = reason as LlmError;
