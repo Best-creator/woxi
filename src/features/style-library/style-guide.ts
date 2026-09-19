@@ -9,7 +9,7 @@ import type { StyleProfile } from "./domain";
 export function styleToGuideText(profile: StyleProfile): string {
   return [
     `【画风】${profile.promptTemplate}`,
-    `【主色板】${profile.palette.join(" ")}（按画面占比排序的复古主色）`,
+    `【主色板】${profile.palette.join(" ")}（按画面占比从大到小排序）`,
     `【线条】${profile.lineWork}`,
     `【角色造型】${profile.characterDesign}`,
     `【构图】${profile.composition}`,

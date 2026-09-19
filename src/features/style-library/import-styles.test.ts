@@ -60,6 +60,25 @@ describe("importStyles", () => {
     expect(after.profile.summary).toBe("更新后的一句话概括，仍然足够长");
   });
 
+  it("溯源优先取文件里的 source；来源变化时更新而不是跳过", async () => {
+    const repo = new SqliteStyleLibraryRepository(createTestDatabase());
+    const fromCrawler = { ...exportFile([PROFILE_A]), source: "gzh-crawl 采集（公众号：混知）" };
+
+    await importStyles(fromCrawler, repo);
+    expect((await repo.list())[0].source).toBe("gzh-crawl 采集（公众号：混知）");
+
+    // 同一份文件重复导入 → 跳过
+    const again = await importStyles(fromCrawler, repo);
+    expect(again.skipped).toBe(1);
+    expect(again.imported).toBe(0);
+
+    // 内容没变但来源变了 → 覆盖，溯源跟着改（否则标签永远纠不回来）
+    const reSourced = { ...exportFile([PROFILE_A]), source: "另一个来源" };
+    const third = await importStyles(reSourced, repo);
+    expect(third.imported).toBe(1);
+    expect((await repo.list())[0].source).toBe("另一个来源");
+  });
+
   it("version 不匹配或结构坏时整体拒绝，给出可读错误", async () => {
     const repo = new SqliteStyleLibraryRepository(createTestDatabase());
     const badVersion = await importStyles(exportFile([PROFILE_A], 2), repo);
