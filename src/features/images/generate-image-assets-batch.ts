@@ -8,8 +8,7 @@ import { ImageGeneratorError } from "./image-generator";
 import { persistImage } from "./generate-image-asset";
 import {
   buildGenerationEnhancements,
-  composeEnhancedPrompt,
-  referenceImagesField,
+  generateWithEnhancementFallback,
   type GenerationEnhancementDependencies
 } from "./generation-enhancements";
 import type { ImageAssetRepository } from "./repository";
@@ -88,14 +87,11 @@ export async function generateImageAssetsBatch(
   if (!started.length) return { kind: "nothing_pending" };
 
   // ── 阶段 2：上游并行生成，一张失败不影响其他张。──
+  // 每张都带「被内容策略拦截就退回原始提示词」的降级（见 generateWithEnhancementFallback）：
+  // 画风引导是逐帧前置的同一段长文本，一旦它触发拦截，整批会同时失败。
   const settled = await Promise.allSettled(
     started.map((asset) =>
-      dependencies.generator.generate({
-        prompt: composeEnhancedPrompt(asset.prompt, enhancements),
-        aspectRatio: asset.aspectRatio,
-        ...referenceImagesField(enhancements),
-        ...(input.model ? { model: input.model } : {})
-      })
+      generateWithEnhancementFallback(dependencies.generator, asset, enhancements, input.model)
     )
   );
 

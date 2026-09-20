@@ -125,6 +125,44 @@ describe("OpenAiImageGenerator", () => {
     expect(error.message).toContain("insufficient_quota: 请充值");
   });
 
+  it("classifies an upstream content policy block so callers can retry with fewer instructions", async () => {
+    const generator = new OpenAiImageGenerator(
+      [site],
+      fetchRespondingWith(
+        new Response(
+          JSON.stringify({
+            error: { code: "upstream_content_blocked", message: "M365 content policy blocked this request" }
+          }),
+          { status: 502 }
+        )
+      ) as typeof fetch
+    );
+
+    const error = (await generator
+      .generate({ prompt: "x", aspectRatio: "square" })
+      .catch((caught: unknown) => caught)) as ImageGeneratorError;
+
+    expect(error.code).toBe("content_blocked");
+    // 不是限流：没有被上游要求冷却，外层不该为它等 429 的重试节奏。
+    expect(error.cooldownSeconds).toBeNull();
+    expect(error.message).toContain("内容策略拦截");
+  });
+
+  it("recognises a content block that only shows up in the message text", async () => {
+    const generator = new OpenAiImageGenerator(
+      [site],
+      fetchRespondingWith(
+        new Response(JSON.stringify({ error: { message: "request rejected by content filter" } }), {
+          status: 400
+        })
+      ) as typeof fetch
+    );
+
+    await expect(generator.generate({ prompt: "x", aspectRatio: "square" })).rejects.toMatchObject({
+      code: "content_blocked"
+    });
+  });
+
   it("routes input.model to its owning site via the catalog", async () => {
     const calledUrls: string[] = [];
     const fetchFn = async (url: unknown) => {

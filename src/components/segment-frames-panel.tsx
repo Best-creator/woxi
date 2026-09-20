@@ -11,7 +11,7 @@ import {
   type SpeechLineKind
 } from "@/features/images/domain";
 import type { ImageAssetPatch } from "@/features/images/repository";
-import type { ImageMutationPayload } from "./image-planning-panel";
+import type { ImageBatchSummary, ImageMutationPayload } from "./image-planning-panel";
 
 /**
  * 第四步「分镜配图」的帧生成面板：直接消费第三步设计的 planning.storyboardSegments，
@@ -126,6 +126,11 @@ export function SegmentFramesPanel({
   const [imageModels, setImageModels] = useState<Array<{ id: string; provider: string }>>([]);
   const [defaultImageModel, setDefaultImageModel] = useState<string | null>(null);
   const [imageModel, setImageModel] = useState("");
+  /**
+   * 批量生成的逐张回执。批量接口返回 200 也常有部分帧失败（上游内容策略拦截等），
+   * 不把这份回执摊开，作者就只能看到帧变红而不知道原因——之前它被整条丢掉了。
+   */
+  const [batchReport, setBatchReport] = useState<ImageBatchSummary | null>(null);
   // 生成能力是个稳定布尔量：generateImage 是父组件每次渲染新建的函数，
   // 直接进依赖数组会让下面的拉取 effect 每次渲染都重跑。
   const generationAvailable = Boolean(generateImage);
@@ -139,6 +144,16 @@ export function SegmentFramesPanel({
     [article.planning.storyboardSegments]
   );
   const assetById = useMemo(() => new Map(assets.map((asset) => [asset.id, asset])), [assets]);
+  /** 帧 id → 「第 N 段帧 M」标签：批量失败清单要能让作者对上具体是哪一格。 */
+  const frameLabels = useMemo(() => {
+    const labels = new Map<string, string>();
+    segments.forEach((segment, segmentIndex) => {
+      segment.frameAssetIds.forEach((assetId, frameIndex) => {
+        labels.set(assetId, `第 ${segmentIndex + 1} 段帧 ${frameIndex + 1}`);
+      });
+    });
+    return labels;
+  }, [segments]);
   const pendingFrames = useMemo(
     () =>
       segments
@@ -286,6 +301,8 @@ export function SegmentFramesPanel({
     if (!asset) return;
     setBusyAssetId(assetId);
     setError("");
+    // 单帧操作也把批量报告收起来：它只反映最近一次批量，留着会与刚补成的帧自相矛盾。
+    setBatchReport(null);
     try {
       // 乐观锁是文章级的：服务端校验 article.updatedAt。帧的 updated_at 有自己的
       // 时间线（生成成功/失败只推进被写的帧），与文章令牌会差几毫秒——拿它当令牌
@@ -303,13 +320,15 @@ export function SegmentFramesPanel({
     if (!generateBatch) return;
     setBatchBusy(true);
     setError("");
+    setBatchReport(null);
     try {
-      onResult(
-        await generateBatch({
-          expectedUpdatedAt: article.updatedAt,
-          ...(imageModel ? { model: imageModel } : {})
-        })
-      );
+      const payload = await generateBatch({
+        expectedUpdatedAt: article.updatedAt,
+        ...(imageModel ? { model: imageModel } : {})
+      });
+      onResult(payload);
+      // 返回 200 不代表全成功：把逐张回执留下来，失败的帧逐条列明原因。
+      setBatchReport(payload.batch && payload.batch.failed > 0 ? payload.batch : null);
       await refreshGenerations();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "操作失败，请稍后重试");
@@ -478,6 +497,30 @@ export function SegmentFramesPanel({
             )}
             {batchBusy ? "正在批量生成..." : `一键生成全部待生成帧（${pendingFrames.length}）`}
           </button>
+        </div>
+      ) : null}
+
+      {batchReport ? (
+        <div className="segment-frames-batch-report" role="status" aria-label="批量生成结果">
+          <p>
+            已生成 {batchReport.succeeded} 张，{batchReport.failed} 张失败——再点一次按钮可只补失败与未完成的帧。
+          </p>
+          <ul>
+            {batchReport.results
+              .filter((item) => !item.ok)
+              .slice(0, 4)
+              .map((item) => (
+                <li key={item.assetId}>
+                  <strong>{frameLabels.get(item.assetId) ?? "某帧"}</strong>：
+                  {item.message ?? "生成失败"}
+                </li>
+              ))}
+          </ul>
+          {batchReport.failed > 4 ? (
+            <p className="segment-frames-batch-more">
+              另有 {batchReport.failed - 4} 帧失败，原因类似。
+            </p>
+          ) : null}
         </div>
       ) : null}
 

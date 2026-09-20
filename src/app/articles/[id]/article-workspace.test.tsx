@@ -387,6 +387,63 @@ describe("ArticleWorkspace", () => {
     expect(generateBatch).toHaveBeenCalledWith("article-1", article.updatedAt, undefined);
   });
 
+  it("摊开批量生成的逐张失败原因（接口是扁平回执，不是嵌套 batch）", async () => {
+    const user = userEvent.setup();
+    const article = segmentDraftArticle();
+    // 真故障形态：接口 200，但 4 帧只成了 1 帧。逐张原因必须让作者看见，
+    // 否则「只有一张生成成功」看起来像是并发坏了。
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).includes("/image-assets/generate-batch")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              article,
+              assets: [
+                frameAsset("frame-1"),
+                frameAsset("frame-2a", "failed"),
+                frameAsset("frame-2b", "failed"),
+                frameAsset("frame-3", "failed")
+              ],
+              results: [
+                { assetId: "frame-1", ok: true },
+                { assetId: "frame-2a", ok: false, message: "画面描述被上游内容策略拦截。" },
+                { assetId: "frame-2b", ok: false, message: "画面描述被上游内容策略拦截。" },
+                { assetId: "frame-3", ok: false, message: "画面描述被上游内容策略拦截。" }
+              ],
+              succeeded: 1,
+              failed: 3
+            })
+          } as unknown as Response;
+        }
+        return { ok: false, status: 404, json: async () => ({}) } as unknown as Response;
+      })
+    );
+    render(
+      <ArticleWorkspace
+        initialArticle={article}
+        initialImageAssets={[
+          frameAsset("frame-1", "placeholder"),
+          frameAsset("frame-2a", "placeholder"),
+          frameAsset("frame-2b", "placeholder"),
+          frameAsset("frame-3", "placeholder")
+        ]}
+        initialStep="images"
+        imageGenerationEnabled
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "一键生成全部待生成帧（4）" }));
+
+    const report = await screen.findByRole("status", { name: "批量生成结果" });
+    expect(within(report).getByText(/已生成 1 张，3 张失败/)).toBeVisible();
+    // 失败清单要能对上具体是哪一格，而不是只说「3 张失败」。
+    expect(within(report).getByText("第 2 段帧 1")).toBeVisible();
+    expect(within(report).getAllByText(/内容策略拦截/)).toHaveLength(3);
+  });
+
   it("分镜文章第四步切换生图模型并随生成请求提交", async () => {
     const user = userEvent.setup();
     const article = segmentDraftArticle();

@@ -9,8 +9,7 @@ import { ImageGeneratorError } from "./image-generator";
 import type { ImageGenerator } from "./image-generator";
 import {
   buildGenerationEnhancements,
-  composeEnhancedPrompt,
-  referenceImagesField,
+  generateWithEnhancementFallback,
   type GenerationEnhancementDependencies
 } from "./generation-enhancements";
 
@@ -100,14 +99,15 @@ export async function generateImageAsset(
   let filePath: string | null = null;
 
   try {
-    // 画风/参考形象增强：读不到偏好时是空增强，prompt 与旧行为完全一致。
+    // 画风/参考形象增强：读不到偏好时是空增强，prompt 与旧行为完全一致；
+    // 被上游内容策略拦截时自动退回原始提示词重试一次（见 generateWithEnhancementFallback）。
     const enhancements = await buildGenerationEnhancements(input.articleId, dependencies);
-    const payload = await dependencies.generator.generate({
-      prompt: composeEnhancedPrompt(asset.prompt, enhancements),
-      aspectRatio: asset.aspectRatio,
-      ...referenceImagesField(enhancements),
-      ...(input.model ? { model: input.model } : {})
-    });
+    const payload = await generateWithEnhancementFallback(
+      dependencies.generator,
+      asset,
+      enhancements,
+      input.model
+    );
 
     if (payload.binary) {
       filePath = await persistImage(

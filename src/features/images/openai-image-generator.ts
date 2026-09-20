@@ -17,21 +17,48 @@ interface UpstreamImageItem {
   output_format?: unknown;
 }
 
-/** 从上游错误响应体里提取人类可读的原因（截断，避免刷屏）。 */
-async function upstreamReason(response: Response): Promise<string> {
+interface UpstreamFailure {
+  /** 上游错误体里的机器可读代码（如 upstream_content_blocked）；拿不到为 null。 */
+  code: string | null;
+  message: string;
+}
+
+/** 读一次上游错误体，拆出 code 与人类可读原因（截断，避免刷屏）。 */
+async function readUpstreamFailure(response: Response): Promise<UpstreamFailure> {
+  const fallback: UpstreamFailure = { code: null, message: `HTTP ${response.status}` };
   try {
     const text = (await response.text()).slice(0, 300);
     try {
-      const parsed = JSON.parse(text) as { error?: { message?: unknown }; message?: unknown };
+      const parsed = JSON.parse(text) as {
+        error?: { code?: unknown; message?: unknown };
+        code?: unknown;
+        message?: unknown;
+      };
+      const code =
+        typeof parsed.error?.code === "string"
+          ? parsed.error.code
+          : typeof parsed.code === "string"
+            ? parsed.code
+            : null;
       const message = parsed.error?.message ?? parsed.message;
-      if (typeof message === "string" && message.trim()) return message.trim();
+      if (typeof message === "string" && message.trim()) return { code, message: message.trim() };
+      return { code, message: text.trim() || fallback.message };
     } catch {
       // 非 JSON 错误体，原样截断展示
+      return { code: null, message: text.trim() || fallback.message };
     }
-    return text.trim() || `HTTP ${response.status}`;
   } catch {
-    return `HTTP ${response.status}`;
+    return fallback;
   }
+}
+
+/**
+ * 内容策略拦截的识别：网关给了机器码，个别渠道只在文案里体现。
+ * 单独成一类是因为它可被调用方「降级重试」救回（换措辞），与配置错/网络抖不是一回事。
+ */
+function isContentBlocked(failure: UpstreamFailure): boolean {
+  if (failure.code === "upstream_content_blocked") return true;
+  return /content[_ -]?policy|content[_ -]?blocked|content[_ -]?filter/i.test(failure.message);
 }
 
 export class OpenAiImageGenerator implements ImageGenerator {
@@ -180,21 +207,27 @@ export class OpenAiImageGenerator implements ImageGenerator {
       if (response.status === 401 || response.status === 403) {
         throw new ImageGeneratorError("authentication", "图片生成服务认证失败，请检查服务配置。");
       }
+      const failure = await readUpstreamFailure(response);
       if (response.status === 429) {
-        const reason = await upstreamReason(response);
-        const seconds = parseResetSeconds(reason);
+        const seconds = parseResetSeconds(failure.message);
         throw new ImageGeneratorError(
           "upstream",
           seconds !== null
             ? `生图模型 ${model} 冷却中，约 ${seconds} 秒后可重试。`
-            : `生图模型 ${model} 请求过于频繁：${reason}`,
+            : `生图模型 ${model} 请求过于频繁：${failure.message}`,
           seconds
         );
       }
-      const reason = await upstreamReason(response);
+      if (isContentBlocked(failure)) {
+        // 单独归类：调用方可以去掉画风引导等附加文本再试一次，或提示换模型/站点。
+        throw new ImageGeneratorError(
+          "content_blocked",
+          `画面描述被上游内容策略拦截（${failure.message}）。换措辞或换模型/站点后重试。`
+        );
+      }
       throw new ImageGeneratorError(
         "upstream",
-        `图片生成服务返回错误（${reason}）。可尝试在生成按钮旁切换其他模型。`
+        `图片生成服务返回错误（${failure.message}）。可尝试在生成按钮旁切换其他模型。`
       );
     }
 

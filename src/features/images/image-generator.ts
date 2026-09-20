@@ -36,7 +36,17 @@ export interface ImageGenerator {
 
 export class ImageGeneratorError extends Error {
   constructor(
-    public readonly code: "timeout" | "authentication" | "invalid_response" | "upstream",
+    public readonly code:
+      | "timeout"
+      | "authentication"
+      | "invalid_response"
+      | "upstream"
+      /**
+       * 上游内容策略拦截（如网关的 upstream_content_blocked / M365 content policy）。
+       * 与「配置错」「网络抖」不同：提示词本身被判定不合规，换措辞或换模型/站点才有救，
+       * 调用方可据此降级重试（见 generateWithEnhancementFallback）。
+       */
+      | "content_blocked",
     message: string,
     /** 上游 429 且给出 reset_seconds 时的冷却秒数；其余为 null。 */
     public readonly cooldownSeconds: number | null = null
@@ -44,6 +54,11 @@ export class ImageGeneratorError extends Error {
     super(message);
     this.name = "ImageGeneratorError";
   }
+}
+
+/** 是否为上游内容策略拦截（调用方据此决定是否降级重试）。 */
+export function isContentBlockedError(error: unknown): boolean {
+  return error instanceof ImageGeneratorError && error.code === "content_blocked";
 }
 
 const sizeByAspectRatio: Record<ImageAspectRatio, "1536x1024" | "1024x1024" | "1024x1536"> = {

@@ -6,7 +6,9 @@ import {
   libraryStyleId,
   styleToGuideText
 } from "@/features/style-library/style-guide";
-import type { ReferenceImage } from "./image-generator";
+import type { ImageAspectRatio } from "./domain";
+import { isContentBlockedError } from "./image-generator";
+import type { GeneratedImagePayload, ImageGenerator, ReferenceImage } from "./image-generator";
 import type { ImagePlanSettingsRepository } from "./plan-settings";
 
 /**
@@ -111,4 +113,36 @@ export function composeEnhancedPrompt(assetPrompt: string, enhancements: Generat
 /** 有参考图才携带 referenceImages 字段，保持无增强时的生成输入与旧行为完全一致。 */
 export function referenceImagesField(enhancements: GenerationEnhancements) {
   return enhancements.referenceImages.length ? { referenceImages: enhancements.referenceImages } : {};
+}
+
+/**
+ * 带降级的生成：先用「画风引导 + 原始提示词」调上游；若被内容策略拦截，
+ * 去掉附加的画风文本、只发设计稿的原始提示词再试一次。
+ *
+ * 为什么要有这个降级：画风引导是逐帧前置的长文本（实测 1193 字），
+ * 上游 M365 内容策略会间歇性地把含它的请求整批拦掉（同一段文本换个时刻又能过）。
+ * 增强只是提升一致性的手段，不该成为「一炸全炸」的单点——实测拦截率 0/3 → 3/3 的
+ * A/B 差异就出现在加不加这段文本上，所以这里把它当作第一顺位可疑因素剥掉。
+ * 参考图保留：它是画面相似度的实质收益，且拦截证据都指向文本而非图片。
+ */
+export async function generateWithEnhancementFallback(
+  generator: ImageGenerator,
+  asset: { prompt: string; aspectRatio: ImageAspectRatio },
+  enhancements: GenerationEnhancements,
+  model?: string
+): Promise<GeneratedImagePayload> {
+  const shared = {
+    aspectRatio: asset.aspectRatio,
+    ...referenceImagesField(enhancements),
+    ...(model ? { model } : {})
+  };
+  try {
+    return await generator.generate({
+      prompt: composeEnhancedPrompt(asset.prompt, enhancements),
+      ...shared
+    });
+  } catch (error) {
+    if (!enhancements.promptPrefix || !isContentBlockedError(error)) throw error;
+    return await generator.generate({ prompt: asset.prompt, ...shared });
+  }
 }

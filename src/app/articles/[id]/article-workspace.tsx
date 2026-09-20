@@ -194,7 +194,15 @@ async function imageMutationRequest(
     assets?: ImageAsset[];
     strips?: ImageMutationPayload["strips"];
     fontFamily?: ImageMutationPayload["fontFamily"];
-    batch?: ImageMutationPayload["batch"];
+    /**
+     * 批量生成接口把逐张回执**扁平**放在响应顶层（results/succeeded/failed），
+     * 不是嵌套的 batch。之前这里直接读 result.batch（响应里没有该字段），
+     * 于是「已生成 N 张、M 张失败」与逐张失败原因被静默丢掉——
+     * 用户只看到帧变红、却不知道为什么。这里组装出 payload.batch。
+     */
+    results?: Array<{ assetId: string; ok: boolean; message?: string }>;
+    succeeded?: number;
+    failed?: number;
     error?: string;
   };
   if (!response.ok || !result.article || !result.assets) {
@@ -215,7 +223,13 @@ async function imageMutationRequest(
     assets: result.assets,
     strips: result.strips,
     fontFamily: result.fontFamily,
-    batch: result.batch
+    batch: result.results
+      ? {
+          results: result.results,
+          succeeded: result.succeeded ?? 0,
+          failed: result.failed ?? result.results.filter((item) => !item.ok).length
+        }
+      : undefined
   };
 }
 

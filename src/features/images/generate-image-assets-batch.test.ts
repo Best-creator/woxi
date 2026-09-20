@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { SqliteArticleRepository } from "@/features/articles/sqlite-repository";
 import type { ImagePlanSuggestion } from "./domain";
 import { generateImageAssetsBatch } from "./generate-image-assets-batch";
+import { ImageGeneratorError } from "./image-generator";
 import type { GeneratedImagePayload, ImageGeneratorInput } from "./image-generator";
 import type { ImageAssetRepository } from "./repository";
 import { SqliteImageAssetRepository } from "./sqlite-repository";
@@ -172,6 +173,41 @@ describe("generateImageAssetsBatch", () => {
     // 一张都没落成 → 整体 conflict；已落盘的半成品必须清掉。
     expect(result).toEqual({ kind: "conflict" });
     expect(await readdir(storageDir)).toEqual([]);
+  });
+
+  it("falls back to the raw prompt per frame when the style guide triggers a content block", async () => {
+    // 真实故障：同一段画风引导前置到每一帧，上游按内容策略把整批拦掉，
+    // 剥掉引导文本后设计稿原文能过——批量因此不该「一炸全炸」。
+    const fixture = await createPlannedFixture(2);
+    const inputs: ImageGeneratorInput[] = [];
+
+    const result = await generateImageAssetsBatch(fixture, {
+      images: fixture.imagesRepo,
+      generator: {
+        generate: async (input) => {
+          inputs.push(input);
+          if (input.prompt.includes("【绘制风格】")) {
+            throw new ImageGeneratorError("content_blocked", "画面描述被上游内容策略拦截。");
+          }
+          return payloadWith(input.prompt);
+        }
+      },
+      planSettings: {
+        get: async () => ({ style: "扁平插画，暖色调", characterId: null }),
+        set: async () => undefined
+      }
+    });
+
+    if (result.kind !== "saved") throw new Error(`expected saved, got ${result.kind}`);
+    expect(result.succeeded).toBe(2);
+    expect(result.failed).toBe(0);
+    // 2 张增强请求（被拦）+ 2 张原文请求（通过）。
+    expect(inputs).toHaveLength(4);
+    const rawPrompts = inputs
+      .filter((input) => !input.prompt.includes("【绘制风格】"))
+      .map((input) => input.prompt)
+      .sort();
+    expect(rawPrompts).toEqual(["提示词-1", "提示词-2"]);
   });
 
   it("applies the style and character enhancements to every frame in the batch", async () => {
