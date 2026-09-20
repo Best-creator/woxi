@@ -66,8 +66,13 @@ export interface SegmentFramesPanelProps {
   disabled?: boolean;
   /** 生成会推进文章版本，回传整份文章与资产交给工作台统一收口。 */
   onResult: (payload: ImageMutationPayload) => void;
-  /** 单帧生成（占位/失败重试/已生成重生成均走它）；未提供（无生图服务）时隐藏按钮。 */
-  generateImage?: (assetId: string, expectedUpdatedAt: string) => Promise<ImageMutationPayload>;
+  /** 单帧生成（占位/失败重试/已生成重生成均走它）；未提供（无生图服务）时隐藏按钮。
+   *  第三个参数是本次使用的生图模型（跨站点可选），缺省用服务端默认模型。 */
+  generateImage?: (
+    assetId: string,
+    expectedUpdatedAt: string,
+    model?: string
+  ) => Promise<ImageMutationPayload>;
   /** 一键生成全部待生成帧；未提供时隐藏入口。 */
   generateBatch?: (input: { expectedUpdatedAt: string; model?: string }) => Promise<ImageMutationPayload>;
   /** generating 卡住的解卡入口：取消并恢复占位图。 */
@@ -117,6 +122,17 @@ export function SegmentFramesPanel({
   const [styleOptions, setStyleOptions] = useState<PlanSettingsOption[]>([]);
   const [characterOptions, setCharacterOptions] = useState<PlanSettingsOption[]>([]);
   const [settingsBusy, setSettingsBusy] = useState(false);
+  // 生图模型：从 /api/image-models 拉聚合目录（跨站点，带归属）；空值 = 服务端默认模型。
+  const [imageModels, setImageModels] = useState<Array<{ id: string; provider: string }>>([]);
+  const [defaultImageModel, setDefaultImageModel] = useState<string | null>(null);
+  const [imageModel, setImageModel] = useState("");
+  // 生成能力是个稳定布尔量：generateImage 是父组件每次渲染新建的函数，
+  // 直接进依赖数组会让下面的拉取 effect 每次渲染都重跑。
+  const generationAvailable = Boolean(generateImage);
+  const multiProvider = useMemo(
+    () => new Set(imageModels.map((item) => item.provider)).size > 1,
+    [imageModels]
+  );
 
   const segments = useMemo(
     () => [...(article.planning.storyboardSegments ?? [])].sort((left, right) => left.order - right.order),
@@ -205,6 +221,30 @@ export function SegmentFramesPanel({
     void loadPlanSettings();
   }, [planSettingsEnabled, loadPlanSettings]);
 
+  useEffect(() => {
+    // 生图模型目录：有生图能力才拉；接口失败静默降级（不显示下拉，按服务端默认模型生成）。
+    if (!generationAvailable) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch("/api/image-models");
+        if (!response.ok) return;
+        const data = (await response.json()) as {
+          models?: Array<{ id: string; provider: string }>;
+          defaultModel?: string | null;
+        };
+        if (cancelled) return;
+        setImageModels(Array.isArray(data.models) ? data.models : []);
+        setDefaultImageModel(data.defaultModel ?? null);
+      } catch {
+        // 离线/测试环境：保持空目录。
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [generationAvailable]);
+
   const settingsDirty = useMemo(() => {
     if (!settingsDraft || !settingsSaved) return false;
     return (
@@ -264,7 +304,12 @@ export function SegmentFramesPanel({
     setBatchBusy(true);
     setError("");
     try {
-      onResult(await generateBatch({ expectedUpdatedAt: article.updatedAt }));
+      onResult(
+        await generateBatch({
+          expectedUpdatedAt: article.updatedAt,
+          ...(imageModel ? { model: imageModel } : {})
+        })
+      );
       await refreshGenerations();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "操作失败，请稍后重试");
@@ -389,6 +434,33 @@ export function SegmentFramesPanel({
             对之后新发起的帧生成生效：画风注入每帧提示词；参考形象同时附上形象图做图生图，保持角色一致。
           </p>
         </form>
+      ) : null}
+
+      {generationAvailable && imageModels.length > 0 ? (
+        <div className="segment-frames-model">
+          <label className="segment-frames-model-field">
+            <span>生图模型</span>
+            <select
+              aria-label="生图模型"
+              value={imageModel}
+              disabled={locked}
+              title="生成帧使用的模型；可跨站点选择，生成时按模型归属路由到对应站点，报错时可换模型重试"
+              onChange={(event) => setImageModel(event.target.value)}
+            >
+              <option value="">
+                {defaultImageModel ? `默认模型（${defaultImageModel}）` : "默认模型"}
+              </option>
+              {imageModels.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {multiProvider ? `${item.id}（${item.provider}）` : item.id}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="segment-frames-model-note">
+            对之后发起的生成生效：单帧与一键批量都用这个模型。
+          </p>
+        </div>
       ) : null}
 
       {generateBatch && pendingFrames.length ? (
@@ -618,7 +690,9 @@ export function SegmentFramesPanel({
                           type="button"
                           disabled={locked}
                           onClick={() =>
-                            void runAsset(asset.id, (token) => generateImage(asset.id, token))
+                            void runAsset(asset.id, (token) =>
+                              generateImage(asset.id, token, imageModel || undefined)
+                            )
                           }
                         >
                           {busyAssetId === asset.id ? (

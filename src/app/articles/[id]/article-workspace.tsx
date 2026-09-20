@@ -841,17 +841,17 @@ export function ArticleWorkspace({
                   }
                   generateImage={
                     imageGenerationEnabled
-                      ? (assetId: string, expectedUpdatedAt: string) =>
+                      ? (assetId: string, expectedUpdatedAt: string, model?: string) =>
                           beginImageOperation(() =>
-                            generateImage(articleRef.current.id, assetId, expectedUpdatedAt)
+                            generateImage(articleRef.current.id, assetId, expectedUpdatedAt, model)
                           )
                       : undefined
                   }
                   generateBatch={
                     imageGenerationEnabled
-                      ? ({ expectedUpdatedAt }: { expectedUpdatedAt: string; model?: string }) =>
+                      ? ({ expectedUpdatedAt, model }: { expectedUpdatedAt: string; model?: string }) =>
                           beginImageOperation(() =>
-                            generateBatch(articleRef.current.id, expectedUpdatedAt)
+                            generateBatch(articleRef.current.id, expectedUpdatedAt, model)
                           )
                       : undefined
                   }

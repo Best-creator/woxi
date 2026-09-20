@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Article, ContentBlock, StoryboardSegment } from "@/features/articles/domain";
@@ -92,6 +92,30 @@ function segmentArticle(overrides: Partial<Article> = {}): Article {
   });
 }
 
+/** 生图模型目录的 fetch 桩：/api/image-models 返回聚合目录，其余端点 404。 */
+function stubImageModels(
+  models: Array<{ id: string; provider: string }>,
+  defaultModel: string | null = "demo-image"
+) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/api/image-models")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ models, defaultModel })
+        } as unknown as Response;
+      }
+      return { ok: false, status: 404, json: async () => ({}) } as unknown as Response;
+    })
+  );
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 function setup(overrides: {
   article?: Article;
   assets?: ImageAsset[];
@@ -161,8 +185,52 @@ describe("SegmentFramesPanel", () => {
 
     // 乐观锁是文章级的：即使帧的 updated_at 与文章不同步（失败/部分批量后必然漂移），
     // 令牌也必须取 article.updatedAt，否则必撞 409。
-    expect(props.generateImage).toHaveBeenCalledWith("frame-2", articleFixture().updatedAt);
+    expect(props.generateImage).toHaveBeenCalledWith(
+      "frame-2",
+      articleFixture().updatedAt,
+      undefined
+    );
     expect(props.onResult).toHaveBeenCalled();
+  });
+
+  it("switches the image model and sends it with both single-frame and batch generation", async () => {
+    stubImageModels([
+      { id: "gpt-image-2", provider: "image" },
+      { id: "flux-2", provider: "image2" }
+    ]);
+    const props = setup();
+
+    const select = await screen.findByLabelText("生图模型");
+    // 跨站点时选项带归属站点：同名模型也要能看出会打到哪个站。
+    await waitFor(() => expect(within(select).getByText("flux-2（image2）")).toBeInTheDocument());
+    expect(within(select).getByText("默认模型（demo-image）")).toBeInTheDocument();
+
+    await userEvent.selectOptions(select, "flux-2");
+
+    await userEvent.click(screen.getByRole("button", { name: "生成" }));
+    expect(props.generateImage).toHaveBeenCalledWith(
+      "frame-2",
+      articleFixture().updatedAt,
+      "flux-2"
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /一键生成全部待生成帧/ }));
+    expect(props.generateBatch).toHaveBeenCalledWith({
+      expectedUpdatedAt: articleFixture().updatedAt,
+      model: "flux-2"
+    });
+  });
+
+  it("hides the model picker when the catalog is unavailable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: false, status: 500, json: async () => ({}) } as unknown as Response))
+    );
+    setup();
+
+    await waitFor(() => expect(screen.queryByLabelText("生图模型")).toBeNull());
+    // 目录拿不到不影响生成主链路：按钮照旧，走服务端默认模型。
+    expect(screen.getByRole("button", { name: "生成" })).toBeInTheDocument();
   });
 
   it("unsticks a generating frame instead of offering another generation", async () => {

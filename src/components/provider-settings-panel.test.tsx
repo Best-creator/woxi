@@ -383,7 +383,7 @@ describe("ProviderSettingsPanel", () => {
     expect(screen.getByLabelText("站点 1 服务地址")).toBeDefined();
   });
 
-  it("pulls an extra site's model list via its own refresh button", async () => {
+  it("auto-pulls an extra site's models on mount and renders its model field as a select", async () => {
     const siteSettings: MaskedProviderSettings = {
       ...noneSettings,
       extraImageSites: [
@@ -402,8 +402,7 @@ describe("ProviderSettingsPanel", () => {
       />
     );
 
-    // 站点不参与挂载自动拉取，走各自的刷新按钮
-    fireEvent.click(screen.getByRole("button", { name: "拉取站点 1 模型列表" }));
+    // 进页面就自动拉取（掩码 key 原样提交，服务端按 baseUrl 解析真值）：不必先点刷新图标。
     await waitFor(() => expect(testBodies(fetchStub).length).toBe(1));
     expect(testBodies(fetchStub)[0]).toMatchObject({
       scope: "image",
@@ -411,10 +410,106 @@ describe("ProviderSettingsPanel", () => {
       apiKey: "••••3333"
     });
 
-    const siteSelect = screen.getByLabelText("站点 1 默认模型") as HTMLSelectElement;
-    expect(siteSelect.tagName).toBe("SELECT");
+    const siteSelect = await waitFor(() => {
+      const select = screen.getByLabelText("站点 1 默认模型") as HTMLSelectElement;
+      expect(select.tagName).toBe("SELECT");
+      return select;
+    });
     const values = selectOptions(siteSelect)!;
     expect(values).toContain("gpt-image-2");
+    expect(values).toContain("dall-e-4");
     expect(within(siteSelect.parentElement!.parentElement!).getAllByText(/站点可用 · 2 个模型/).length).toBeGreaterThan(0);
+
+    // 刷新按钮仍然保留：改过地址后可以手动重拉。
+    fireEvent.click(screen.getByRole("button", { name: "拉取站点 1 模型列表" }));
+    await waitFor(() => expect(testBodies(fetchStub).length).toBe(2));
+  });
+
+  it("aggregates every site's models into the main image model select, labelled by site", async () => {
+    const multiSite: MaskedProviderSettings = {
+      llm: null,
+      image: {
+        baseUrl: "https://env-image.example.test",
+        apiKey: "••••2222",
+        model: "env-image-model",
+        source: "env"
+      },
+      extraImageSites: [
+        { baseUrl: "https://site-b.example.test", apiKey: "••••3333", model: "", source: "env" }
+      ]
+    };
+    const fetchStub = createFetchStub((url, init) => {
+      if (!url.endsWith("/test")) return { status: 200, payload: {} };
+      const body = JSON.parse(String(init?.body)) as { baseUrl: string };
+      // 两站共享 flux-2：按站点优先级，归主站。
+      return {
+        status: 200,
+        payload: {
+          ok: true,
+          models:
+            body.baseUrl === "https://env-image.example.test"
+              ? ["gpt-image-2", "flux-2"]
+              : ["flux-2", "dall-e-4"]
+        }
+      };
+    });
+    render(
+      <ProviderSettingsPanel
+        initialSettings={multiSite}
+        initialUpdatedAt={null}
+        fetchImpl={fetchStub}
+      />
+    );
+
+    const imageSelect = await waitFor(() => {
+      const select = screen.getByLabelText("生成模型") as HTMLSelectElement;
+      // 主站 + 额外站点的模型都在候选里（服务端按模型归属路由站点）。
+      expect(selectOptions(select)).toContain("dall-e-4");
+      return select;
+    });
+
+    const values = selectOptions(imageSelect)!;
+    expect(values).toContain("gpt-image-2");
+    expect(values).toContain("flux-2");
+    expect(values).toContain("env-image-model");
+
+    // 跨站点时选项标出归属，避免同名模型分不清打到哪。
+    expect(within(imageSelect).getByText("dall-e-4（site-b）")).toBeDefined();
+    expect(within(imageSelect).getByText("gpt-image-2（env-image）")).toBeDefined();
+    // 同名模型先到先得：flux-2 归主站。
+    expect(within(imageSelect).getByText("flux-2（env-image）")).toBeDefined();
+  });
+
+  it("re-pulls extra sites after a successful save", async () => {
+    const siteSettings: MaskedProviderSettings = {
+      ...envSettings,
+      extraImageSites: [
+        { baseUrl: "https://site-b.example.test", apiKey: "••••3333", model: "", source: "env" }
+      ]
+    };
+    const fetchStub = createFetchStub((url) => {
+      if (url.endsWith("/test")) return { status: 200, payload: { ok: true, models: ["gpt-image-2"] } };
+      return {
+        status: 200,
+        payload: { updatedAt: "2026-09-17T08:00:00.000Z", settings: siteSettings }
+      };
+    });
+    render(
+      <ProviderSettingsPanel
+        initialSettings={siteSettings}
+        initialUpdatedAt="2026-09-17T07:00:00.000Z"
+        fetchImpl={fetchStub}
+      />
+    );
+    await waitFor(() => expect(testBodies(fetchStub).length).toBe(3));
+
+    fireEvent.click(screen.getByRole("button", { name: "保存全部" }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("已保存"));
+    await waitFor(() => {
+      const sitePulls = testBodies(fetchStub).filter(
+        (body) => body.baseUrl === "https://site-b.example.test"
+      );
+      expect(sitePulls.length).toBe(2);
+    });
   });
 });

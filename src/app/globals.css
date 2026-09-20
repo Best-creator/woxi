@@ -3308,6 +3308,34 @@ h2 {
   margin: 0;
 }
 
+.segment-frames-model {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+.segment-frames-model-field {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.segment-frames-model-field span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.segment-frames-model-field select {
+  min-width: 200px;
+}
+
+.segment-frames-model-note {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 0;
+}
+
 .segment-frames-list {
   display: grid;
   gap: 12px;

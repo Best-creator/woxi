@@ -88,6 +88,8 @@ interface ModelSelectProps {
   onChange: (next: string) => void;
   /** 可选模型候选（不含空值）。 */
   options: string[];
+  /** 归属站点标注：多站点时选项呈现为「模型（站点）」，一眼看出会路由到哪。 */
+  providerLabels?: Record<string, string>;
   /** 存在时渲染 value="" 的首位选项（如分工字段的「跟随默认模型」）。 */
   emptyOptionLabel?: string;
   /** 回落 input 模式的占位文案。 */
@@ -95,7 +97,15 @@ interface ModelSelectProps {
 }
 
 /** 模型选择控件：有候选时渲染下拉（当前值始终并入选项，不丢值），否则回落文本输入。 */
-function ModelSelect({ id, value, onChange, options, emptyOptionLabel, placeholder }: ModelSelectProps) {
+function ModelSelect({
+  id,
+  value,
+  onChange,
+  options,
+  providerLabels,
+  emptyOptionLabel,
+  placeholder
+}: ModelSelectProps) {
   const hasEmptyOption = Boolean(emptyOptionLabel) || value === "";
   const pickable = options.length + (hasEmptyOption ? 1 : 0) >= 2;
   if (!pickable) {
@@ -108,9 +118,25 @@ function ModelSelect({ id, value, onChange, options, emptyOptionLabel, placehold
   return (
     <select id={id} value={value} onChange={(event) => onChange(event.target.value)}>
       {hasEmptyOption && <option value="">{emptyOptionLabel ?? "请选择模型"}</option>}
-      {merged.map((model) => <option key={model} value={model}>{model}</option>)}
+      {merged.map((model) => {
+        const provider = providerLabels?.[model];
+        return (
+          <option key={model} value={model}>
+            {provider ? `${model}（${provider}）` : model}
+          </option>
+        );
+      })}
     </select>
   );
+}
+
+/** 站点展示名：取主机名首段（与服务端 ImageSite.name 同口径，如 image2 / yelan）。 */
+function siteLabel(baseUrl: string, fallback: string): string {
+  try {
+    return new URL(baseUrl).hostname.split(".")[0] || fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 /** LLM 模型分工字段：字段名 → 展示说明。 */
@@ -154,10 +180,36 @@ export function ProviderSettingsPanel({
     return Array.from(new Set([...base, ...discoveredLlmModels]));
   }, [llm.models, llm.model, discoveredLlmModels]);
 
-  const imageModelOptions = useMemo(
-    () => Array.from(new Set([image.model, ...discoveredImageModels].filter(Boolean))),
-    [image.model, discoveredImageModels]
-  );
+  /**
+   * 主站「生成模型」是跨站点的默认模型：候选 = 主站已发现的 + 各额外站点已发现的 + 各类当前值。
+   * 生成时按模型归属自动路由到对应站点，所以多站点时必须把来源标出来，
+   * 否则同名/相似模型（gpt-image-2 各站都有）根本分不清会打到哪。
+   */
+  const imageModelChoices = useMemo(() => {
+    const mainLabel = siteLabel(image.baseUrl, "主站");
+    // 按小写去重（上游模型 id 大小写不稳定），保留首次出现的原样——与服务端目录同口径。
+    const byKey = new Map<string, { model: string; provider: string }>();
+    const add = (model: string, provider: string) => {
+      if (!model) return;
+      const key = model.toLowerCase();
+      if (!byKey.has(key)) byKey.set(key, { model, provider });
+    };
+    for (const model of discoveredImageModels) add(model, mainLabel);
+    add(image.model, mainLabel);
+    extraSites.forEach((site, index) => {
+      const label = siteLabel(site.baseUrl, `站点 ${index + 1}`);
+      for (const model of siteModels[index] ?? []) add(model, label);
+      add(site.model, label);
+    });
+    return Array.from(byKey.values());
+  }, [image.baseUrl, image.model, discoveredImageModels, extraSites, siteModels]);
+
+  const imageModelLabels = useMemo(() => {
+    const labels: Record<string, string> = {};
+    for (const choice of imageModelChoices) labels[choice.model] = choice.provider;
+    // 单站点时标注是噪音：只在真的跨了站点才显示归属。
+    return new Set(imageModelChoices.map((choice) => choice.provider)).size > 1 ? labels : {};
+  }, [imageModelChoices]);
 
   async function request(path: string, init: RequestInit): Promise<ApiResponse> {
     const response = await doFetch(`${API_BASE}${path}`, {
@@ -203,6 +255,11 @@ export function ProviderSettingsPanel({
       const savedImage = success.settings.image ? imageFromMasked(success.settings.image) : emptyImage;
       if (savedLlm.baseUrl && savedLlm.apiKey) void testConnection("llm", savedLlm);
       if (savedImage.baseUrl && savedImage.apiKey) void testConnection("image", savedImage);
+      // 额外站点同样重新拉取（含刚改过地址的站），保证下拉候选与保存后的配置一致。
+      success.settings.extraImageSites.forEach((site, index) => {
+        const saved = imageFromMasked(site);
+        if (saved.baseUrl && saved.apiKey) void testSiteConnection(index, saved);
+      });
     } catch {
       setStatusMessage({ tone: "error", text: "网络异常，保存失败" });
     } finally {
@@ -259,6 +316,8 @@ export function ProviderSettingsPanel({
   }
 
   // 挂载时用初始快照自动拉取一次模型列表（掩码 key 由服务端解析回真值）。
+  // 额外站点一视同仁：进页面就把各自的模型拉回来，「默认模型」直接是可选的下拉，
+  // 不必先点小刷新图标才知道有哪些模型。
   useEffect(() => {
     if (initialSettings.llm?.baseUrl && initialSettings.llm.apiKey) {
       void testConnection("llm", {
@@ -272,6 +331,11 @@ export function ProviderSettingsPanel({
         apiKey: initialSettings.image.apiKey
       });
     }
+    initialSettings.extraImageSites.forEach((site, index) => {
+      if (site.baseUrl && site.apiKey) {
+        void testSiteConnection(index, { baseUrl: site.baseUrl, apiKey: site.apiKey });
+      }
+    });
     // 仅挂载时执行一次；故意只依赖初始快照。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -423,12 +487,14 @@ export function ProviderSettingsPanel({
           <div className="form-field">
             <label htmlFor="image-model">生成模型</label>
             <div className="model-field-row">
-              <ModelSelect id="image-model" value={image.model} options={imageModelOptions}
+              <ModelSelect id="image-model" value={image.model}
+                options={imageModelChoices.map((choice) => choice.model)}
+                providerLabels={imageModelLabels}
                 placeholder="如 gpt-image-2"
                 onChange={(model) => setImage({ ...image, model })} />
               {renderRefreshButton("拉取生图模型列表", () => void testConnection("image", image), imageTest.status === "testing")}
             </div>
-            <p className="field-hint">下拉选项由网关实时拉取；生成时按模型归属自动路由站点。</p>
+            <p className="field-hint">聚合主站与全部额外站点的模型；生成时按模型归属自动路由到对应站点。</p>
           </div>
           <div className="provider-actions">
             <button className="button button-secondary" type="button"
@@ -439,7 +505,9 @@ export function ProviderSettingsPanel({
           </div>
 
           <h3 className="extra-sites-title">额外生图站点</h3>
-          <p className="provider-hint">生图模型下拉会聚合所有站点；生成时按模型归属自动路由。</p>
+          <p className="provider-hint">
+            进入页面即自动拉取每个站点的模型（「默认模型」直接可选）；主站「生成模型」下拉会聚合所有站点，生成时按模型归属自动路由。
+          </p>
           {extraSites.map((site, index) => (
             <div className="site-row" key={index} aria-label={`额外生图站点 ${index + 1}`}>
               <div className="form-field">
@@ -449,6 +517,17 @@ export function ProviderSettingsPanel({
                     const next = [...extraSites];
                     next[index] = { ...site, baseUrl: event.target.value };
                     setExtraSites(next);
+                    // 地址变了，之前拉到的模型属于旧站点：清掉缓存，保存后按新地址重拉。
+                    setSiteModels((prev) => {
+                      const rest = { ...prev };
+                      delete rest[index];
+                      return rest;
+                    });
+                    setSiteTests((prev) => {
+                      const rest = { ...prev };
+                      delete rest[index];
+                      return rest;
+                    });
                   }} />
               </div>
               <div className="form-field">

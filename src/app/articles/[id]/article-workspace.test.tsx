@@ -1,6 +1,6 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, afterEach } from "vitest";
 import { articleFixture, twoBlocks } from "../../../../tests/fixtures/article";
 import type { Article, ContentBlock, StoryboardSegment } from "@/features/articles/domain";
 import { DEFAULT_STYLE_PROFILE } from "@/features/content/style-profile";
@@ -313,7 +313,13 @@ describe("ArticleWorkspace", () => {
     expect(generateImage).toHaveBeenCalledTimes(1);
     // 乐观锁是文章级的：服务端校验 article.updatedAt；帧资产时间线与文章
     // 会漂移（生成失败/部分批量后），拿帧的 updatedAt 当令牌必撞 409。
-    expect(generateImage).toHaveBeenCalledWith("article-1", "frame-1", article.updatedAt);
+    // 第三个参数是本次使用的生图模型，没选时是 undefined（走服务端默认模型）。
+    expect(generateImage).toHaveBeenCalledWith(
+      "article-1",
+      "frame-1",
+      article.updatedAt,
+      undefined
+    );
   });
 
   it("rehydrates server state carried by a failed frame generation", async () => {
@@ -378,7 +384,65 @@ describe("ArticleWorkspace", () => {
     await user.click(screen.getByRole("button", { name: "一键生成全部待生成帧（3）" }));
 
     expect(generateBatch).toHaveBeenCalledTimes(1);
-    expect(generateBatch).toHaveBeenCalledWith("article-1", article.updatedAt);
+    expect(generateBatch).toHaveBeenCalledWith("article-1", article.updatedAt, undefined);
+  });
+
+  it("分镜文章第四步切换生图模型并随生成请求提交", async () => {
+    const user = userEvent.setup();
+    const article = segmentDraftArticle();
+    const generateImage = vi.fn(async () => ({ article, assets: [] }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).includes("/api/image-models")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              models: [
+                { id: "gpt-image-2", provider: "image" },
+                { id: "flux-2", provider: "image2" }
+              ],
+              defaultModel: "gpt-image-2"
+            })
+          } as unknown as Response;
+        }
+        return { ok: false, status: 404, json: async () => ({}) } as unknown as Response;
+      })
+    );
+    render(
+      <ArticleWorkspace
+        initialArticle={article}
+        initialImageAssets={[
+          frameAsset("frame-1", "placeholder"),
+          frameAsset("frame-2a", "placeholder"),
+          frameAsset("frame-2b", "placeholder"),
+          frameAsset("frame-3", "placeholder")
+        ]}
+        initialStep="images"
+        imageGenerationEnabled
+        generateImage={generateImage}
+      />
+    );
+
+    // 选中的模型要真的落到生成请求上（跨站点由服务端按模型归属路由）。
+    // 工作台里可能同时有旧配图面板的同名控件，查询限定在分镜配图区域内。
+    const framesPanel = await screen.findByRole("region", { name: "分镜配图" });
+    const select = await waitFor(() => within(framesPanel).getByLabelText("生图模型"));
+    await user.selectOptions(select, "flux-2");
+    await user.click(within(framesPanel).getAllByRole("button", { name: "生成" })[0]!);
+
+    expect(generateImage).toHaveBeenCalledWith(
+      "article-1",
+      "frame-1",
+      article.updatedAt,
+      "flux-2"
+    );
+  });
+
+  afterEach(() => {
+    // 生图模型目录是全局 fetch 桩出来的：不还原会污染同文件里后面的用例。
+    vi.unstubAllGlobals();
   });
 
   it("persists an embedded outline edit after navigating away before its debounce", async () => {
