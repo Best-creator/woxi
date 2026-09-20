@@ -4,6 +4,7 @@ import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_COMIC_STRIP_METRICS,
+  STORYBOARD_PANEL_WIDTH_RATIO,
   TEXT_BAND_MAX_CHARS_PER_LINE,
   characterWidthRatio,
   composeComicStrip,
@@ -150,10 +151,32 @@ describe("composeComicStrip", () => {
     );
 
     expect(width).toBe(METRICS.width);
-    // 两张图各被压到 (400-40) 宽、300 高上限内 → 360×270；中间那块按排版算出的高度，
-    // 外加文字卡右下的 5px 硬阴影（卡片化后文字带实际占位多出一拍）。
+    // 两张图各被压到内容区（400-40=360）的 85% 宽、居中摆放（混知式图文比例：画面收窄，
+    // 文字带仍满宽）；中间那块按排版算出的高度，外加文字卡右下的 5px 硬阴影。
+    const contentWidth = METRICS.width - METRICS.padding * 2;
+    const panelWidth = Math.round(contentWidth * STORYBOARD_PANEL_WIDTH_RATIO);
+    // 400×300 的帧压进 panelWidth 宽 → 高等比 229.5，sharp 取整为 230。
+    const panelHeight = Math.round((300 / 400) * panelWidth);
     const textHeight = layoutComicStripTextBlock(text, METRICS).height + 5;
-    expect(height).toBe(METRICS.padding * 2 + METRICS.gap * 2 + 270 * 2 + textHeight);
+    expect(height).toBe(METRICS.padding * 2 + METRICS.gap * 2 + panelHeight * 2 + textHeight);
+
+    // 帧居中收窄：取第一帧中部的一行，蓝色画面左右边界之外应是画布白底。
+    const rowTop = METRICS.padding + Math.round(panelHeight / 2);
+    const { data, info } = await sharp(buffer)
+      .extract({ left: 0, top: rowTop, width: METRICS.width, height: 1 })
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    const isBlue = (x: number) => {
+      const at = x * info.channels;
+      return data[at]! < 100 && data[at + 1]! < 130 && data[at + 2]! > 180;
+    };
+    let blueLeft = 0;
+    while (blueLeft < METRICS.width && !isBlue(blueLeft)) blueLeft += 1;
+    let blueRight = METRICS.width - 1;
+    while (blueRight >= 0 && !isBlue(blueRight)) blueRight -= 1;
+    const expectedLeft = METRICS.padding + Math.round((contentWidth - panelWidth) / 2);
+    expect(blueLeft).toBe(expectedLeft);
+    expect(blueRight).toBe(expectedLeft + panelWidth - 1);
 
     const metadata = await sharp(buffer).metadata();
     expect(metadata.format).toBe("png");
@@ -230,9 +253,12 @@ describe("composeComicStrip", () => {
     const tall = await solidPanel(400, 2000);
     const { height } = await composeComicStrip([{ kind: "image", binary: tall }], METRICS);
 
-    // 2000 高的竖图被压到 maxPanelHeight=300：整条长图正好是「上下留白 + 300」。
-    expect(height).toBe(METRICS.padding * 2 + METRICS.maxPanelHeight);
-    // 不封顶的话按宽度等比缩放会得到 1800 高，这条断言就是用来盯住这个上限的。
+    // 2000 高的竖图被压到「maxPanelHeight=300 × 85%」（高度上限随帧宽同步收缩）：
+    // 整条长图正好是「上下留白 + 255」。
+    expect(height).toBe(
+      METRICS.padding * 2 + Math.round(METRICS.maxPanelHeight * STORYBOARD_PANEL_WIDTH_RATIO)
+    );
+    // 不封顶的话按宽度等比缩放会得到更高的图，这条断言就是用来盯住这个上限的。
     expect(height).toBeLessThan(400);
   });
 

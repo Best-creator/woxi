@@ -131,6 +131,15 @@ const TEXT_CARD_RADIUS = 16;
 const TEXT_CARD_SHADOW_OFFSET = 5;
 
 /**
+ * 分镜帧在段图画布内容区里的宽度占比（2026-09-20 从占满调小到 0.85）。
+ *
+ * 参考混知的图文比例：画面收窄居中、两侧留白，图不压文；文字带与台词条仍占满内容区，
+ * 烘字的手机观感不受影响（这也是不在显示层缩图的原因——显示层缩会把烘字一起缩小，
+ * 紧凑档会跌破 13px 的可读下限）。帧尺寸烘进了段图像素，改这个值必须重新拼接段图。
+ */
+export const STORYBOARD_PANEL_WIDTH_RATIO = 0.85;
+
+/**
  * 正文断行的硬上限（每行全角字数）：混知式知识条漫的正文是**居中短行**，
  * 行宽一满整个卡片就退回「语文课本」。13 字 ≈ 手机宽度下两眼扫完一行。
  */
@@ -413,15 +422,23 @@ async function renderComicStripImageBlock(
   metrics: ComicStripMetrics
 ): Promise<{ input: Buffer; width: number; height: number }> {
   const contentWidth = metrics.width - metrics.padding * 2;
+  // 帧只占内容区的一部分（见 STORYBOARD_PANEL_WIDTH_RATIO），compose 阶段会按实际
+  // 宽度居中摆放；高度上限同步收缩，让「宽撑满、高截断」的约束在新宽度下依然成立。
+  // 文字带与台词条不经这里，仍占满内容区——图与文的视觉比例对齐混知式排版。
+  const panelWidth = Math.round(contentWidth * STORYBOARD_PANEL_WIDTH_RATIO);
   const resized = await sharp(block.binary)
-    .resize({ width: contentWidth, height: metrics.maxPanelHeight, fit: "inside" })
+    .resize({
+      width: panelWidth,
+      height: Math.round(metrics.maxPanelHeight * STORYBOARD_PANEL_WIDTH_RATIO),
+      fit: "inside"
+    })
     .png()
     .toBuffer();
   const metadata = await sharp(resized).metadata();
   return {
     input: resized,
-    width: metadata.width ?? contentWidth,
-    height: metadata.height ?? contentWidth
+    width: metadata.width ?? panelWidth,
+    height: metadata.height ?? panelWidth
   };
 }
 
