@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import type { CharacterImageStore } from "@/server/character-storage";
 import type { ImageGenerator } from "@/features/images/image-generator";
 import { ImageGeneratorError } from "@/features/images/image-generator";
+import { sanitizeImagePrompt } from "@/features/images/sanitize-image-prompt";
+import { DEFAULT_DRAWING_STYLE } from "@/features/images/style-text";
 import type {
   NewReferenceCharacter,
   ReferenceCharacter,
@@ -41,7 +43,7 @@ export function buildCharacterReferencePrompt(input: {
   styleText: string;
 }): string {
   return [
-    "为公众号知识类漫画绘制一张「角色参考设定图」：单个角色的全身立绘。",
+    "为知识图文绘制一张「角色参考设定图」：单个角色的全身立绘。",
     "- 全身完整可见（头到脚，不裁切），正面站姿，表情自然亲和；",
     "- 画面只有这一个角色：纯白背景（#FFFFFF），无场景、无道具、无文字；",
     input.persona
@@ -50,7 +52,7 @@ export function buildCharacterReferencePrompt(input: {
     input.appearance
       ? `- 外观设定：${input.appearance}；`
       : "- 外观由你原创设计：轮廓与配色清晰，便于在多幅画面中重复绘制；",
-    `- 绘制风格：${input.styleText || "日系动漫画风，清晰线条、赛璐璐上色、明快配色"}；`,
+    `- 绘制风格：${input.styleText || DEFAULT_DRAWING_STYLE}；`,
     "- 五官、发型、服装细节清楚，颜色明确，同一角色后续要在多张图里保持一致。"
   ].join("\n");
 }
@@ -84,7 +86,7 @@ export async function generateReferenceCharacter(
   let payload;
   try {
     payload = await deps.generator.generate({
-      prompt,
+      prompt: sanitizeImagePrompt(prompt),
       aspectRatio: "portrait",
       ...(input.model ? { model: input.model } : {})
     });

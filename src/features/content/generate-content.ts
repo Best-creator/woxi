@@ -27,7 +27,7 @@ export interface GenerateContentCommand {
    * 没给按文章推断——没设计过分镜的新文默认剧情漫画，已设计过的旧文保持讲解式。
    */
   presentation?: StoryboardPresentation;
-  /** 绘制风格；缺省时设计器按默认（日系动漫）设计分镜。 */
+  /** 绘制风格；缺省时设计器按默认（黑白线条漫画）设计分镜。 */
   drawingStyle?: string;
   /** 参考形象摘要（名称 + 身份 + 外形基准），烘进每帧分镜 prompt。 */
   character?: { name: string; persona: string; description: string };

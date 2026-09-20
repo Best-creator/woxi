@@ -59,7 +59,7 @@ describe("buildCharacterReferencePrompt", () => {
   it("falls back to original-design and default style wording when inputs are empty", () => {
     const prompt = buildCharacterReferencePrompt({ persona: "", appearance: "", styleText: "" });
     expect(prompt).toContain("外观由你原创设计");
-    expect(prompt).toContain("日系动漫画风");
+    expect(prompt).toContain("黑白线条漫画风");
   });
 });
 

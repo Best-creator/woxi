@@ -866,7 +866,7 @@ export function ImagePlanningPanel({
                 disabled={locked || generatingCharacter}
                 onChange={(event) => setGenStyleOption(event.target.value)}
               >
-                <option value={STYLE_NONE}>不指定（默认日系动漫）</option>
+                <option value={STYLE_NONE}>不指定（默认黑白线条漫画）</option>
                 {stylePresets.map((preset) => (
                   <option key={preset.value} value={preset.value}>{preset.label}</option>
                 ))}

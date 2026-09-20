@@ -1,4 +1,5 @@
 import type { StoryboardRoute } from "@/features/articles/domain";
+import { DEFAULT_DRAWING_STYLE } from "@/features/images/style-text";
 import type {
   GenerateContentInput,
   ReviseStoryboardDesignInput,
@@ -94,7 +95,7 @@ function demoIllustratedCopy(goal: string, title: string): string {
 }
 
 function demoIllustratedFrames(route: StoryboardRoute, title: string, goal: string) {
-  const scene = `纯白背景，主角站在讲解台前讲解「${goal}」，日系动漫画风，清晰线条、赛璐璐上色`;
+  const scene = `纯白背景，主角站在讲解台前讲解「${goal}」，${DEFAULT_DRAWING_STYLE}`;
   if (route === "image_text_image") {
     return [
       {
@@ -145,7 +146,7 @@ function demoStoryComicCopy(index: number): string {
  */
 function demoStoryComicFrames(route: StoryboardRoute, title: string) {
   const cast = "三只圆滚滚的柴犬，短腿、卷尾、都围着同一条蓝色围裙";
-  const style = "纯白背景，日系动漫画风，清晰线条、赛璐璐上色";
+  const style = `纯白背景，${DEFAULT_DRAWING_STYLE}`;
   if (route === "image_text_image") {
     return [
       {

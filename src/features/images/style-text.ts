@@ -30,3 +30,11 @@ export async function resolveStyleText(
   if (!entry) return null;
   return options.frame ? styleToFrameGuideText(entry.profile) : styleToGuideText(entry.profile);
 }
+
+/**
+ * 未指定画风时的全站默认口径（2026-09-20 拍板：黑白线条纸质漫画，替代旧默认「日系动漫赛璐璐」）。
+ * 消费方：设计阶段提示词（讲解式/剧情漫画，未给 drawingStyle 时写进每格 prompt）、
+ * 视觉规划提示词、参考形象图、Demo 设计器/规划器。改默认画风只改这一处。
+ */
+export const DEFAULT_DRAWING_STYLE =
+  "黑白线条漫画风：纯黑白不上色，手绘钢笔线条，阴影用排线与网点，纸质漫画质感，可用速度线与情绪符号";

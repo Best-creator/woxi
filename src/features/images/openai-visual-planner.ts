@@ -1,5 +1,6 @@
 import type { ProviderConfig } from "@/server/config";
 import { imagePlanResponseSchema } from "./schemas";
+import { DEFAULT_DRAWING_STYLE } from "./style-text";
 import type { ComicStripModeDecision } from "./comic-strip-mode-router";
 import type { ImagePlanSuggestion } from "./domain";
 import type { VisualPlanInput, VisualPlanner } from "./visual-planner";
@@ -39,7 +40,7 @@ const VISUAL_PLANNER_BASE_PROMPT = `你是微信公众号文章的动漫分镜�
 - 封面与第一格分镜必须错开，各司其职：封面是「钩子」——用悬念、反差或结果画面勾起点击欲；第一格分镜是「起点」——交代问题的开端。封面禁止复述文章标题、禁止直接图解核心结论、禁止与第一格分镜取同一母题或同一场景；两格的画面文字也不得重复；
 - 每格只聚焦一个信息点，宁缺毋滥：分镜加上封面总数最多 11 项；
 - 分镜要「解释」而不只是「配图」：画面要承担正文的说明职责（展示过程、呈现关系、具象化抽象概念）；
-- 未指定绘制风格时，默认统一采用日系动漫画风：清晰线条、赛璐璐上色、明快配色、适当速度线与情绪符号。
+- 未指定绘制风格时，默认统一采用${DEFAULT_DRAWING_STYLE}。
 
 漫画长图排法决策（stripMode/stripReason）：这些分镜之后可以竖着拼成一张连续漫画长图，排法有三种，你通读完正文后替作者选一种最合适的，并在 stripReason 里用不超过 60 字说明理由（讲给作者听）：
 - image_text（图 + 文）：一格图，下面跟这格的文案。适合文案偏长、信息密度高、需要先看懂图再细读文字的内容；

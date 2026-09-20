@@ -1,5 +1,6 @@
 import type { ImageAspectRatio } from "./domain";
 import { heuristicComicStripMode } from "./comic-strip-mode-router";
+import { DEFAULT_DRAWING_STYLE } from "./style-text";
 import type { VisualPlan, VisualPlanInput, VisualPlanner } from "./visual-planner";
 
 /** Demo 分镜的景别轮换：保证相邻分镜景别有变化，接近真实规划器的镜头语言。 */
@@ -11,8 +12,8 @@ function summarize(content: string) {
 
 function storyboardPrompt(topic: string, summary: string, scene: number, shot: string) {
   return (
-    `动漫分镜 第 ${scene} 格，${shot}镜头。围绕「${summary}」绘制日系动漫画风画面：` +
-    `清晰线条、赛璐璐上色、明快配色，角色动作与表情突出「${topic}」的这个知识点，画面承担解释职责，` +
+    `动漫分镜 第 ${scene} 格，${shot}镜头。围绕「${summary}」绘制${DEFAULT_DRAWING_STYLE}：` +
+    `角色动作与表情突出「${topic}」的这个知识点，画面承担解释职责，` +
     `含旁白框「${topic}」。`
   );
 }
@@ -51,9 +52,9 @@ export class DemoVisualPlanner implements VisualPlanner {
           anchorBlockId: null,
           purpose: `${input.topic}封面钩子（与首格分镜错开）`,
           prompt:
-            `${input.topic}：以悬念式封面构图绘制日系动漫画风知识图文封面——` +
+            `${input.topic}：以悬念式封面构图绘制${DEFAULT_DRAWING_STYLE}知识图文封面——` +
             `放大该主题最具反差的符号元素作视觉焦点，不复述文章标题，` +
-            `与第一格分镜（问题起点）错开场景与母题，清晰线条、赛璐璐上色，无水印。`,
+            `与第一格分镜（问题起点）错开场景与母题，无水印。`,
           altText: `${input.topic}封面图`,
           aspectRatio: "cover"
         },

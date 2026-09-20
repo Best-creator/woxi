@@ -90,7 +90,7 @@ describe("content generate route", () => {
   });
 
   it("没传 drawingStyle 时按文章配图偏好兜底，显式传入时以客户端为准", async () => {
-    // 帧提示词一旦在设计阶段写死自己的画风（默认「日系动漫画风、赛璐璐上色」），
+    // 帧提示词一旦在设计阶段写死自己的画风（默认「黑白线条漫画风」），
     // 生图阶段前置的画风就会和它打架——所以设计阶段必须拿到同一份画风。
     const captured: Array<string | undefined> = [];
     const captureDesigner = () => {

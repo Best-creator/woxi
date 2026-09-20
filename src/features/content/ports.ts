@@ -38,7 +38,7 @@ export interface GenerateContentInput {
    * 缺省按讲解式处理——调用点统一用 resolveStoryboardPresentation 解析后再传进来。
    */
   presentation?: StoryboardPresentation;
-  /** 绘制风格；缺省时按提示词里的默认（日系动漫）设计分镜。 */
+  /** 绘制风格；缺省时按提示词里的默认（黑白线条漫画）设计分镜。 */
   drawingStyle?: string;
   /** 参考形象摘要；缺省时不强制统一主角。 */
   character?: StoryboardCharacterBrief;
