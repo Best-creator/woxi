@@ -9,25 +9,24 @@ function snapshotFixture(): TopicRadarSnapshot {
     itemCount: 1,
     topItems: [
       {
-        title: "An AI agent workflow automation tool for SaaS teams",
-        url: "https://example.com/x",
-        source: "AIHOT",
-        summary: "AI agent workflow automation",
-        publishedAt: "2026-09-19T00:00:00.000Z",
-        rawSignal: 8,
+        title: "为什么猫从高处摔下来总能四脚着地？背后的物理原理",
+        url: "https://www.zhihu.com/question/123",
+        source: "知乎热榜",
+        summary: "猫的翻正反射与角动量守恒",
+        publishedAt: "2026-09-20T00:00:00.000Z",
+        rawSignal: 20,
         id: "abc123",
-        score: 71,
-        scoreBreakdown: { signal: 8, relevance: 25, contentFit: 17, business: 11, recency: 10 },
-        tags: ["ai", "workflow"],
-        angles: ["AI 工具/工作流拆解"],
-        recommendation: "小红书工具卡 + 实测教程",
-        selectionReason: "入选原因：AI/工具关键词：ai、workflow。",
-        nextAction: "建议：做一张小红书卡片，标题突出具体人群和结果。"
+        score: 82,
+        scoreBreakdown: { signal: 20, relevance: 22, contentFit: 16, business: 14, recency: 10 },
+        tags: ["物理", "为什么"],
+        angles: ["设问式开头：把标题的疑问做成冷开场"],
+        recommendation: "公众号深度科普",
+        selectionReason: "入选原因：知乎热榜 信号强度 20/25；科普关键词：物理。",
+        nextAction: "建议：先核验信息源，拆成「现象 → 原理 → 生活应用」三段结构。"
       }
     ],
-    opportunityItems: [],
     byAction: {},
-    sourceStats: { AIHOT: 1 },
+    sourceStats: { 知乎热榜: 1 },
     bySource: []
   };
   return { data, cachedAt: "2026-09-20T01:00:00.000Z", fresh: false };
@@ -45,7 +44,7 @@ describe("GET /api/topic-radar", () => {
     expect(response.status).toBe(200);
     const body = (await response.json()) as TopicRadarSnapshot;
     expect(body.data.itemCount).toBe(1);
-    expect(body.data.topItems[0].score).toBe(71);
+    expect(body.data.topItems[0].score).toBe(82);
     expect(seen[0]?.refresh).toBe(true);
   });
 

@@ -113,7 +113,7 @@ export function TopicRadarPanel() {
         <Radar size={18} aria-hidden="true" />
         <span className="topic-radar-toggle-text">
           <span className="topic-radar-title">热点选题雷达</span>
-          <span className="topic-radar-subtitle">抓取 AI / SaaS / 独立开发热点，一键开文</span>
+          <span className="topic-radar-subtitle">知乎热榜 / B站热门 / 公众号同行科普选题，一键开文</span>
         </span>
         <ChevronDown size={16} aria-hidden="true" className={open ? "radar-chevron radar-chevron-open" : "radar-chevron"} />
       </button>
@@ -152,14 +152,14 @@ export function TopicRadarPanel() {
                     <a className="radar-title" href={item.url} target="_blank" rel="noreferrer">
                       {item.title}
                     </a>
-                    <span className="radar-score" title={`信号 ${item.scoreBreakdown.signal} / 相关 ${item.scoreBreakdown.relevance} / 内容 ${item.scoreBreakdown.contentFit} / 商业 ${item.scoreBreakdown.business} / 新鲜 ${item.scoreBreakdown.recency}`}>
+                    <span className="radar-score" title={`热度 ${item.scoreBreakdown.signal} / 科普相关 ${item.scoreBreakdown.relevance} / 图文适配 ${item.scoreBreakdown.contentFit} / 讨论度 ${item.scoreBreakdown.business} / 新鲜 ${item.scoreBreakdown.recency}`}>
                       {item.score}
                     </span>
                   </div>
                   <p className="radar-meta">
                     <span className="radar-source">{item.source}</span>
+                    {item.author ? <span className="radar-author">{item.author}</span> : null}
                     <span className="radar-recommendation">{item.recommendation}</span>
-                    {item.opportunity ? <span className="radar-opportunity">吐槽 → 机会</span> : null}
                   </p>
                   {item.tags.length ? (
                     <p className="radar-tags">

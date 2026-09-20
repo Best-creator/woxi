@@ -1,45 +1,51 @@
 /**
- * 选题雷达的关键词与抓取配置（移植自「选题雷达」fetch-radar.mjs，逐条保留）。
+ * 选题雷达的中文科普源配置（2026-09-20 换源，替代原海外开发者源）。
  */
 
-/** 相关性关键词组 */
-export const RADAR_KEYWORDS = {
-  ai: ["ai", "agent", "llm", "gpt", "claude", "gemini", "openai", "copilot", "automation", "workflow", "rag", "voice", "image", "video", "coding"],
-  saas: ["saas", "b2b", "crm", "analytics", "dashboard", "api", "subscription", "billing", "workspace", "productivity", "customer", "support"],
-  indie: ["indie", "startup", "founder", "side project", "micro saas", "launch", "product hunt", "mrr", "growth"],
-  cnContent: ["template", "tool", "tutorial", "case study", "prompt", "no-code", "小红书", "wechat", "content", "marketing", "creator"]
-} as const;
-
-/** 热点场景词（命中 ≥2 也算相关） */
-export const RADAR_HOT_TERMS = ["agent", "workflow", "automation", "browser", "coding", "voice", "video", "mcp", "rag", "spreadsheet", "notion", "crm", "email", "newsletter", "design", "commerce", "education", "health", "finance"];
-
-/** 吐槽词（负反馈信号） */
-export const RADAR_COMPLAINT_TERMS = [
-  "complain", "complaint", "painfully hard", "impossible", "broken", "slow", "expensive", "overpriced", "cancel", "locked in", "lock-in", "hate", "terrible", "awful", "frustrating", "doesn't work", "does not work", "buggy", "missing", "hard to use", "poor", "worst", "problem", "issue", "issues", "churn", "替代", "不好用", "太贵", "吐槽", "很难用", "难用", "取消订阅", "无法", "痛苦", "卡顿", "崩溃", "缺少", "问题"
+/** 科普相关词（相关度主判据） */
+export const SCIENCE_TERMS = [
+  "科学", "科普", "物理", "化学", "生物", "宇宙", "太空", "航天", "火箭", "nasa", "地球",
+  "健康", "医学", "医生", "病毒", "细菌", "疫苗", "癌症", "营养", "睡眠", "大脑", "心理",
+  "心理学", "基因", "dna", "进化", "动物", "植物", "昆虫", "恐龙", "海洋", "气候", "天气",
+  "地震", "量子", "相对论", "数学", "历史", "考古", "文明", "冷知识", "实验", "研究",
+  "人工智能", "ai", "芯片", "电池", "辐射", "紫外线", "维生素", "免疫力", "肠道", "黑洞"
 ];
 
-/** 吐槽语境词（吐槽词需要落在产品语境里才算数） */
-export const RADAR_COMPLAINT_CONTEXT_TERMS = ["saas", "tool", "app", "software", "product", "workflow", "billing", "subscription", "crm", "api", "dashboard", "agent", "ai", "mcp", "automation", "email", "notion", "excel", "spreadsheet", "service", "平台", "工具", "产品", "软件", "订阅", "工作流", "自动化"];
-
-/** Buzzing 中转 RSS 源：[展示名, 地址, 最多取条数] */
-export const BUZZING_RSS_SOURCES: ReadonlyArray<readonly [string, string, number]> = [
-  ["Buzzing Product Hunt", "https://ph.buzzing.cc/feed.xml", 18],
-  ["Buzzing Show HN", "https://showhn.buzzing.cc/feed.xml", 18],
-  ["Buzzing SideProject", "https://sideproject.buzzing.cc/feed.xml", 18],
-  ["Buzzing HN Front", "https://hnfront.buzzing.cc/feed.xml", 18],
-  ["Buzzing HN Ask", "https://askhn.buzzing.cc/feed.xml", 18],
-  ["Buzzing Dev.to", "https://dev.buzzing.cc/feed.xml", 18],
-  ["Buzzing Lobsters", "https://lobste.buzzing.cc/feed.xml", 12],
-  ["Buzzing Tech News", "https://tech.buzzing.cc/feed.xml", 12],
-  ["Buzzing Reddit Ask", "https://ask.buzzing.cc/feed.xml", 12]
+/** 好奇结构词（设问/求证/反常识——科普选题的结构特征） */
+export const CURIOSITY_TERMS = [
+  "为什么", "怎么", "如何", "什么", "竟然", "居然", "真的吗", "假的", "之谜", "秘密",
+  "原理", "涨知识", "揭秘", "辟谣", "谣言", "真相", "误解", "错觉", "反常识", "冷门"
 ];
 
-export const AIHOT_URL = "https://aihot.virxact.com/";
-export const PRODUCT_HUNT_RSS_URL = "https://www.producthunt.com/feed";
+/** 全民热度词（讨论度加成） */
+export const HOT_TERMS = ["热搜", "爆了", "刷屏", "全网", "火了", "冲上", "第一", "热点"];
 
-/** 汇总后的过滤与截断参数（与原实现一致） */
+/**
+ * 搜狗微信同行搜索的默认关键词组（每词取第 1 页 10 条）。
+ * 匿名通道无法按时间排序（tsn 被重定向、sort 无效），宽泛词的相关度排名里一年以上老文占比极高
+ * （实测「冷知识」10/10 是一年前），靠「多词铺量 + SOGOU_MAX_AGE_MS 时间过滤」凑近期条目。
+ */
+export const SOGOU_KEYWORDS = ["科普", "冷知识", "为什么", "科学", "健康", "心理学", "AI", "宇宙"];
+
+export const ZHIHU_HOT_URL = "https://api.zhihu.com/topstory/hot-list?limit=50";
+/**
+ * B站用「知识区排行榜」（rid=36）而不是全站热门：全站热门本质是娱乐榜
+ * （游戏/动画 55-63 分挤在科普前，真机首跑踩过）；知识区排行里全是科普/知识 UP 主的热门视频。
+ * ranking/v2 风控较严（连续请求返回 -352），被拦时回退全站 popular（端点不同、风控独立计数）。
+ */
+export const BILIBILI_POPULAR_URL = "https://api.bilibili.com/x/web-interface/ranking/v2?rid=36&type=all";
+export const BILIBILI_POPULAR_FALLBACK_URL = "https://api.bilibili.com/x/web-interface/popular?ps=40";
+export const SOGOU_BASE_URL = "https://weixin.sogou.com";
+
+/** 汇总后的过滤与截断参数 */
 export const RADAR_MIN_SCORE = 35;
 export const RADAR_MAX_ITEMS = 80;
 export const RADAR_TOP_ITEMS = 30;
-export const RADAR_OPPORTUNITY_LIMIT = 12;
 export const RADAR_BUCKET_ITEMS_PER_SOURCE = 5;
+
+/**
+ * 搜狗条目只保留近 N 天（timeConvert 时间戳过滤）。
+ * 30 天而非 7 天：宽泛词相关度排序下近期条目占比极低，7 天会几乎归零；
+ * 30 天内的同行文章对选题仍有参考价值，且 recency 维度会让它自然沉底。
+ */
+export const SOGOU_MAX_AGE_MS = 30 * 86_400_000;

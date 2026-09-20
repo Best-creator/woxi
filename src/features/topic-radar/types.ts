@@ -1,6 +1,6 @@
 /**
  * 选题雷达的数据形状。
- * 移植自桌面项目「选题雷达」scripts/fetch-radar.mjs，去除 rss-parser / cheerio 依赖后保持同构。
+ * 2026-09-20 换源：海外开发者源（GitHub/HN/Dev.to/PH/HF）→ 中文科普源（知乎热榜/B站热门/搜狗微信同行文章）。
  */
 
 /** 抓取阶段尚未打分的原始条目 */
@@ -8,6 +8,8 @@ export interface RadarRawItem {
   title: string;
   url: string;
   source: string;
+  /** 作者/公众号名/UP主（可选，展示在来源旁） */
+  author?: string;
   summary: string;
   publishedAt: string;
   rawSignal: number;
@@ -15,18 +17,16 @@ export interface RadarRawItem {
 
 /** 五维打分明细（合计即 score，0-100） */
 export interface RadarScoreBreakdown {
+  /** 信号强度：平台热度（榜单排名/播放量/新鲜度） */
   signal: number;
+  /** 科普相关度：科普词命中 */
   relevance: number;
+  /** 图文适配度：能不能直接做成科普图文 */
   contentFit: number;
+  /** 讨论度：好奇结构（设问/争议/求证） */
   business: number;
+  /** 新鲜度 */
   recency: number;
-}
-
-/** 用户负反馈信号（吐槽 → 开发机会） */
-export interface RadarOpportunity {
-  type: "用户吐槽/开发机会";
-  complaintHits: string[];
-  contextHits: string[];
 }
 
 export interface RadarScoredItem extends RadarRawItem {
@@ -38,7 +38,6 @@ export interface RadarScoredItem extends RadarRawItem {
   recommendation: string;
   selectionReason: string;
   nextAction: string;
-  opportunity?: RadarOpportunity;
 }
 
 /** 按来源分桶（用于查看每个信号源的命中率） */
@@ -54,18 +53,9 @@ export interface RadarData {
   sourceCount: number;
   itemCount: number;
   topItems: RadarScoredItem[];
-  opportunityItems: RadarScoredItem[];
   byAction: Record<string, RadarScoredItem[]>;
   sourceStats: Record<string, number>;
   bySource: RadarSourceBucket[];
-}
-
-/** 轻量 RSS 解析产物（rss-parser 的最小替代形状） */
-export interface RadarFeedEntry {
-  title: string;
-  link: string;
-  contentSnippet: string;
-  isoDate: string;
 }
 
 /** GET /api/topic-radar 的响应体 */

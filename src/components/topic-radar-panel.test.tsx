@@ -17,26 +17,24 @@ function radarSnapshotFixture(): TopicRadarSnapshot {
       itemCount: 12,
       topItems: [
         {
-          title: "An AI agent workflow automation tool for SaaS teams",
-          url: "https://example.com/x",
-          source: "AIHOT",
-          summary: "AI agent workflow automation",
-          publishedAt: "2026-09-19T00:00:00.000Z",
-          rawSignal: 8,
+          title: "为什么猫从高处摔下来总能四脚着地？背后的物理原理",
+          url: "https://www.zhihu.com/question/123",
+          source: "知乎热榜",
+          summary: "猫的翻正反射与角动量守恒",
+          publishedAt: "2026-09-20T00:00:00.000Z",
+          rawSignal: 20,
           id: "abc123",
-          score: 71,
-          scoreBreakdown: { signal: 8, relevance: 25, contentFit: 17, business: 11, recency: 10 },
-          tags: ["ai", "workflow"],
-          angles: ["AI 工具/工作流拆解"],
-          recommendation: "小红书工具卡 + 实测教程",
-          selectionReason: "入选原因：AI/工具关键词：ai、workflow。",
-          nextAction: "建议：做一张小红书卡片，标题突出具体人群和结果。",
-          opportunity: { type: "用户吐槽/开发机会", complaintHits: ["broken"], contextHits: ["saas"] }
+          score: 82,
+          scoreBreakdown: { signal: 20, relevance: 22, contentFit: 16, business: 14, recency: 10 },
+          tags: ["物理", "为什么"],
+          angles: ["设问式开头：把标题的疑问做成冷开场"],
+          recommendation: "公众号深度科普",
+          selectionReason: "入选原因：知乎热榜 信号强度 20/25；科普关键词：物理。",
+          nextAction: "建议：先核验信息源，拆成「现象 → 原理 → 生活应用」三段结构。"
         }
       ],
-      opportunityItems: [],
       byAction: {},
-      sourceStats: { AIHOT: 1, "Hacker News": 1 },
+      sourceStats: { 知乎热榜: 1, "B站热门": 1 },
       bySource: []
     },
     cachedAt: "2026-09-20T08:00:00.000Z",
@@ -64,10 +62,10 @@ describe("TopicRadarPanel", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: /热点选题雷达/ }));
-    expect(await screen.findByText("An AI agent workflow automation tool for SaaS teams")).toBeVisible();
+    expect(await screen.findByText("为什么猫从高处摔下来总能四脚着地？背后的物理原理")).toBeVisible();
     expect(fetchSpy).toHaveBeenCalledWith("/api/topic-radar");
     expect(screen.getByText("用这个选题开文")).toBeVisible();
-    expect(screen.getByText("吐槽 → 机会")).toBeVisible();
+    expect(screen.getByText("知乎热榜")).toBeVisible();
     fetchSpy.mockRestore();
   });
 
@@ -77,7 +75,7 @@ describe("TopicRadarPanel", () => {
     render(<TopicRadarPanel />);
 
     await user.click(screen.getByRole("button", { name: /热点选题雷达/ }));
-    await screen.findByText("An AI agent workflow automation tool for SaaS teams");
+    await screen.findByText("为什么猫从高处摔下来总能四脚着地？背后的物理原理");
     await user.click(screen.getByRole("button", { name: "重新抓取" }));
 
     expect(fetchSpy).toHaveBeenNthCalledWith(2, "/api/topic-radar?refresh=1");
@@ -93,7 +91,7 @@ describe("TopicRadarPanel", () => {
     render(<TopicRadarPanel />);
 
     await user.click(screen.getByRole("button", { name: /热点选题雷达/ }));
-    await screen.findByText("An AI agent workflow automation tool for SaaS teams");
+    await screen.findByText("为什么猫从高处摔下来总能四脚着地？背后的物理原理");
     await user.click(screen.getByRole("button", { name: "用这个选题开文" }));
 
     expect(fetchSpy).toHaveBeenNthCalledWith(
@@ -101,7 +99,7 @@ describe("TopicRadarPanel", () => {
       "/api/articles",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ topic: "An AI agent workflow automation tool for SaaS teams" })
+        body: JSON.stringify({ topic: "为什么猫从高处摔下来总能四脚着地？背后的物理原理" })
       })
     );
     expect(fetchSpy).toHaveBeenNthCalledWith(
@@ -110,14 +108,14 @@ describe("TopicRadarPanel", () => {
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({
-          title: "选题雷达：An AI agent workflow automation tool for SaaS teams",
+          title: "选题雷达：为什么猫从高处摔下来总能四脚着地？背后的物理原理",
           type: "markdown",
           content: [
-            "**来源**：AIHOT",
-            "**链接**：https://example.com/x",
-            "**摘要**：AI agent workflow automation",
-            "**入选原因**：入选原因：AI/工具关键词：ai、workflow。",
-            "**雷达建议**：建议：做一张小红书卡片，标题突出具体人群和结果。"
+            "**来源**：知乎热榜",
+            "**链接**：https://www.zhihu.com/question/123",
+            "**摘要**：猫的翻正反射与角动量守恒",
+            "**入选原因**：入选原因：知乎热榜 信号强度 20/25；科普关键词：物理。",
+            "**雷达建议**：建议：先核验信息源，拆成「现象 → 原理 → 生活应用」三段结构。"
           ].join("\n\n"),
           expectedUpdatedAt: "2026-09-20T08:00:00.000Z"
         })
