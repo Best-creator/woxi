@@ -14,6 +14,11 @@ vi.mock("@/server/services", async () => {
   };
 });
 
+// 首页挂着 TopicRadarPanel（client 组件，用 useRouter）；默认折叠、不发起抓取。
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() })
+}));
+
 describe("HomePage", () => {
   it("shows the creator workspace heading", async () => {
     render(await HomePage());
@@ -25,6 +30,8 @@ describe("HomePage", () => {
       "href",
       "/articles/new"
     );
+    // 热点选题雷达面板已挂载（默认折叠）
+    expect(screen.getByRole("button", { name: /热点选题雷达/ })).toBeVisible();
   });
 
   it("lists the existing articles", async () => {

@@ -1,6 +1,7 @@
 import { Plus } from "lucide-react";
 import Link from "next/link";
 import { ArticleList } from "@/components/article-list";
+import { TopicRadarPanel } from "@/components/topic-radar-panel";
 import { getArticleRepository } from "@/server/services";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +21,8 @@ export default async function HomePage() {
           新建文章
         </Link>
       </div>
+
+      <TopicRadarPanel />
 
       <ArticleList articles={articles} />
     </section>
