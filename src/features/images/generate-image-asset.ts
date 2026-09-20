@@ -101,7 +101,10 @@ export async function generateImageAsset(
   try {
     // 画风/参考形象增强：读不到偏好时是空增强，prompt 与旧行为完全一致；
     // 被上游内容策略拦截时自动退回原始提示词重试一次（见 generateWithEnhancementFallback）。
-    const enhancements = await buildGenerationEnhancements(input.articleId, dependencies);
+    // 分镜帧用单格裁剪版画风（画像里的整页排版对单格是错误指令），封面等仍用完整画像。
+    const enhancements = await buildGenerationEnhancements(input.articleId, dependencies, {
+      frame: asset.type === "storyboard"
+    });
     const payload = await generateWithEnhancementFallback(
       dependencies.generator,
       asset,

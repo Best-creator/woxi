@@ -71,7 +71,8 @@ export async function generateImageAssetsBatch(
   if (!pending.length) return { kind: "nothing_pending" };
 
   // 画风/参考形象增强整批构建一次（同批帧共享同一份偏好）；读不到时是空增强。
-  const enhancements = await buildGenerationEnhancements(input.articleId, dependencies);
+  // 批量只有分镜帧：画风用单格裁剪版（画像里的整页排版对单格是错误指令）。
+  const enhancements = await buildGenerationEnhancements(input.articleId, dependencies, { frame: true });
 
   // ── 阶段 1：串行占位。conflict/not_found 就整批不打上游。──
   let token = input.expectedUpdatedAt;

@@ -108,10 +108,13 @@ export interface ConsumedContent {
  * 封面是公众号草稿的头图，是唯一一张「文章级」配图——没有它发布门直接拒推。
  * 作者没写提示词时用它兜底，避免把空提示词送进生图模型；界面上会把它填进
  * 输入框让作者接着改。放 domain 是为了让服务端与界面共用同一份措辞。
+ *
+ * 措辞里**不出现平台名**（「公众号」等）：上游生图网关的内容策略会拦这类词，
+ * 而它们对画面没有贡献（同 `sanitize-image-prompt.ts`）。泛指「知识图文」即可。
  */
 export function defaultCoverPrompt(article: { title: string; topic: string }): string {
   const topic = article.topic?.trim() || article.title;
-  return `微信公众号封面图：${article.title}。围绕主题「${topic}」，主体清晰、有视觉冲击力，适合作为文章头图，不要出现文字水印。`;
+  return `知识图文封面图：${article.title}。围绕主题「${topic}」，主体清晰、有视觉冲击力，适合作为文章头图，不要出现文字水印。`;
 }
 
 export interface ImageAsset extends ImagePlanSuggestion {
