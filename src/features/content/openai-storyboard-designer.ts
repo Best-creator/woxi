@@ -1,7 +1,6 @@
 import type { OpenAiJsonClient } from "@/features/llm/openai-json-client";
 import { storyboardFrameCount } from "@/features/articles/domain";
 import { storyboardDesignSchema } from "./schemas";
-import { inspectStoryComicDesign } from "./story-comic-rules";
 import { describeStyleProfile } from "./style-profile";
 import type {
   GenerateContentInput,
@@ -25,7 +24,7 @@ export const STORYBOARD_DESIGNER_SYSTEM_PROMPT = `你是公众号知识类漫画
 3. 段与段之间要有自然承接，不要写成互相独立的片段；禁止通过重复、空泛总结或无关案例凑字数。
 4. 人物语言风格只改变措辞、句式、节奏、称呼和开场，不得改变事实、知识边界、章节顺序和必须解释的关键概念。
 5. 标题必须给出具体的信息或结论，读标题就知道这篇讲什么。禁止悬念式标题、禁止「90% 的人都不知道」「不看就晚了」这类夸大或施压句式、禁止促销引流措辞。
-6. 字数是硬约束：全部分段的 title 与 copy 总字数不得超过 recommendedTotalWords，宁可略短也不要超长。写完在脑内数一遍字数再输出——超出上限与遗漏章节同为不合格。
+6. 字数是硬约束：全部分段的 title 与 copy 总字数不得超过 recommendedTotalWords，宁可略短也不要超长。写完在脑内数一遍字数再输出——超标的部分会在审核环节被逐条标出来，返工成本比一次写对高得多。
 7. 每段的 copy 必须用空行拆成 2-4 个小块：每块只讲一件事，30-60 字，先说大白话结论、再用一句话补充为什么；单块超过 60 字就再拆一块。禁止把一段写成 100 字以上的整段长文——读者在手机上滑到一整块密排文字就会划走。image_text_image 路由的段，全部小块合计不超过 70 字。
 8. 末段必须自然收尾：要点总结、行动清单或「记住这几件事」直接写进最后一段的文案里；不要在正文之外输出独立的知识卡片或总结模块——整篇就是 segments，没有其他部分。
 
@@ -81,7 +80,7 @@ export const STORYBOARD_DESIGNER_STORY_COMIC_PROMPT = `你是公众号知识漫�
 7. 全篇共用同一批角色与同一画风，像同一部作品的连续画面；相邻段落共享场景基调（地点、时间、光线逻辑），不要无来由切换环境；道具与设定一旦出现，后面的帧继续出现时保持一致。
 
 文案（文字只做旁白式点睛，不是解释段落）：
-8. 每段（title 与 copy 合计）不超过 60 字，这是硬约束；写完全篇在脑内数一遍字数再输出——超长与遗漏章节同为不合格。
+8. 每段（title 与 copy 合计）不超过 60 字，这是硬约束；写完全篇在脑内数一遍字数再输出——超长的段会在审核环节被逐条标出来，返工成本比一次写对高得多。
 9. 每格最多一句话、不超过 15 字；每一句话都不超过 22 字。写成漫画旁白式的短句（陈述或吐槽），不是解释段落。
 10. 禁止「首先…其次…最后」式的分点推进和「因为…所以…」式的论证连接；「由此可见」「让我们来看看」这类过渡句同样不要。并列列举不超过 3 项。
 11. 术语第一次出现必须先用大白话说过一遍，之后才能使用。段末用一句话收束（不超过 22 字），直接写成该段最后一句——陈述点题或抛给下一段的设问钩子皆可；不要额外输出总结模块——整篇就是 segments，没有别的部分。
@@ -129,24 +128,17 @@ export function storyboardReviserPrompt(presentation?: string | null): string {
     : STORYBOARD_REVISER_SYSTEM_PROMPT;
 }
 
-/** 服务端字数容差：模型偶发小幅超标可接受，大幅超长直接打回。 */
-const TOTAL_WORDS_TOLERANCE = 1.15;
-
 /**
- * 剧情漫画的红线闸（越界即打回重试）：每段字数、每句话长度、
- * prompt 不得要求画面写字。口径集中在 story-comic-rules——
- * 提示词、这道闸、审核器用的是同一份数。
- */
-function validateStoryComicRedlines(result: StoryboardDesign): void {
-  const [first] = inspectStoryComicDesign(result);
-  if (!first) return;
-  throw new Error(`段落「${first.title}」${first.complaints[0]}；请重试生成`);
-}
-
-/**
- * 设计稿的第二道闸：章节覆盖、路由-帧数对应、字数硬约束；
- * 剧情漫画形态再叠加每段字数 / 单句长度 / 画面不许写字三项红线。
- * 提示词要求模型自控，这里兜底防结构性错误。
+ * 设计稿的闸门只保留「结构性」判据：章节覆盖、路由-帧数对应。
+ *
+ * 内容类红线（每段字数、每句 22 字、台词长度、画面不许写字、总字数超预算）
+ * 一律不在这里打回——生成阶段的任务是**先让产物出来**，设计稿落库成版本，
+ * 作者才有东西可看、可改、可回退。越界与否由审核环节（openai-content-reviewer
+ * 的 storyComicRedlineIssues）标成问题并挡住提交，口径集中在 story-comic-rules，
+ * 提示词、审核器用同一份数。
+ *
+ * 结构性错误与内容红线不同：路由和帧数对不上、章节覆盖不全的学习器无法修复，
+ * 留给审核也只是把一份缺章节的稿子存下来，所以这里仍然打回。
  */
 export function validateStoryboardDesign(
   result: StoryboardDesign,
@@ -171,19 +163,6 @@ export function validateStoryboardDesign(
       throw new Error(`分镜设计遗漏了章节「${section.title}」`);
     }
   }
-  const totalChars = result.segments
-    .map((segment) => segment.title + segment.copy)
-    .join("")
-    .replace(/\s/g, "").length;
-  if (
-    input.recommendedTotalWords > 0 &&
-    totalChars > Math.round(input.recommendedTotalWords * TOTAL_WORDS_TOLERANCE)
-  ) {
-    throw new Error(
-      `文案总字数 ${totalChars} 超出目标 ${input.recommendedTotalWords} 字太多，请重试生成更精炼的版本`
-    );
-  }
-  if (input.presentation === "story_comic") validateStoryComicRedlines(result);
   return result;
 }
 

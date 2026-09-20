@@ -136,8 +136,9 @@ describe("sanitizeContentReview 的剧情漫画红线", () => {
     expect(sanitized.issues[0]!.message).toContain("「开场」段");
     expect(sanitized.issues[0]!.message).toContain("超过剧情漫画每段 60 字");
     expect(sanitized.issues[1]!.message).toContain("长句");
-    // 只贴意见，不改结论：要不要改由作者决定（生成阶段已经拦过一遍模型产物）。
-    expect(sanitized.status).toBe("passed");
+    // 模型说「通过」但机械红线越界：降级为需要修订——生成阶段不再拦这些红线，
+    // 审核是唯一的把关点，不能一边报问题一边说通过。
+    expect(sanitized.status).toBe("needs_revision");
   });
 
   it("flags long sentences, explanatory connectives and long enumerations", () => {
@@ -168,6 +169,70 @@ describe("sanitizeContentReview 的剧情漫画红线", () => {
     });
 
     expect(sanitizeContentReview(reviewResult({ status: "passed" }), input).issues).toEqual([]);
+  });
+
+  it("downgrades a passing review as soon as a red line is broken（审核接管把关）", () => {
+    const input = storyComicInput({
+      blocks: [
+        { id: "seg1-h", type: "heading", content: "开场", order: 0 },
+        {
+          id: "seg1-p",
+          type: "paragraph",
+          content: "鲜笋被塞进无氧陶坛，厌氧菌疯狂干饭，硬把整坛鲜味熬成生化弹",
+          order: 1
+        }
+      ]
+    });
+
+    const sanitized = sanitizeContentReview(reviewResult({ status: "passed" }), input);
+
+    expect(sanitized.status).toBe("needs_revision");
+    expect(sanitized.issues[0]!.message).toContain("每句话不超过 22 字");
+  });
+
+  it("checks frame prompts and speech lines when the input carries the storyboard", () => {
+    const input = storyComicInput({
+      storyboardSegments: [
+        {
+          blockIds: ["seg1-h", "seg1-p"],
+          title: "开场",
+          copy: "一群小家伙围上来。",
+          frames: [
+            { prompt: "全景。三只柴犬。画面文字：对白气泡『上啊』" },
+            {
+              prompt: "近景。同一场景的下一秒。纯白背景。",
+              speechLine: { kind: "narration", text: "字".repeat(40) }
+            }
+          ]
+        }
+      ]
+    });
+
+    const messages = sanitizeContentReview(reviewResult({ status: "passed" }), input).issues.map(
+      (issue) => issue.message
+    );
+
+    // 画面写字与台词超长只存在于帧里，按块流水线审不出来——带分镜输入才判得全。
+    expect(messages.some((message) => message.includes("不得出现任何文字"))).toBe(true);
+    expect(messages.some((message) => message.includes("旁白"))).toBe(true);
+  });
+
+  it("warns about the whole-article total when the copy outgrows the budget", () => {
+    const input = storyComicInput({
+      recommendedTotalWords: 20,
+      storyboardSegments: [
+        { blockIds: ["seg1-h", "seg1-p"], title: "开场", copy: "一二三四五六七八九十。", frames: [] },
+        { blockIds: ["seg2-h", "seg2-p"], title: "机制", copy: "一二三四五六七八九十。", frames: [] }
+      ]
+    });
+
+    const sanitized = sanitizeContentReview(reviewResult({ status: "passed" }), input);
+    const budgetIssue = sanitized.issues.find((issue) => issue.message.includes("预算"));
+
+    expect(budgetIssue).toBeDefined();
+    // 全篇问题不算在某一段头上：blockIds 为空，界面显示为「不可定位」。
+    expect(budgetIssue!.blockIds).toEqual([]);
+    expect(sanitized.status).toBe("needs_revision");
   });
 
   it("leaves the illustrated form alone", () => {

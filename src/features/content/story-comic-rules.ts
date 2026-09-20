@@ -3,8 +3,11 @@ import type { StoryboardDesign } from "./ports";
 
 /**
  * 剧情漫画（presentation = story_comic）的机械红线，全链路只有这一份口径：
- * 设计提示词要求模型自控、生成闸门（validateStoryboardDesign）越界打回、
- * 审核器（sanitizeContentReview）贴出定位到块的警告——三处说的必须是同一套数。
+ * 设计提示词要求模型自控、审核器（openai-content-reviewer 的 storyComicRedlineIssues）
+ * 逐条贴成定位到段的警告并把关提交——两处说的必须是同一套数。
+ *
+ * 生成/修订阶段**不再**用这份红线打回：设计稿要先落库成版本，作者才有东西可改可退。
+ * 「改到什么程度才算合规」是审核的职责，不是生成的前置条件。
  *
  * 讲解式（illustrated）不适用这些红线：旧文产物一个字不变。
  */
@@ -15,8 +18,8 @@ export const STORY_COMIC_MAX_DIALOGUE_CHARS = 10;
 export const STORY_COMIC_MAX_NARRATION_CHARS = 25;
 
 /**
- * 与总字数闸同口径的容差：模型偶发小幅超标可接受，成段课文直接打回。
- * 分成「上限」与「判定线」两个常量，是为了让错误信息里报的是人定的 60/22，
+ * 与总字数预算同口径的容差：模型偶发小幅超标可接受，成段课文才算越界。
+ * 分成「上限」与「判定线」两个常量，是为了让问题描述里报的是人定的 60/22，
  * 而不是被容差放大过的 69/25。
  */
 export const STORY_COMIC_TOLERANCE = 1.15;
@@ -71,7 +74,7 @@ function truncate(text: string, max = 20): string {
 
 /**
  * 一段（小标题 + 文案 [+ 该段的分镜提示词与台词]）违反剧情漫画红线的所有理由，合规时为空数组。
- * 设计器取第一条抛错（越界即打回重试），审核器逐条贴成警告（定位到该段的小标题块）。
+ * 审核器逐条贴成警告（定位到该段的小标题块），并据此把「内容没问题」降级成「需要修订」。
  */
 export function inspectStoryComicSegment(input: {
   title: string;

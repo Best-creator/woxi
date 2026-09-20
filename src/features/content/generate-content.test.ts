@@ -480,4 +480,45 @@ describe("generateContent 的呈现形态", () => {
 
     expect(seen).toEqual([{ presentation: "story_comic" }]);
   });
+
+  it("saves a design that breaks the story comic copy red lines as a version（生成阶段不打回）", async () => {
+    const fixture = await articleWithConfirmedOutline();
+    // 作者原话：「你得先有东西出来」。29 字长句这类文案越界由审核环节标出来并挡提交，
+    // 生成阶段必须把它落成版本，否则作者连可看、可改、可回退的稿子都没有。
+    const designer = fakeDesigner(async (input) => {
+      const design = await new DemoStoryboardDesigner().design(input);
+      return {
+        ...design,
+        segments: design.segments.map((segment, index) =>
+          index === 0
+            ? {
+                ...segment,
+                copy: "鲜笋被塞进无氧陶坛，厌氧菌疯狂干饭，硬把整坛鲜味熬成生化弹"
+              }
+            : segment
+        )
+      };
+    });
+
+    const result = await generateContent(
+      {
+        articleId: fixture.article.id,
+        expectedUpdatedAt: fixture.article.updatedAt,
+        styleProfile: resolveStyleProfile("popular_science_teacher")
+      },
+      {
+        articles: fixture.articles,
+        sources: fixture.sources,
+        designer,
+        workflow: fixture.contentWorkflow,
+        images: fixture.imageAssets
+      }
+    );
+
+    if (result.kind !== "generated") throw new Error("expected generated");
+    const versions = await fixture.contentWorkflow.listContentVersions(result.article.id);
+    expect(versions).toHaveLength(1);
+    expect(versions[0]!.snapshot.storyboardSegments?.[0]?.frames.length).toBeGreaterThan(0);
+    expect(result.article.blocks.some((block) => block.content.includes("生化弹"))).toBe(true);
+  });
 });

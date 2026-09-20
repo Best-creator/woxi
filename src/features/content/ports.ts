@@ -155,6 +155,28 @@ export interface ReviewableContentBlock {
   order: number;
 }
 
+/**
+ * 审核输入里的分镜帧：正文块里看不见的那部分内容。
+ * 「画面里不许出现文字」「台词超长」这两条红线只存在于帧的 prompt / speechLine，
+ * 只审 title+copy 是审不出来的。
+ */
+export interface ReviewableStoryboardFrame {
+  prompt: string;
+  speechLine?: SpeechLine | null;
+}
+
+/**
+ * 审核输入里的分镜段：一段一行，锚定到该段的正文块 id（问题据此定位到块）。
+ * 有它时剧情漫画红线按段核对（连同帧提示词与台词）；没有则退回按块流水线拼段。
+ */
+export interface ReviewableStoryboardSegment {
+  /** 该段文案所在的正文块 id（标题块 + 文案块），用于把问题定位回界面。 */
+  blockIds: string[];
+  title: string;
+  copy: string;
+  frames: ReviewableStoryboardFrame[];
+}
+
 export interface ReviewContentInput {
   topic: string;
   targetAudience?: string;
@@ -164,9 +186,17 @@ export interface ReviewContentInput {
   sourceContext?: string;
   /**
    * 呈现形态：story_comic 时审核要按剧情漫画的红线判（每段 60 字、每句 22 字、
-   * 不许教科书式连接词），并由服务端补一遍机械检查；illustrated（默认）按原口径。
+   * 台词长度、画面不许写字、总字数预算），并由服务端补一遍机械检查；
+   * illustrated（默认）按原口径。
    */
   presentation?: StoryboardPresentation;
+  /**
+   * 分镜段（story_comic 的文章才有）：红线检查的完整素材来源。
+   * 缺省时退回「按小标题分段的块流水线」——老快照与讲解式文章走这条路。
+   */
+  storyboardSegments?: ReviewableStoryboardSegment[];
+  /** 全篇字数预算（快照里的 recommendedTotalWords），用于超预算警告；0/缺省表示不检查。 */
+  recommendedTotalWords?: number;
   model?: string;
 }
 

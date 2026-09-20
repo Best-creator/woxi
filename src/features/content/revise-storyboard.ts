@@ -259,7 +259,8 @@ export async function reviseStoryboard(
   let design: StoryboardDesign;
   try {
     design = await dependencies.designer.revise(reviseInput);
-    // 修订稿与初稿共用同一道结构闸：章节覆盖、路由-帧数、总字数。
+    // 修订稿与初稿共用同一道结构闸（章节覆盖 + 路由-帧数）；
+    // 文案红线同样不在生成/修订阶段打回，交给审核环节标出来。
     design = validateStoryboardDesign(design, reviseInput);
   } catch (error) {
     return {

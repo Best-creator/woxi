@@ -89,12 +89,12 @@ describe("validateStoryboardDesign", () => {
     expect(() => validateStoryboardDesign(design, baseInput)).toThrow("需要 2 帧分镜");
   });
 
-  it("rejects copy that blows far past the word budget", () => {
+  it("no longer rejects copy that blows past the word budget（越界改由审核把关）", () => {
     const design = validDesign();
     for (const segment of design.segments) {
       segment.copy = "长".repeat(700);
     }
-    expect(() => validateStoryboardDesign(design, baseInput)).toThrow("超出目标");
+    expect(validateStoryboardDesign(design, baseInput)).toBe(design);
   });
 });
 
@@ -124,7 +124,7 @@ function storyComicDesign(): StoryboardDesign {
   };
 }
 
-describe("validateStoryboardDesign 的剧情漫画红线", () => {
+describe("validateStoryboardDesign 的剧情漫画红线（生成阶段不再打回）", () => {
   const storyComicInput: GenerateContentInput = { ...baseInput, presentation: "story_comic" };
 
   it("accepts a compliant story comic design", () => {
@@ -132,22 +132,28 @@ describe("validateStoryboardDesign 的剧情漫画红线", () => {
     expect(validateStoryboardDesign(design, storyComicInput)).toBe(design);
   });
 
-  it("rejects a segment whose title plus copy runs past 60 characters", () => {
+  it("lets a 29-character sentence through so the design can be saved as a version", () => {
+    // 作者原话：「你得先有东西出来」——生成阶段必须先产出可版本化的设计稿，
+    // 「每句不超过 22 字」这类限制由审核环节标出来，不在生成阶段打回。
+    const design = storyComicDesign();
+    design.segments[0]!.copy = "鲜笋被塞进无氧陶坛，厌氧菌疯狂干饭，硬把整坛鲜味熬成生化弹";
+    const result = validateStoryboardDesign(design, storyComicInput);
+    expect(result).toBe(design);
+    expect(result.segments[0]!.copy.length).toBe(29);
+  });
+
+  it("lets an oversized segment, an over-long line and a draw-text prompt through", () => {
     const design = storyComicDesign();
     design.segments[0]!.copy = "字".repeat(70);
-    expect(() => validateStoryboardDesign(design, storyComicInput)).toThrow("超过剧情漫画每段 60 字");
+    design.segments[1]!.frames[0]!.prompt = "全景。三只柴犬。画面文字：对白气泡『上啊』";
+    design.segments[1]!.frames[0]!.speechLine = { kind: "narration", text: "字".repeat(40) };
+    expect(validateStoryboardDesign(design, storyComicInput)).toBe(design);
   });
 
-  it("rejects a single sentence longer than 22 characters", () => {
+  it("still rejects route and frame count mismatches（结构性错误照样打回）", () => {
     const design = storyComicDesign();
-    design.segments[0]!.copy = "长".repeat(30);
-    expect(() => validateStoryboardDesign(design, storyComicInput)).toThrow("每句话不超过 22 字");
-  });
-
-  it("rejects prompts that ask the image model to draw text", () => {
-    const design = storyComicDesign();
-    design.segments[0]!.frames[0]!.prompt = "全景。三只柴犬。画面文字：对白气泡『上啊』";
-    expect(() => validateStoryboardDesign(design, storyComicInput)).toThrow("不得出现任何文字");
+    design.segments[1]!.frames = design.segments[1]!.frames.slice(0, 1);
+    expect(() => validateStoryboardDesign(design, storyComicInput)).toThrow("需要 2 帧分镜");
   });
 
   it("leaves the illustrated form on its own rules", () => {

@@ -1,12 +1,14 @@
 import type { OpenAiJsonClient } from "@/features/llm/openai-json-client";
 import { DEFAULT_AUDIENCE_ID, describeAudience } from "./audience";
 import { contentReviewResultSchema } from "./schemas";
-import { inspectStoryComicSegment } from "./story-comic-rules";
+import { charCount, inspectStoryComicSegment, STORY_COMIC_TOLERANCE } from "./story-comic-rules";
 import { describeStyleProfile } from "./style-profile";
 import type {
   ContentReviewIssue,
   ContentReviewResult,
   ContentReviewer,
+  ReviewableContentBlock,
+  ReviewableStoryboardSegment,
   ReviewContentInput
 } from "./ports";
 
@@ -16,7 +18,7 @@ export const CONTENT_REVIEWER_SYSTEM_PROMPT = `你是独立的正文审核员，
 hookStrength 只看「前几句话有没有让人想读下去」：开场是不是具体画面或反常事实、有没有一句让人想继续滑的钩子；空泛的万金油提问（「你有没有想过」「你知道吗」——问题不具体、答案也不当场兑现）、先给结论再举例、开头就说「今天我们来聊聊」都要扣分并在 issues 里指出。
 检查时要代入 targetAudience 描述的读者：他们的兴趣、痛点和禁忌就是判断标准，不要用泛泛的「普通人」标准打分。
 styleMatch 还要检查标题与表达是否守规矩：悬念式标题、夸大或施压句式（如「90% 的人都不知道」「不看就晚了」）、促销引流措辞，一律扣分并在 issues 里指出。
-presentation 为 story_comic（剧情漫画）时，文案按剧情漫画的红线判：每段（小标题 + 文案）不超过 60 字、每句话不超过 22 字；出现「首先 / 其次 / 最后 / 因为…所以」这类解释连接词、超过 3 项的并列列举、教科书式推进，都要在 issues 里指出并扣 engagement 与 hookStrength 的分——读者要的是「有意思」，不是「讲得全」。冷开场设问（具体问题 + 当场抖出荒谬答案）、外号命名、段末设问钩子是剧情漫画的合法节拍，不要按提问式开场或过渡词扣分。这里只审文案，分镜画面是否要求生图模型写字不在这份输入里。
+presentation 为 story_comic（剧情漫画）时，文案按剧情漫画的红线判：每段（小标题 + 文案）不超过 60 字、每句话不超过 22 字，全篇总字数不要明显超出 recommendedTotalWords 的预算；出现「首先 / 其次 / 最后 / 因为…所以」这类解释连接词、超过 3 项的并列列举、教科书式推进，都要在 issues 里指出并扣 engagement 与 hookStrength 的分——读者要的是「有意思」，不是「讲得全」。冷开场设问（具体问题 + 当场抖出荒谬答案）、外号命名、段末设问钩子是剧情漫画的合法节拍，不要按提问式开场或过渡词扣分。你只管判文案：分镜提示词是否要求画面写字、台词是否超长这类机械红线由服务端逐条核对，不必重复检查。
 有资料时 sourceFidelity 为 1 到 5 的整数；没有资料时 sourceFidelity 必须为 null。
 blocked 必须至少包含一个 severity 为 blocking 的 issue。
 issues 的 blockIds 只能引用输入 blocks 中给出的 id，不能虚构块；无法定位到具体块时用空数组。`;
@@ -24,38 +26,73 @@ issues 的 blockIds 只能引用输入 blocks 中给出的 id，不能虚构块�
 type JsonClient = Pick<OpenAiJsonClient, "complete">;
 
 /**
- * 剧情漫画形态的机械检查：红线口径集中在 story-comic-rules（与生成闸门同源），
- * 这里按「小标题块 + 其后的文案块」分段逐条核对。
- * 只补 warning 级意见、不动 status：作者手改出来的长句也照样报出来，
- * 但改不改由作者决定；模型产物在生成阶段已经被闸门拦过一遍。
+ * 剧情漫画形态的机械检查：红线口径集中在 story-comic-rules（设计提示词与这里同源），
+ * 逐段核对每段字数、单句长度、词句风格、画面写字、台词长度，外加全篇字数预算。
+ *
+ * 生成阶段不再用这些红线打回设计稿（作者要先有东西可看、可改、可退），
+ * 「越界了」这件事由这里接管：全部报成定位到段的 warning，并把 status 拉下来，
+ * 由作者决定改还是接受——限制的把关环节是审核，不是生成。
+ *
+ * 段落素材优先取 input.storyboardSegments（带帧提示词与台词，机械红线才判得全）；
+ * 老快照没有它，退回「小标题块 + 其后文案块」的分段流水线（只能判文案那几条）。
  */
 export function storyComicRedlineIssues(input: ReviewContentInput): ContentReviewIssue[] {
+  const segments = input.storyboardSegments?.length
+    ? input.storyboardSegments
+    : segmentizeBlocks(input.blocks);
   const issues: ContentReviewIssue[] = [];
-  let anchorId: string | null = null;
-  let title = "";
-  let copy: string[] = [];
-  const flush = () => {
-    if (!anchorId && !copy.length) return;
-    for (const complaint of inspectStoryComicSegment({ title, copy: copy.join("\n\n") })) {
+  for (const segment of segments) {
+    for (const complaint of inspectStoryComicSegment({
+      title: segment.title,
+      copy: segment.copy,
+      prompts: segment.frames.map((frame) => frame.prompt),
+      speechLines: segment.frames.flatMap((frame) => (frame.speechLine ? [frame.speechLine] : []))
+    })) {
       issues.push({
-        blockIds: anchorId ? [anchorId] : [],
+        blockIds: segment.blockIds.slice(0, 1),
         severity: "warning",
-        message: `剧情漫画红线：${title ? `「${title}」段` : "有一段"}${complaint}`
+        message: `剧情漫画红线：${segment.title ? `「${segment.title}」段` : "有一段"}${complaint}`
       });
     }
-  };
-  for (const block of input.blocks) {
+  }
+  const budget = input.recommendedTotalWords ?? 0;
+  if (budget > 0) {
+    const totalChars = segments.reduce(
+      (sum, segment) => sum + charCount(segment.title + segment.copy),
+      0
+    );
+    if (totalChars > Math.round(budget * STORY_COMIC_TOLERANCE)) {
+      issues.push({
+        // 不定位到任何块：全篇问题，不该只算在某一段头上。
+        blockIds: [],
+        severity: "warning",
+        message: `剧情漫画红线：全篇文案 ${totalChars} 字，超出目标 ${budget} 字的预算（全篇问题，压掉冗余再改）`
+      });
+    }
+  }
+  return issues;
+}
+
+/** 老快照的退化路径：按「小标题块起新段、其余块并入该段文案」切分，块 id 一并带走。 */
+function segmentizeBlocks(blocks: ReviewableContentBlock[]): ReviewableStoryboardSegment[] {
+  const segments: ReviewableStoryboardSegment[] = [];
+  let current: ReviewableStoryboardSegment | null = null;
+  for (const block of blocks) {
     if (block.type === "heading") {
-      flush();
-      anchorId = block.id;
-      title = block.content.trim();
-      copy = [];
+      current = {
+        blockIds: [block.id],
+        title: block.content.trim(),
+        copy: "",
+        frames: []
+      };
+      segments.push(current);
       continue;
     }
-    copy.push(block.content.trim());
+    if (!current) continue;
+    current.copy = current.copy ? `${current.copy}\n\n${block.content.trim()}` : block.content.trim();
+    current.blockIds.push(block.id);
   }
-  flush();
-  return issues;
+  return segments;
 }
 
 /**
@@ -75,18 +112,21 @@ export function sanitizeContentReview(
     blockIds: issue.blockIds.filter((id) => blockIds.has(id))
   }));
   // 剧情漫画形态补一遍机械红线（服务端说了算，不依赖模型自觉）。
-  const issues =
-    input.presentation === "story_comic"
-      ? [...mapped, ...storyComicRedlineIssues(input)]
-      : mapped;
+  const mechanical =
+    input.presentation === "story_comic" ? storyComicRedlineIssues(input) : [];
+  const issues = [...mapped, ...mechanical];
   // 没资料却打了资料一致分 → 视为不适用；有资料却漏评 → 取中性分 3，
   // 不高估也不美化，只是不让整份审核因一个数字作废。
   const sourceFidelity = input.sourceContext?.trim() ? (result.sourceFidelity ?? 3) : null;
-  // blocked 必须有阻断级问题支撑；模型忘了给就降级为需要修订，避免误锁死确认。
+  // 状态只降不升，两条降级理由：
+  // 1) blocked 必须有阻断级问题支撑；模型忘了给就降级，避免误锁死确认。
+  // 2) 模型说 passed 但机械红线有越界 → 降级为需要修订。生成阶段已经不拦这些红线，
+  //    审核是唯一的把关点；「通过」配上满屏 warning 会让作者以为可以放心提交。
+  const blockedWithoutSupport =
+    result.status === "blocked" && !issues.some((issue) => issue.severity === "blocking");
+  const passedWithMechanicalIssues = result.status === "passed" && mechanical.length > 0;
   const status =
-    result.status === "blocked" && !issues.some((issue) => issue.severity === "blocking")
-      ? "needs_revision"
-      : result.status;
+    blockedWithoutSupport || passedWithMechanicalIssues ? "needs_revision" : result.status;
   return { ...result, issues, sourceFidelity, status };
 }
 
@@ -114,6 +154,8 @@ export class OpenAiContentReviewer implements ContentReviewer {
           title: section.title,
           goal: section.goal ?? section.title
         })),
+        // 字数预算：剧情漫画要它的总字数不要明显超预算（逐段红线的补充）。
+        ...(input.recommendedTotalWords ? { recommendedTotalWords: input.recommendedTotalWords } : {}),
         ...(input.sourceContext ? { sourceContext: input.sourceContext } : {})
       },
       schema: contentReviewResultSchema,

@@ -6,7 +6,7 @@ import type { ArticleReview, ArticleRevision, ContentRevisionSnapshot } from "@/
 import { createContentSnapshot, isContentBasedOnCurrentOutline, textBlocksOf } from "./content-version";
 import { describeAudience } from "./audience";
 import { resolveContentModel } from "./model";
-import type { ContentReviewer } from "./ports";
+import type { ContentReviewer, ReviewableStoryboardSegment } from "./ports";
 import type { ContentWorkflowRepository } from "./workflow-repository";
 
 export interface ReviewContentCommand {
@@ -30,6 +30,45 @@ export type ReviewContentResult =
   | { kind: "not_ready" }
   | { kind: "stale_outline" }
   | { kind: "reviewer_error"; message: string };
+
+/**
+ * 把快照里的分镜段拍平成审核素材：文案从正文块取（快照的分镜段只存块 id），
+ * 帧提示词与台词从快照帧描述符取——「画面里不许写字」「台词超长」这两条红线
+ * 只存在于帧里，按块流水线是看不到的。
+ *
+ * 传进来的必须是**落库前被仓储补齐过帧描述符**的快照（checkpoint 返回的那份）：
+ * createContentSnapshot 本地产出的快照帧为空，拿它审会漏掉全部画面类红线。
+ */
+export function reviewStoryboardSegments(
+  snapshot: ContentRevisionSnapshot
+): ReviewableStoryboardSegment[] {
+  const segments = snapshot.storyboardSegments;
+  if (!segments?.length) return [];
+  const blockById = new Map(snapshot.textBlocks.map((block) => [block.id, block]));
+  return [...segments]
+    .sort((left, right) => left.order - right.order)
+    .map((segment) => {
+      const blocks = segment.copyBlockIds.flatMap((id) => {
+        const block = blockById.get(id);
+        return block ? [block] : [];
+      });
+      const heading = blocks.find((block) => block.type === "heading");
+      return {
+        blockIds: blocks.map((block) => block.id),
+        title: heading?.content.trim() ?? segment.title,
+        copy: blocks
+          .filter((block) => block.type !== "heading")
+          .map((block) => block.content.trim())
+          .join("\n\n"),
+        frames: segment.frames.map((frame) => ({
+          prompt: frame.prompt,
+          ...(frame.speechLine ? { speechLine: frame.speechLine } : {})
+        }))
+      };
+    })
+    // 文案块全丢的段（历史脏数据）定位不到界面，跳过它而不是报一堆无处可点的问题。
+    .filter((segment) => segment.blockIds.length > 0);
+}
 
 export async function reviewContent(
   command: ReviewContentCommand,
@@ -61,6 +100,10 @@ export async function reviewContent(
   });
   if (checkpoint.kind !== "checkpointed") return checkpoint;
 
+  // 分镜素材取自 checkpoint 落库的那份快照：仓储在这里刚把帧描述符补齐，
+  // 本地那份的 frames 还是空的。
+  const storyboardSegments = reviewStoryboardSegments(checkpoint.revision.snapshot);
+
   let result;
   try {
     result = await dependencies.reviewer.review({
@@ -77,6 +120,9 @@ export async function reviewContent(
         content: block.content,
         order: block.order
       })),
+      ...(storyboardSegments.length ? { storyboardSegments } : {}),
+      // 全篇字数预算（快照口径）：审核据此给出超预算警告。
+      recommendedTotalWords: snapshot.recommendedTotalWords,
       outline: article.outline.map((section) => ({
         id: section.id,
         title: section.title,
