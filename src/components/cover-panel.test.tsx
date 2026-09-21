@@ -257,6 +257,89 @@ describe("CoverPanel", () => {
     expect(screen.queryByRole("button", { name: "重新拼接封面" })).toBeNull();
   });
 
+  it("自选三帧排位置：点帧按顺序落左中右，挑满后按点击顺序传 assetIds", async () => {
+    // 分镜文章 + 三张已生成帧：段 1 一帧、段 2 两帧（验证跨段挑选与标注）。
+    const article = articleFixture({
+      planning: {
+        ...articleFixture().planning,
+        storyboardSegments: [
+          {
+            id: "seg-1",
+            sectionKey: "s1",
+            title: "第一段",
+            order: 0,
+            route: "image_text",
+            copyBlockIds: [],
+            frameAssetIds: ["frame-1"]
+          },
+          {
+            id: "seg-2",
+            sectionKey: "s2",
+            title: "第二段",
+            order: 1,
+            route: "image_text_image",
+            copyBlockIds: [],
+            frameAssetIds: ["frame-2", "frame-3"]
+          }
+        ]
+      }
+    });
+    const frame = (id: string): ImageAsset => ({
+      id,
+      articleId: "article-1",
+      type: "storyboard",
+      anchorBlockId: null,
+      purpose: "分镜帧",
+      prompt: `${id} 的帧提示词`,
+      altText: `${id} 帧`,
+      aspectRatio: "square",
+      status: "generated",
+      placeholderUrl: null,
+      filePath: `.data/${id}.png`,
+      publicUrl: null,
+      manuallyEdited: false,
+      consumedContent: null,
+      createdAt: "2026-09-18T00:00:00.000Z",
+      updatedAt: "2026-09-18T00:00:00.000Z"
+    });
+    stubApi();
+    const props = setup({
+      article,
+      assets: [frame("frame-1"), frame("frame-2"), frame("frame-3")],
+      withComposeCover: true
+    });
+
+    // 一张没挑：按钮保持缺省名，点了走后端缺省（单参数调用）。
+    await userEvent.click(screen.getByRole("button", { name: "三帧横拼封面" }));
+    expect(props.composeCover).toHaveBeenCalledWith("2026-09-09T00:00:00.000Z");
+    (props.composeCover as ReturnType<typeof vi.fn>).mockClear();
+
+    // 依次点帧：段 1 的帧 → 左，段 2 的第一帧 → 中。点击顺序即落位顺序。
+    await userEvent.click(screen.getByRole("button", { name: /把这张帧排进封面（第 1 段/ }));
+    const secondSegFrames = screen.getAllByRole("button", {
+      name: /把这张帧排进封面（第 2 段/
+    });
+    await userEvent.click(secondSegFrames[0]!);
+
+    // 半挑状态（2/3）不放行：按钮禁用并提示还差几张。
+    expect(screen.getByRole("button", { name: "已挑 2/3 张" })).toBeDisabled();
+
+    // 补上段 2 的第二帧：挑满后按钮换名可用，拼接按点击顺序（左中右）传 assetIds。
+    await userEvent.click(secondSegFrames[1]!);
+    const full = screen.getByRole("button", { name: "用挑好的三帧拼封面" });
+    expect(full).not.toBeDisabled();
+    await userEvent.click(full);
+    expect(props.composeCover).toHaveBeenCalledWith("2026-09-09T00:00:00.000Z", [
+      "frame-1",
+      "frame-2",
+      "frame-3"
+    ]);
+
+    // 点左槽位的 × 移出：回到半挑禁用态，可以重挑。
+    await userEvent.click(screen.getByRole("button", { name: "移出左位置的帧" }));
+    expect(screen.getByRole("button", { name: "已挑 2/3 张" })).toBeDisabled();
+  });
+
   it("生成失败时把服务端错误显示出来，不让界面静默", async () => {
     stubApi();
     const props = setup({ assets: [coverAsset()], withGeneration: true });

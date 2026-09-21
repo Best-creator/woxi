@@ -27,7 +27,11 @@ export const COMPOSED_COVER_HEIGHT = 613;
  */
 export const COMPOSED_COVER_MARGIN = 48;
 export const COMPOSED_COVER_GUTTER = 28;
-/** 每一格的宽高：画布去掉四周白边与格间距后三等分。帧按 cover 模式居中裁剪填充。 */
+/**
+ * 每一格的宽高：画布去掉四周白边与格间距后三等分。帧按 contain 模式完整缩放
+ * 居中放进格子——**整张帧原样可见、不裁一刀**，多出来的地方露白底
+ * （2026-09-21 晚用户反馈「缩小然后显示完全」，cover 裁剪方案废弃）。
+ */
 export const COMPOSED_COVER_CELL_WIDTH = Math.round(
   (COMPOSED_COVER_WIDTH - COMPOSED_COVER_MARGIN * 2 - COMPOSED_COVER_GUTTER * 2) / 3
 );
@@ -156,12 +160,16 @@ export async function composeCoverFromFrames(
   const generationId = randomUUID();
   let filePath: string | null = null;
   try {
-    // 4. sharp 横拼：每帧按 cover 模式居中裁剪到格宽×格高，四周留白边、格间留缝。
+    // 4. sharp 横拼：每帧按 contain 完整缩放居中（整张帧可见、不裁剪），比例对不上
+    //    的地方用白底补齐——与画布白底连成一体。四周留白边、格间留缝。
     const cellBuffers = await Promise.all(
       frames.map(async (frame) => {
         const binary = await readFile(resolve(frame.filePath!));
         return sharp(binary)
-          .resize(COMPOSED_COVER_CELL_WIDTH, CELL_HEIGHT, { fit: "cover" })
+          .resize(COMPOSED_COVER_CELL_WIDTH, CELL_HEIGHT, {
+            fit: "contain",
+            background: { r: 255, g: 255, b: 255 }
+          })
           .png()
           .toBuffer();
       })

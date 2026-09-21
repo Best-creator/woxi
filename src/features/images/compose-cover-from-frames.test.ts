@@ -244,31 +244,59 @@ describe("composeCoverFromFrames", () => {
       throw new Error(`expected saved, got ${JSON.stringify(result)}`);
     }
 
-    // 纯色帧裁剪填充后颜色不变：逐格取三通道均值验证左中右顺序。
     const cover = result.assets.find((asset) => asset.type === "cover");
     const binary = await readFile(cover!.filePath!);
-    const cellMeans = await Promise.all(
-      [0, 1, 2].map(async (index) => {
-        const cell = await sharp(binary)
-          .extract({
-            left: COMPOSED_COVER_MARGIN + index * (COMPOSED_COVER_CELL_WIDTH + COMPOSED_COVER_GUTTER),
-            top: COMPOSED_COVER_MARGIN,
-            width: COMPOSED_COVER_CELL_WIDTH,
-            height: COMPOSED_COVER_HEIGHT - COMPOSED_COVER_MARGIN * 2
-          })
-          .png()
-          .toBuffer();
-        const stats = await sharp(cell).stats();
-        return stats.channels.slice(0, 3).map((channel) => Math.round(channel.mean));
-      })
-    );
-    const near = (actual: number[], expected: number[]) =>
+    const cellHeight = COMPOSED_COVER_HEIGHT - COMPOSED_COVER_MARGIN * 2;
+    // contain 缩放：400×300 的帧完整放进 429×517 的格子 → 宽顶满、上下留白。
+    const scale = Math.min(COMPOSED_COVER_CELL_WIDTH / 400, cellHeight / 300);
+    const drawnHeight = Math.round(300 * scale);
+    const blankBand = Math.floor((cellHeight - drawnHeight) / 2);
+    expect(blankBand).toBeGreaterThan(20); // 留白真的存在，后面的白色断言才有意义
+
+    const cellLeftAt = (index: number) =>
+      COMPOSED_COVER_MARGIN + index * (COMPOSED_COVER_CELL_WIDTH + COMPOSED_COVER_GUTTER);
+    const regionMeans = async (region: {
+      left: number;
+      top: number;
+      width: number;
+      height: number;
+    }) => {
+      const cut = await sharp(binary).extract(region).png().toBuffer();
+      const stats = await sharp(cut).stats();
       // channels 会带上第 4 项 alpha，只比前三个颜色通道。
-      actual.slice(0, 3).every((value, index) => Math.abs(value - expected[index]) <= 1);
-    // 左=橙 #ff8800，中=绿 #33aa55，右=蓝 #3355ff。
-    expect(near(cellMeans[0], [255, 136, 0])).toBe(true);
-    expect(near(cellMeans[1], [51, 170, 85])).toBe(true);
-    expect(near(cellMeans[2], [51, 85, 255])).toBe(true);
+      return stats.channels.slice(0, 3).map((channel) => Math.round(channel.mean));
+    };
+    const near = (actual: number[], expected: number[]) =>
+      actual.every((value, index) => Math.abs(value - expected[index]) <= 1);
+
+    for (const [index, color] of [
+      [0, [255, 136, 0]], // 左=橙 #ff8800
+      [1, [51, 170, 85]], // 中=绿 #33aa55
+      [2, [51, 85, 255]] // 右=蓝 #3355ff
+    ] as const) {
+      const left = cellLeftAt(index);
+      // 格子中心是帧内容：顺序对了，颜色就对了。
+      const center = await regionMeans({
+        left: left + Math.round((COMPOSED_COVER_CELL_WIDTH - 200) / 2),
+        top: COMPOSED_COVER_MARGIN + Math.round((cellHeight - 120) / 2),
+        width: 200,
+        height: 120
+      });
+      expect(near(center, [...color])).toBe(true);
+      // 格内上下是留白（contain 完整显示、不裁一刀的铁证）：帧缩放后上下露白底。
+      for (const top of [
+        COMPOSED_COVER_MARGIN + 4,
+        COMPOSED_COVER_MARGIN + cellHeight - blankBand + 4
+      ]) {
+        const blank = await regionMeans({
+          left: left + 8,
+          top,
+          width: COMPOSED_COVER_CELL_WIDTH - 16,
+          height: blankBand - 8
+        });
+        expect(near(blank, [255, 255, 255])).toBe(true);
+      }
+    }
   });
 
   it("rejects assetIds that are missing or not generated frames", async () => {

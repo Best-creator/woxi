@@ -1,7 +1,7 @@
 "use client";
 
-import { Images, Loader2, RefreshCw, Wand2 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { Images, Loader2, RefreshCw, Wand2, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Article } from "@/features/articles/domain";
 import {
   defaultCoverPrompt,
@@ -68,6 +68,11 @@ function coverSrc(asset: ImageAsset) {
     );
   }
   return asset.publicUrl ?? asset.placeholderUrl ?? `/api/image-assets/${asset.id}/content`;
+}
+
+function frameSrc(asset: ImageAsset) {
+  // 帧重新生成后 updatedAt 变：破缓存保证挑选器里看到的一直是新图。
+  return `/api/image-assets/${asset.id}/content?v=${encodeURIComponent(asset.updatedAt)}`;
 }
 
 function generationSrc(generation: ImageLibraryItem) {
@@ -151,6 +156,45 @@ export function CoverPanel({
     ratioDraft && ratioDraft.key === key
       ? ratioDraft.value
       : (cover?.aspectRatio ?? "cover");
+
+  // 可挑的帧：按分镜权威顺序（段 order → 段内 frameAssetIds）排并标注所属段——
+  // 面板上的顺序就是「不挑时自动取前三」的顺序，与横拼缺省选帧同源。
+  const frameAssets = useMemo(() => {
+    const byId = new Map(assets.map((asset) => [asset.id, asset]));
+    const segments = [...(article.planning.storyboardSegments ?? [])].sort(
+      (left, right) => left.order - right.order
+    );
+    return segments.flatMap((segment, segmentIndex) =>
+      segment.frameAssetIds
+        .map((id) => byId.get(id))
+        .filter(
+          (asset): asset is ImageAsset =>
+            Boolean(asset) &&
+            asset!.type === "storyboard" &&
+            asset!.status === "generated" &&
+            Boolean(asset!.filePath)
+        )
+        .map((asset) => ({
+          asset,
+          label: `第 ${segmentIndex + 1} 段${segment.title ? ` · ${segment.title}` : ""}`
+        }))
+    );
+  }, [assets, article.planning.storyboardSegments]);
+
+  // 自选封面帧：按点击顺序落左/中/右，再点一次取消。一张不选 = 后端缺省取前三帧。
+  const [pickedFrames, setPickedFrames] = useState<string[]>([]);
+  const pickFull = pickedFrames.length >= 3;
+  const pickPartial = pickedFrames.length > 0 && pickedFrames.length < 3;
+
+  function toggleFrame(assetId: string) {
+    setPickedFrames((current) =>
+      current.includes(assetId)
+        ? current.filter((id) => id !== assetId)
+        : current.length >= 3
+          ? current
+          : [...current, assetId]
+    );
+  }
 
   const locked = readOnly || disabled || busy;
   const hasGeneration = imageGenerationEnabled && Boolean(generateCover);
@@ -240,7 +284,12 @@ export function CoverPanel({
 
   function composeFromFrames() {
     if (!composeCover) return;
-    // 帧选择交给后端缺省（按段落顺序取前三张已生成帧）。
+    // 挑满了按挑选顺序（左/中/右）拼；一张不选交给后端缺省（段落顺序前三帧）。
+    // 两条调用路径分开写：不挑时保持单参数调用形状，别塞一个 undefined 进去。
+    if (pickedFrames.length === 3) {
+      void run(() => composeCover(article.updatedAt, pickedFrames));
+      return;
+    }
     void run(() => composeCover(article.updatedAt));
   }
 
@@ -411,12 +460,24 @@ export function CoverPanel({
               <button
                 className="button button-secondary"
                 type="button"
-                disabled={locked}
-                title="取文章前三张已生成的分镜帧，横向拼成 2.35:1 封面；已有封面会被覆盖（旧版本留在素材库可找回）"
+                disabled={locked || pickPartial}
+                title={
+                  pickPartial
+                    ? `还差 ${3 - pickedFrames.length} 张：继续在下方点帧补齐，或点已选的帧取消`
+                    : pickedFrames.length === 3
+                      ? "按你挑选的顺序（左/中/右）横拼成 2.35:1 封面；已有封面会被覆盖（旧版本留在素材库可找回）"
+                      : "取文章前三张已生成的分镜帧，横向拼成 2.35:1 封面；已有封面会被覆盖（旧版本留在素材库可找回）。也可以先在下方自己挑三帧排位置"
+                }
                 onClick={composeFromFrames}
               >
                 <Images size={15} aria-hidden="true" />
-                {cover?.status === "generated" ? "重新拼接封面" : "三帧横拼封面"}
+                {pickPartial
+                  ? `已挑 ${pickedFrames.length}/3 张`
+                  : pickedFrames.length === 3
+                    ? "用挑好的三帧拼封面"
+                    : cover?.status === "generated"
+                      ? "重新拼接封面"
+                      : "三帧横拼封面"}
               </button>
             ) : null}
             {cover && selectGeneration ? (
@@ -448,6 +509,76 @@ export function CoverPanel({
             <p className="cover-panel-error" role="alert">
               {error}
             </p>
+          ) : null}
+
+          {canCompose && frameAssets.length >= 3 ? (
+            <div className="cover-panel-framepicker">
+              <p className="cover-panel-framepicker-hint">
+                想自己排？点帧图依次填入左 / 中 / 右三个位置（再点一次取消）；一张不选则自动取前三帧。
+              </p>
+              <div className="cover-panel-framepicker-slots">
+                {["左", "中", "右"].map((label, index) => {
+                  const pickedId = pickedFrames[index] ?? null;
+                  const picked = pickedId
+                    ? frameAssets.find((frame) => frame.asset.id === pickedId)
+                    : null;
+                  return (
+                    <div
+                      key={label}
+                      className={`cover-panel-framepicker-slot${picked ? " is-filled" : ""}`}
+                    >
+                      <span className="cover-panel-framepicker-slot-label">{label}</span>
+                      {picked ? (
+                        <button
+                          type="button"
+                          className="cover-panel-framepicker-slot-clear"
+                          disabled={locked}
+                          title="移出这个位置"
+                          aria-label={`移出${label}位置的帧`}
+                          onClick={() => toggleFrame(picked.asset.id)}
+                        >
+                          {/* 帧图走内部 API 路由，动态地址，next/image 不适用。 */}
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={frameSrc(picked.asset)} alt="" />
+                          <span className="cover-panel-framepicker-slot-x" aria-hidden="true">
+                            <X size={11} />
+                          </span>
+                        </button>
+                      ) : (
+                        <span className="cover-panel-framepicker-slot-empty">空</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <ol className="cover-panel-framepicker-grid">
+                {frameAssets.map((frame) => {
+                  const slot = pickedFrames.indexOf(frame.asset.id);
+                  return (
+                    <li key={frame.asset.id}>
+                      <button
+                        type="button"
+                        className={`cover-panel-framepicker-thumb${slot >= 0 ? " is-picked" : ""}`}
+                        disabled={locked || (slot < 0 && pickFull)}
+                        title={`${frame.label}${slot >= 0 ? ` · 已选为第 ${slot + 1} 位` : ""}`}
+                        aria-label={
+                          slot >= 0
+                            ? `取消排在第 ${slot + 1} 位的这张帧`
+                            : `把这张帧排进封面（${frame.label}）`
+                        }
+                        onClick={() => toggleFrame(frame.asset.id)}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={frameSrc(frame.asset)} alt="" loading="lazy" />
+                        {slot >= 0 ? (
+                          <span className="cover-panel-framepicker-badge">{slot + 1}</span>
+                        ) : null}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ol>
+            </div>
           ) : null}
 
           {libraryOpen && cover ? (

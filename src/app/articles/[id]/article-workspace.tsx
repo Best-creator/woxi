@@ -377,7 +377,7 @@ function composeCoverRequest(
   expectedUpdatedAt: string,
   assetIds?: string[]
 ) {
-  // 帧选择交给后端缺省（按段落顺序取前三张已生成帧）；手动指定三张的入口暂不做。
+  // assetIds 由封面面板的帧挑选器传入（左/中/右顺序）；省略时后端按段落顺序取前三帧。
   return imageMutationRequest(`/api/articles/${articleId}/cover/compose`, "POST", {
     expectedUpdatedAt,
     ...(assetIds?.length ? { assetIds } : {})
