@@ -8,7 +8,14 @@ import { describe, expect, it } from "vitest";
 import type { ContentBlock } from "@/features/articles/domain";
 import { SqliteArticleRepository } from "@/features/articles/sqlite-repository";
 import { createTestDatabase } from "../../../tests/helpers/test-db";
-import { composeCoverFromFrames } from "./compose-cover-from-frames";
+import {
+  COMPOSED_COVER_CELL_WIDTH,
+  COMPOSED_COVER_GUTTER,
+  COMPOSED_COVER_HEIGHT,
+  COMPOSED_COVER_MARGIN,
+  COMPOSED_COVER_WIDTH,
+  composeCoverFromFrames
+} from "./compose-cover-from-frames";
 import { generateImageAsset } from "./generate-image-asset";
 import type { ImageGenerator } from "./image-generator";
 import type { StoryboardSegmentPlan } from "./repository";
@@ -176,9 +183,33 @@ describe("composeCoverFromFrames", () => {
     // 产物是真实落盘的 PNG，画布尺寸固定 2.35:1（1440×613）。
     const binary = await readFile(cover!.filePath!);
     const meta = await sharp(binary).metadata();
-    expect(meta.width).toBe(1440);
-    expect(meta.height).toBe(613);
+    expect(meta.width).toBe(COMPOSED_COVER_WIDTH);
+    expect(meta.height).toBe(COMPOSED_COVER_HEIGHT);
     expect(meta.format).toBe("png");
+
+    // 四周与格间是白边：左上角与第一条格缝都应接近纯白。
+    const corner = await sharp(binary)
+      .extract({ left: 0, top: 0, width: 20, height: 20 })
+      .png()
+      .toBuffer();
+    const cornerMeans = (await sharp(corner).stats()).channels
+      .slice(0, 3)
+      .map((channel) => Math.round(channel.mean));
+    expect(cornerMeans.every((value) => value >= 250)).toBe(true);
+    const gapLeft = COMPOSED_COVER_MARGIN + COMPOSED_COVER_CELL_WIDTH;
+    const gap = await sharp(binary)
+      .extract({
+        left: gapLeft + 4,
+        top: COMPOSED_COVER_MARGIN,
+        width: COMPOSED_COVER_GUTTER - 8,
+        height: 40
+      })
+      .png()
+      .toBuffer();
+    const gapMeans = (await sharp(gap).stats()).channels
+      .slice(0, 3)
+      .map((channel) => Math.round(channel.mean));
+    expect(gapMeans.every((value) => value >= 250)).toBe(true);
   });
 
   it("reports not_enough_frames when fewer than three frames are generated", async () => {
@@ -219,11 +250,16 @@ describe("composeCoverFromFrames", () => {
     const cellMeans = await Promise.all(
       [0, 1, 2].map(async (index) => {
         const cell = await sharp(binary)
-          .extract({ left: index * 480, top: 0, width: 480, height: 613 })
+          .extract({
+            left: COMPOSED_COVER_MARGIN + index * (COMPOSED_COVER_CELL_WIDTH + COMPOSED_COVER_GUTTER),
+            top: COMPOSED_COVER_MARGIN,
+            width: COMPOSED_COVER_CELL_WIDTH,
+            height: COMPOSED_COVER_HEIGHT - COMPOSED_COVER_MARGIN * 2
+          })
           .png()
           .toBuffer();
         const stats = await sharp(cell).stats();
-        return stats.channels.map((channel) => Math.round(channel.mean));
+        return stats.channels.slice(0, 3).map((channel) => Math.round(channel.mean));
       })
     );
     const near = (actual: number[], expected: number[]) =>

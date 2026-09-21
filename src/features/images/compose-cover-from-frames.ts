@@ -21,8 +21,21 @@ import type { ImageAssetRepository } from "./repository";
 /** 拼接画布：2.35:1（公众号首图比例），1440 宽保证缩略图后仍清晰。 */
 export const COMPOSED_COVER_WIDTH = 1440;
 export const COMPOSED_COVER_HEIGHT = 613;
-/** 每一格的宽度：三等分。帧按 cover 模式裁剪填充，比例不一致时居中裁。 */
-const CELL_WIDTH = Math.round(COMPOSED_COVER_WIDTH / 3);
+/**
+ * 白边：画布四周留白 + 格间距。帧不铺满整张画布——三格顶天立地显得挤，
+ * 缩小一点、露出白底才有「三张卡片并排」的呼吸感（2026-09-21 用户反馈）。
+ */
+export const COMPOSED_COVER_MARGIN = 48;
+export const COMPOSED_COVER_GUTTER = 28;
+/** 每一格的宽高：画布去掉四周白边与格间距后三等分。帧按 cover 模式居中裁剪填充。 */
+export const COMPOSED_COVER_CELL_WIDTH = Math.round(
+  (COMPOSED_COVER_WIDTH - COMPOSED_COVER_MARGIN * 2 - COMPOSED_COVER_GUTTER * 2) / 3
+);
+const CELL_HEIGHT = COMPOSED_COVER_HEIGHT - COMPOSED_COVER_MARGIN * 2;
+/** 第 index 格的落位（画布左上角原点）：末格右侧自然余出 ≈MARGIN 的白边。 */
+function cellLeft(index: number) {
+  return COMPOSED_COVER_MARGIN + index * (COMPOSED_COVER_CELL_WIDTH + COMPOSED_COVER_GUTTER);
+}
 
 export type ComposeCoverFromFramesResult =
   | { kind: "saved"; article: Article; assets: ImageAsset[] }
@@ -143,12 +156,12 @@ export async function composeCoverFromFrames(
   const generationId = randomUUID();
   let filePath: string | null = null;
   try {
-    // 4. sharp 横拼：每帧按 cover 模式居中裁剪到格宽×画布高，再横向贴到画布。
+    // 4. sharp 横拼：每帧按 cover 模式居中裁剪到格宽×格高，四周留白边、格间留缝。
     const cellBuffers = await Promise.all(
       frames.map(async (frame) => {
         const binary = await readFile(resolve(frame.filePath!));
         return sharp(binary)
-          .resize(CELL_WIDTH, COMPOSED_COVER_HEIGHT, { fit: "cover" })
+          .resize(COMPOSED_COVER_CELL_WIDTH, CELL_HEIGHT, { fit: "cover" })
           .png()
           .toBuffer();
       })
@@ -164,8 +177,8 @@ export async function composeCoverFromFrames(
       .composite(
         cellBuffers.map((buffer, index) => ({
           input: buffer,
-          left: index * CELL_WIDTH,
-          top: 0
+          left: cellLeft(index),
+          top: COMPOSED_COVER_MARGIN
         }))
       )
       .png()
