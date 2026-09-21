@@ -32,13 +32,13 @@ export interface SegmentStripStatus {
 
 export interface SegmentStripsInspection {
   totalSegments: number;
-  /** 帧齐全且已生成、文案块也还在正文里的段数（纯文字段天然就绪，一并计入）。 */
+  /** 帧齐全且已生成、文案块也还在正文里的段数（text_only 无帧，文案在即就绪）。 */
   readySegments: number;
-  /** 会真正拼成段图的段数：text_only 纯文字段不拼图，不计入这一项。 */
+  /** 会真正拼成段图的段数：text_only 拼的是纯文字图，同样计入。 */
   composableSegments: number;
   /** 全部段还差的真实图片帧数：资产缺失、未生成、无落盘文件都算差。 */
   pendingFrames: number;
-  /** 成稿文案块已不在正文里（被删或类型不可烘）的段数；纯文字段不参与计数。 */
+  /** 成稿文案块已不在正文里（被删或类型不可烘）的段数。 */
   missingCopySegments: number;
   /** 逐段明细：界面按段列出「帧齐没齐、文案在不在、拼过没有」。 */
   segments: SegmentStripStatus[];
@@ -91,10 +91,8 @@ export function inspectSegmentStrips(
   const details: SegmentStripStatus[] = [];
 
   for (const segment of segments) {
-    // 纯文字段不拼段图：0 帧天然就绪、文案留在正文里（它的块从不需要被「找回」），
-    // 但文案在不在仍写入逐段明细，作者能看到这一段的真实状态。
-    const composable = segment.route !== "text_only";
-    if (composable) composableSegments += 1;
+    // 四种路由都可拼接：text_only 段拼的是纯文字图（0 帧、只要文案还在正文）。
+    composableSegments += 1;
     const required = storyboardFrameCount(segment.route);
     // 帧数按路由要求截取：设计帧不足时（比如改成图+文+图但只设计了 1 帧）同样记差，
     // 否则按钮会放行一场 binaries[1] 不存在的拼接。
@@ -107,8 +105,8 @@ export function inspectSegmentStrips(
     pendingFrames += required - readyFrames;
 
     const hasCopy = segment.copyBlockIds.some((id) => copyableBlockIds.has(id));
-    if (composable && !hasCopy) missingCopySegments += 1;
-    if (required - readyFrames === 0 && (hasCopy || !composable)) readySegments += 1;
+    if (!hasCopy) missingCopySegments += 1;
+    if (required - readyFrames === 0 && hasCopy) readySegments += 1;
 
     details.push({
       segmentId: segment.id,

@@ -222,6 +222,69 @@ describe("composeSegmentStrips", () => {
     expect(metadata.width).toBe(DEFAULT_COMIC_STRIP_METRICS.width);
   });
 
+  it("composes a pure-text strip for text_only segments", async () => {
+    // 纯文字段也出段图：整张图只有文字带（无帧、无台词条），
+    // 与其他段图的文字带同一渲染器与字体字号档位——正文拼接后是纯段图序列。
+    // 注意正文落库按数组顺序重编号 order：seg3 文案必须排在收尾知识卡片**之前**，
+    // 纯文字段图才会落在卡片之前。
+    const cardTail = SEGMENT_COPY.find((block) => block.id === "card-tail")!;
+    const blocks = [
+      ...SEGMENT_COPY.filter((block) => block.id !== "card-tail"),
+      {
+        id: "seg3-copy",
+        type: "paragraph",
+        content: "记牢这三招，眼睛谢谢你。",
+        order: 4,
+        segmentId: "segment-3",
+        version: 1
+      },
+      { ...cardTail, order: 5 }
+    ] as ContentBlock[];
+    const plans = [
+      ...segmentPlans(),
+      {
+        id: "segment-3",
+        sectionKey: "section-3",
+        title: "纯文字收束",
+        route: "text_only" as const,
+        copyBlockIds: ["seg3-copy"],
+        frames: []
+      }
+    ];
+    const fixture = await storyboardFixture({ blocks, plans });
+    const result = await composeSegmentStrips(
+      { articleId: fixture.articleId, expectedUpdatedAt: fixture.expectedUpdatedAt },
+      { articles: fixture.articles, images: fixture.images, storageDir: fixture.storageDir }
+    );
+    if (result.kind !== "composed") throw new Error(`expected composed, got ${JSON.stringify(result)}`);
+
+    // 三段三张图：纯文字段的图 route=text_only、frames=0。
+    expect(result.strips).toHaveLength(3);
+    expect(result.strips[2]).toMatchObject({
+      segmentId: "segment-3",
+      route: "text_only",
+      frames: 0
+    });
+    const textStrip = result.assets.find((asset) => asset.id === result.strips[2]!.assetId);
+    expect(textStrip?.type).toBe("comic_strip");
+    expect(textStrip?.status).toBe("generated");
+
+    const metadata = await sharp(await readFile(textStrip!.filePath!)).metadata();
+    expect(metadata.format).toBe("png");
+    expect(metadata.width).toBe(DEFAULT_COMIC_STRIP_METRICS.width);
+    // 只有一两条文字带，高度远小于带帧段图。
+    expect(metadata.height ?? 0).toBeLessThan(600);
+
+    // 纯文字段的文案块同样被吃进快照；正文 = 三张段图 + 收尾知识卡片。
+    expect(textStrip?.consumedContent?.blocks.map((block) => block.id)).toEqual(["seg3-copy"]);
+    expect(result.article.blocks.map((block) => block.type)).toEqual([
+      "image",
+      "image",
+      "image",
+      "knowledge_card"
+    ]);
+  });
+
   it("bakes a frame's narration line as an extra band and keeps it on the asset", async () => {
     // 帧带台词（剧情漫画）：设计计划 → 帧资产 → 段图台词条的全链路。
     // 旁白落成图外的台词条；对白不排带（已画进格内气泡，见下一条用例）。

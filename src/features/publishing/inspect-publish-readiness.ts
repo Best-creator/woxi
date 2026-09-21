@@ -38,8 +38,9 @@ export interface PublishReadiness {
   missingStrips: MissingStripSegment[];
   residualBlocks: ResidualPublishBlock[];
   /**
-   * 纯文字段（text_only）的文案块 id：段图流里它们不是残留块，而是要
-   * **始终渲染**的普通图文——推送门与渲染器都以这份清单为准。
+   * 纯文字段（text_only）的文案块 id：**尚未拼接**（或作者取消段图后）时，
+   * 预览把这些块渲染成文字条带；拼接后块被消费进段图快照，清单自然为空。
+   * 推送门不靠它放行——未拼接的 text_only 计入 missingStrips。
    */
   plainTextBlockIds: string[];
   /** 第一段成稿文案的开头（≤50 字，微信 digest 上限 120、过长的意义不大）。 */
@@ -109,9 +110,10 @@ export function inspectPublishReadiness(
         block.type === "image" ? block.altText || "未命名配图" : block.content.trim()
     }));
 
-  // 纯文字段（text_only）本来就不拼段图：它的文案以普通正文块随段图序列一起发布，
-  // 不算「没拼完」；同时这些块全部记入 plainTextBlockIds 交给渲染器与推送门，
-  // 让它们免于「残留块」的 force 门（残留块的判定用 copyBlockIds 本就覆盖了它们）。
+  // 纯文字段（text_only）拼接后同样产出一张段图（纯文字图），文案块被吃进快照，
+  // 所以没拼时它计入 missingStrips（推送门拦下、引导作者先拼接）。
+  // plainTextBlockIds 仍保留：取消段图（文案回到正文）或尚未拼接时，
+  // 预览把这些块渲染成文字条带，所见即所推的「推」由 missingStrips 把关。
   const plainTextBlockIds = new Set<string>();
   for (const segment of segments) {
     if (segment.route !== "text_only") continue;
@@ -119,9 +121,7 @@ export function inspectPublishReadiness(
   }
 
   const missingStrips = segments
-    .filter(
-      (segment) => segment.route !== "text_only" && !strippedSegmentIds.has(segment.id)
-    )
+    .filter((segment) => !strippedSegmentIds.has(segment.id))
     .map((segment) => ({ id: segment.id, title: segment.title }));
 
   const firstSegment = segments[0] as (typeof segments)[number];

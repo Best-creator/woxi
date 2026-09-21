@@ -1,7 +1,6 @@
 import type { Article, ArticlePlanning, StoryboardRoute } from "@/features/articles/domain";
 import type { ComicStripModeDecision } from "./comic-strip-mode-router";
 import type {
-  ComicStripMode,
   ConsumedContent,
   ImageAspectRatio,
   ImageAsset,
@@ -116,7 +115,12 @@ export interface CompleteGenerationInput {
 export interface SaveComicStripInput {
   assetId: string;
   generationId: string;
-  mode: ComicStripMode;
+  /**
+   * 段内路由。text_only 段同样会落一张段图（纯文字图：只有文字带、没有帧），
+   * 所以这里是全量 StoryboardRoute 而不是三种拼图排法——mode 只进 prompt 文案，
+   * 不参与任何块序逻辑（块序由调用方的 stripBlocks 决定）。
+   */
+  mode: StoryboardRoute;
   anchorBlockId: string;
   consumedContent: ConsumedContent;
   altText: string;

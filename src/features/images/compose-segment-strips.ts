@@ -180,8 +180,8 @@ export async function composeSegmentStrips(
 
   interface PreparedSegment {
     segment: StoryboardSegment;
-    /** 收窄后的拼图路由（text_only 已在上面整段跳过）：mode 字段与块序分支只认这三种。 */
-    route: Exclude<StoryboardRoute, "text_only">;
+    /** 段路由（含 text_only：它拼的是只有文字带的纯文字图）。 */
+    route: StoryboardRoute;
     frameAssets: ImageAsset[];
     consumedBlocks: ContentBlock[];
     resumeBeforeBlockId: string | null;
@@ -190,11 +190,10 @@ export async function composeSegmentStrips(
 
   // 所有段会被吃掉的块先并成一个大集合：相邻段的「插回位置」必须落在
   // 没人吃的块上——如果落在别的段要吃的块上，那段图也隐身了，还原时定位不到。
-  // 纯文字段（text_only）不拼图、文案留在正文里，它的块绝不能进这个集合，
-  // 否则相邻段的插回位置会绕开它们，段图之间的纯文字就被吞掉了。
+  // 纯文字段（text_only）同样会拼出一张纯文字图、文案块同样被吃掉，
+  // 所以它的块也在这里——四种路由在块归属上完全一视同仁。
   const consumedEverywhere = new Set<string>();
   for (const segment of segments) {
-    if (segment.route === "text_only") continue;
     for (const blockId of segment.copyBlockIds) {
       const block = blockById.get(blockId);
       if (block && CONSUMABLE_BLOCK_TYPES.has(block.type)) consumedEverywhere.add(block.id);
@@ -203,11 +202,9 @@ export async function composeSegmentStrips(
 
   const prepared: PreparedSegment[] = [];
   for (const segment of segments) {
-    // 纯文字段整段跳过：不要求帧、不校验文案、不产出段图——它的 copyBlockIds
-    // 指向的正文块原样留在正文里，发布时按普通图文渲染。
-    if (segment.route === "text_only") continue;
-    // narrow 到三种拼图路由：下面 mode 字段与块序分支只认这三种（ComicStripMode）。
-    const route: Exclude<StoryboardRoute, "text_only"> = segment.route;
+    // 四种路由统一进入拼接：text_only 段产出一张只有文字带的纯文字图（0 帧），
+    // 观感与「图+文+图」里的文字带完全同款——正文在拼接后是纯段图序列。
+    const route: StoryboardRoute = segment.route;
     const frameAssets = segment.frameAssetIds
       .slice(0, storyboardFrameCount(segment.route))
       .map((id) => assetById.get(id))
@@ -323,15 +320,19 @@ export async function composeSegmentStrips(
       };
 
       const stripBlocks: ComicStripBlock[] =
-        entry.route === "text_image"
-          ? [...entry.textBands, ...frameBlocksWithSpeech(0)]
-          : entry.route === "image_text_image"
-            ? [
-                ...frameBlocksWithSpeech(0),
-                ...entry.textBands,
-                ...frameBlocksWithSpeech(1)
-              ]
-            : [...frameBlocksWithSpeech(0), ...entry.textBands];
+        entry.route === "text_only"
+          ? // 纯文字段：没有帧、没有台词条，整张图就是文字带——
+            // 与其他段图的文字带同一渲染器、同一字体与字号档位，观感完全一致。
+            [...entry.textBands]
+          : entry.route === "text_image"
+            ? [...entry.textBands, ...frameBlocksWithSpeech(0)]
+            : entry.route === "image_text_image"
+              ? [
+                  ...frameBlocksWithSpeech(0),
+                  ...entry.textBands,
+                  ...frameBlocksWithSpeech(1)
+                ]
+              : [...frameBlocksWithSpeech(0), ...entry.textBands];
 
       const { buffer, width, height } = await composeComicStrip(stripBlocks, metrics);
 
@@ -355,7 +356,7 @@ export async function composeSegmentStrips(
         input: {
           assetId,
           generationId,
-          // 段内路由与长图排法共用同一套取值（text_only 已被上面 continue 排除）。
+          // 段内路由含 text_only（纯文字图）——mode 只进 prompt 文案，不参与块序。
           mode: entry.route,
           anchorBlockId: entry.consumedBlocks[0]!.id,
           consumedContent: {

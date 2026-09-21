@@ -116,9 +116,9 @@ describe("inspectSegmentStrips", () => {
     });
   });
 
-  it("treats text-only segments as ready without frames or strips", () => {
-    // 纯文字段 0 帧天然就绪、不占 pending；拼图段数比总段数少 1；
-    // 它的文案块被删也不挡拼接（拼接根本不碰它）。
+  it("treats text-only segments as composable pure-text strips", () => {
+    // 纯文字段 0 帧、不占 pending，但它拼的是纯文字图——composable 计入总段数；
+    // 文案被删的纯文字段同样挡拼接（它的块要被吃进段图快照）。
     const segments = [
       ...SEGMENTS,
       {
@@ -147,13 +147,13 @@ describe("inspectSegmentStrips", () => {
     }), [frame("f1"), frame("f2a"), frame("f2b")]);
 
     expect(result.totalSegments).toBe(3);
-    expect(result.composableSegments).toBe(2);
+    expect(result.composableSegments).toBe(3);
     expect(result.readySegments).toBe(3);
     expect(result.pendingFrames).toBe(0);
     expect(result.missingCopySegments).toBe(0);
     expect(result.segments[2]).toMatchObject({ route: "text_only", requiredFrames: 0, hasCopy: true });
 
-    // 文案被删的纯文字段不算 missing：拼接不消费它的块。
+    // 文案被删的纯文字段算 missing：它的块要被吃进纯文字图快照。
     const withoutCopy = inspectSegmentStrips(article({
       blocks: BLOCKS,
       planning: {
@@ -164,7 +164,7 @@ describe("inspectSegmentStrips", () => {
         storyboardSegments: segments
       }
     }), [frame("f1"), frame("f2a"), frame("f2b")]);
-    expect(withoutCopy.missingCopySegments).toBe(0);
+    expect(withoutCopy.missingCopySegments).toBe(1);
   });
 
   it("counts placeholder frames and missing assets as pending", () => {

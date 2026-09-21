@@ -112,11 +112,9 @@ export function SegmentStripsControl({
     if (stripsExist) {
       return `正文里现在是 ${stripCount} 张段图；重新拼接会按当前文案与所选字体、文字大小重出一遍。`;
     }
-    const textOnlyCount = readiness.totalSegments - readiness.composableSegments;
-    const textOnlyNote = textOnlyCount
-      ? `；另有 ${textOnlyCount} 段纯文字以文字带进正文，不拼图`
-      : "";
-    return `已就绪 ${readiness.readySegments} 段，将拼成 ${readiness.composableSegments} 张段图${textOnlyNote}，文案会按所选字体与文字大小烘进图里。`;
+    // 四种路由都拼段图（text_only 拼纯文字图）：composableSegments === totalSegments，
+    // 不再有「不拼图的纯文字段」。
+    return `已就绪 ${readiness.readySegments} 段，将拼成 ${readiness.composableSegments} 张段图，文案会按所选字体与文字大小烘进图里。`;
   })();
 
   async function run(action: () => Promise<ImageMutationPayload>) {
@@ -292,7 +290,7 @@ export function SegmentStripsControl({
                       </div>
                       <span className="segment-strips-manifest-meta">
                         {isTextOnly
-                          ? "纯文字段 · 不拼段图，文字带直接进正文"
+                          ? "纯文字段 · 拼成纯文字图（文字带）"
                           : `帧 ${row.readyFrames}/${row.requiredFrames} · ${
                               row.hasCopy ? "文案就绪" : "文案不在正文"
                             }`}
