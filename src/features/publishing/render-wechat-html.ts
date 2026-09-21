@@ -1,9 +1,11 @@
 import type { ContentBlock } from "@/features/articles/domain";
 import type { ImageAsset } from "@/features/images/domain";
+// 断行算法必须从 text-wrap 直取：本模块被客户端组件（wechat-preview）引用，
+// 走 comic-strip 的 re-export 会把 sharp 整棵拖进浏览器 bundle（Module not found: fs）。
 import {
   TEXT_BAND_MAX_CHARS_PER_LINE,
   wrapText
-} from "@/features/images/comic-strip";
+} from "@/features/images/text-wrap";
 import { WECHAT_THEMES, type ThemeId, type WechatTheme } from "./themes";
 
 function escapeHtml(value: string) {
