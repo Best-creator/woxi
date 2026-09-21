@@ -101,6 +101,12 @@ type EnsureCover = (
   input?: { prompt?: string; aspectRatio?: ImageAspectRatio }
 ) => Promise<ImageMutationPayload>;
 
+type ComposeCover = (
+  articleId: string,
+  expectedUpdatedAt: string,
+  assetIds?: string[]
+) => Promise<ImageMutationPayload>;
+
 async function publishWechatRequest(
   articleId: string,
   themeId: "ink" | "clear" | "warm",
@@ -139,6 +145,8 @@ export interface ArticleWorkspaceProps {
   composeSegmentStrips?: ComposeSegmentStrips;
   /** 建封面槽位（幂等）：分镜文章第四步的封面配置入口。 */
   ensureCover?: EnsureCover;
+  /** 三帧横拼封面：取文章已生成分镜帧横向拼成头图（纯 CPU 拼接，不耗生图能力）。 */
+  composeCover?: ComposeCover;
   /** 服务端配置了图片生成能力时为 true，控制生成入口显隐。 */
   imageGenerationEnabled?: boolean;
   /** 服务端配置了公众号凭据时为 true，控制「推送到草稿箱」入口显隐。 */
@@ -363,6 +371,18 @@ function ensureCoverRequest(
   });
 }
 
+function composeCoverRequest(
+  articleId: string,
+  expectedUpdatedAt: string,
+  assetIds?: string[]
+) {
+  // 帧选择交给后端缺省（按段落顺序取前三张已生成帧）；手动指定三张的入口暂不做。
+  return imageMutationRequest(`/api/articles/${articleId}/cover/compose`, "POST", {
+    expectedUpdatedAt,
+    ...(assetIds?.length ? { assetIds } : {})
+  });
+}
+
 export function ArticleWorkspace({
   initialArticle,
   initialSources = [],
@@ -380,6 +400,7 @@ export function ArticleWorkspace({
   removeComicStrip = removeComicStripRequest,
   composeSegmentStrips = composeSegmentStripsRequest,
   ensureCover = ensureCoverRequest,
+  composeCover = composeCoverRequest,
   imageGenerationEnabled = false,
   wechatPublishEnabled = false,
   autosaveDelayMs = 2_000,
@@ -909,6 +930,11 @@ export function ArticleWorkspace({
                   ensureCover={(expectedUpdatedAt, input) =>
                     beginImageOperation(() =>
                       ensureCover(articleRef.current.id, expectedUpdatedAt, input)
+                    )
+                  }
+                  composeCover={(expectedUpdatedAt, assetIds) =>
+                    beginImageOperation(() =>
+                      composeCover(articleRef.current.id, expectedUpdatedAt, assetIds)
                     )
                   }
                   updateAsset={(assetId, input) =>

@@ -97,6 +97,15 @@ export interface CoverPanelProps {
     expectedUpdatedAt: string,
     input?: { prompt?: string; aspectRatio?: ImageAspectRatio }
   ) => Promise<ImageMutationPayload>;
+  /**
+   * 三帧横拼封面：取文章已生成的分镜帧横向拼成 2.35:1 头图。
+   * 纯 CPU 拼接（服务端 sharp），不耗生图能力；assetIds 省略时按段落顺序取前三帧。
+   * 已有的 AI 封面会被覆盖，旧版本仍留在素材库可找回。
+   */
+  composeCover?: (
+    expectedUpdatedAt: string,
+    assetIds?: string[]
+  ) => Promise<ImageMutationPayload>;
   /** 改提示词 / 比例 / 替代文本（服务端会把 manuallyEdited 置真，防批量顶替）。 */
   updateAsset?: (
     assetId: string,
@@ -119,6 +128,7 @@ export function CoverPanel({
   imageGenerationEnabled = false,
   generateCover,
   ensureCover,
+  composeCover,
   updateAsset,
   selectGeneration
 }: CoverPanelProps) {
@@ -149,6 +159,10 @@ export function CoverPanel({
     hasGeneration && cover?.status !== "generating" && cover?.status !== "disabled";
   // 建槽位只在没有生图能力时才单独给入口；有生图能力时主按钮已经顺带建好了槽位。
   const canCreate = !cover && !hasGeneration && Boolean(ensureCover);
+  // 横拼不耗生图能力（服务端 sharp 拼接），但没有封面时它会先幂等建槽位再拼。
+  // 「生成中」与「已停用」同样被服务端 beginGeneration 拒绝，提前拦掉。
+  const canCompose =
+    Boolean(composeCover) && cover?.status !== "generating" && cover?.status !== "disabled";
   // 停用的封面（旧流程重新规划时被让位）需要先启用才能再出图，否则是个死胡同。
   const canReenable = cover?.status === "disabled" && Boolean(updateAsset);
 
@@ -222,6 +236,12 @@ export function CoverPanel({
     void run(() =>
       ensureCover(article.updatedAt, { prompt: prompt.trim(), aspectRatio })
     );
+  }
+
+  function composeFromFrames() {
+    if (!composeCover) return;
+    // 帧选择交给后端缺省（按段落顺序取前三张已生成帧）。
+    void run(() => composeCover(article.updatedAt));
   }
 
   function reenableCover() {
@@ -385,6 +405,18 @@ export function CoverPanel({
               >
                 <RefreshCw size={15} aria-hidden="true" />
                 启用封面
+              </button>
+            ) : null}
+            {canCompose ? (
+              <button
+                className="button button-secondary"
+                type="button"
+                disabled={locked}
+                title="取文章前三张已生成的分镜帧，横向拼成 2.35:1 封面；已有封面会被覆盖（旧版本留在素材库可找回）"
+                onClick={composeFromFrames}
+              >
+                <Images size={15} aria-hidden="true" />
+                {cover?.status === "generated" ? "重新拼接封面" : "三帧横拼封面"}
               </button>
             ) : null}
             {cover && selectGeneration ? (

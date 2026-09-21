@@ -68,6 +68,7 @@ interface SetupOverrides {
   withEnsureCover?: boolean;
   withUpdateAsset?: boolean;
   withSelectGeneration?: boolean;
+  withComposeCover?: boolean;
 }
 
 function setup(overrides: SetupOverrides = {}) {
@@ -79,7 +80,8 @@ function setup(overrides: SetupOverrides = {}) {
     withGeneration = false,
     withEnsureCover = true,
     withUpdateAsset = true,
-    withSelectGeneration = false
+    withSelectGeneration = false,
+    withComposeCover = false
   } = overrides;
   const payload = { article, assets };
   const props = {
@@ -92,7 +94,8 @@ function setup(overrides: SetupOverrides = {}) {
     generateCover: withGeneration ? vi.fn().mockResolvedValue(payload) : undefined,
     ensureCover: withEnsureCover ? vi.fn().mockResolvedValue(payload) : undefined,
     updateAsset: withUpdateAsset ? vi.fn().mockResolvedValue(payload) : undefined,
-    selectGeneration: withSelectGeneration ? vi.fn().mockResolvedValue(payload) : undefined
+    selectGeneration: withSelectGeneration ? vi.fn().mockResolvedValue(payload) : undefined,
+    composeCover: withComposeCover ? vi.fn().mockResolvedValue(payload) : undefined
   };
   render(<CoverPanel {...props} />);
   return props;
@@ -215,6 +218,43 @@ describe("CoverPanel", () => {
       enabled: true,
       expectedUpdatedAt: "2026-09-09T00:00:00.000Z"
     });
+  });
+
+  it("三帧横拼：无封面时也能拼，帧选择交给后端缺省", async () => {
+    stubApi();
+    const props = setup({ withComposeCover: true });
+
+    await userEvent.click(screen.getByRole("button", { name: "三帧横拼封面" }));
+
+    expect(props.composeCover).toHaveBeenCalledWith("2026-09-09T00:00:00.000Z");
+  });
+
+  it("已有封面时横拼按钮叫「重新拼接封面」，覆盖前有 title 提示", async () => {
+    stubApi();
+    const props = setup({ assets: [coverAsset()], withComposeCover: true });
+
+    await userEvent.click(screen.getByRole("button", { name: "重新拼接封面" }));
+
+    expect(props.composeCover).toHaveBeenCalledWith("2026-09-09T00:00:00.000Z");
+    // 拼接会覆盖 AI 封面：title 里必须讲清楚旧版本可找回。
+    expect(
+      screen.getByRole("button", { name: "重新拼接封面" }).getAttribute("title")
+    ).toContain("覆盖");
+  });
+
+  it("封面被停用或生成中时不给横拼入口（服务端会拒绝）", () => {
+    stubApi();
+    setup({
+      assets: [coverAsset({ status: "disabled" })],
+      withComposeCover: true
+    });
+    expect(screen.queryByRole("button", { name: "重新拼接封面" })).toBeNull();
+
+    setup({
+      assets: [coverAsset({ status: "generating" })],
+      withComposeCover: true
+    });
+    expect(screen.queryByRole("button", { name: "重新拼接封面" })).toBeNull();
   });
 
   it("生成失败时把服务端错误显示出来，不让界面静默", async () => {
