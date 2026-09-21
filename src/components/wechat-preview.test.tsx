@@ -105,6 +105,45 @@ describe("WechatPreview", () => {
     expect(html).toContain("作者手加的导语");
   });
 
+  it("纯文字段在预览里也是文字卡：plainTextBlockIds 与推送同源传入", async () => {
+    const user = userEvent.setup();
+    const copy = vi.fn().mockResolvedValue(undefined);
+    const blocks: ContentBlock[] = [
+      {
+        id: "s1",
+        type: "image",
+        content: "/api/image-assets/strip-1/content",
+        altText: "标题｜段图｜换挡",
+        order: 0,
+        version: 1
+      },
+      {
+        id: "plain-1",
+        type: "paragraph",
+        content: "雾蒙蒙的清晨小鹿踩着露水走进森林深处寻找蘑菇",
+        order: 1,
+        version: 1
+      }
+    ];
+    render(
+      <WechatPreview
+        blocks={blocks}
+        assets={[stripAsset("strip-1")]}
+        stripFlow={true}
+        plainTextBlockIds={["plain-1"]}
+        copy={copy}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "复制到公众号" }));
+
+    const html = copy.mock.calls[0][0] as string;
+    // 点名的纯文字段是米白卡片 + 服务端预断行，不是普通的两端对齐段落。
+    expect(html).toContain("max-width:260px");
+    expect(html).toContain("<br>");
+    expect(html).not.toContain('text-align:justify;">雾蒙蒙');
+  });
+
   it("hands the rendered article to the print pipeline and explains the next step", async () => {
     const user = userEvent.setup();
     const exportPdf = vi.fn();

@@ -1,7 +1,7 @@
 "use client";
 
 import { Eye, Save, Send, Undo2 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BlockEditor } from "@/components/block-editor";
 import { ComicStripControl } from "@/components/comic-strip-control";
 import { CoverPanel } from "@/components/cover-panel";
@@ -20,6 +20,7 @@ import type { ImageAssetPatch } from "@/features/images/repository";
 import type { ImagePlanGuideOptions } from "@/components/image-planning-panel";
 import type { ContentRevisionSnapshot, ArticleRevision, OutlineRevisionSnapshot } from "@/features/revisions/domain";
 import type { SourceDocument } from "@/features/sources/domain";
+import { inspectPublishReadiness } from "@/features/publishing/inspect-publish-readiness";
 import type { PublicLlmConfig } from "@/server/config";
 import { getWorkflowSteps, type WorkflowStep } from "./workflow";
 import type { OutlineVersionReviews, OutlineWorkspaceReview } from "./outline-state";
@@ -706,6 +707,16 @@ export function ArticleWorkspace({
   // 第四步走「帧生成 + 分段拼接」，视觉规划面板整体退场。
   const hasStoryboardSegments = Boolean(article.planning.storyboardSegments?.length);
 
+  // 预览侧的纯文字段清单必须与推送侧同源（同一份 inspectPublishReadiness）：
+  // 漏传时 text_only 的正文块在预览里退化成普通段落，预览与推送排版对不上。
+  const previewPlainTextIds = useMemo(
+    () =>
+      hasStoryboardSegments
+        ? inspectPublishReadiness(article, imageAssets).plainTextBlockIds
+        : [],
+    [article, imageAssets, hasStoryboardSegments]
+  );
+
   return (
     <section className="workspace-page" aria-labelledby="article-title">
       <header className="workspace-toolbar">
@@ -1036,6 +1047,7 @@ export function ArticleWorkspace({
             blocks={article.blocks}
             assets={imageAssets}
             stripFlow={hasStoryboardSegments}
+            plainTextBlockIds={previewPlainTextIds}
             onClose={() => setIsPreviewOpen(false)}
             publishDraft={
               wechatPublishEnabled

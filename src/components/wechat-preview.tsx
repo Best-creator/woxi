@@ -135,6 +135,7 @@ export function WechatPreview({
   blocks,
   assets = [],
   stripFlow = false,
+  plainTextBlockIds,
   copy = copyRichText,
   publishDraft,
   exportPdf = exportPreviewAsPdf,
@@ -145,6 +146,12 @@ export function WechatPreview({
   assets?: ImageAsset[];
   /** 有分镜设计的文章走纯段图流渲染，与推送侧共用同一份判定与渲染器。 */
   stripFlow?: boolean;
+  /**
+   * 纯文字段（text_only）的正文块 id：预览侧必须与推送侧同源
+   * （inspectPublishReadiness），漏传时这些块会退化成普通段落——
+   * 预览是卡片、推出去却是卡片，所见即所推就破在中间这步。
+   */
+  plainTextBlockIds?: ReadonlyArray<string>;
   copy?: RichCopy;
   /** 服务端配置了公众号凭据时提供；未提供则隐藏推送入口（只能复制粘贴）。 */
   publishDraft?: PublishWechatDraft;
@@ -164,9 +171,12 @@ export function WechatPreview({
   const html = useMemo(
     () =>
       stripFlow
-        ? renderWechatStripFlowHtml(blocks, assets, themeId, { includeResidualText: true })
+        ? renderWechatStripFlowHtml(blocks, assets, themeId, {
+            includeResidualText: true,
+            plainTextBlockIds: plainTextBlockIds ? new Set(plainTextBlockIds) : undefined
+          })
         : renderWechatHtml(blocks, themeId),
-    [blocks, assets, themeId, stripFlow]
+    [blocks, assets, themeId, stripFlow, plainTextBlockIds]
   );
   const plainText = useMemo(() => blocksToPlainText(blocks), [blocks]);
 
