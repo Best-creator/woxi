@@ -178,7 +178,25 @@ export function WechatPreview({
         : renderWechatHtml(blocks, themeId),
     [blocks, assets, themeId, stripFlow, plainTextBlockIds]
   );
-  const plainText = useMemo(() => blocksToPlainText(blocks), [blocks]);
+  // 复制全文同样排除封面块：封面是草稿头图不是正文，复制出去的文字里
+  // 不该出现「[配图：文章标题 封面]」这样的占位行（与渲染侧同一条跳过逻辑）。
+  const coverBlockIds = useMemo(() => {
+    const coverIds = new Set(
+      assets.filter((asset) => asset.type === "cover").map((asset) => asset.id)
+    );
+    return new Set(
+      blocks
+        .filter(
+          (block) =>
+            block.type === "image" && block.assetId && coverIds.has(block.assetId)
+        )
+        .map((block) => block.id)
+    );
+  }, [blocks, assets]);
+  const plainText = useMemo(
+    () => blocksToPlainText(blocks.filter((block) => !coverBlockIds.has(block.id))),
+    [blocks, coverBlockIds]
+  );
 
   async function handleCopy() {
     try {

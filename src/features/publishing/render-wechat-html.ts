@@ -152,6 +152,12 @@ export function renderWechatStripFlowHtml(
       .filter((asset) => asset.type === "comic_strip" && asset.status === "generated")
       .map((asset) => `/api/image-assets/${asset.id}/content`)
   );
+  // 封面块恒不进正文流：封面是公众号草稿的**头图**，由平台放在会话卡片上，不是正文内容。
+  // 预览开了 includeResidualText 时若不跳过，封面会作为「残留块」渲染出来，还带着
+  // altText 说明文字（「文章标题 封面」）——作者会误以为推出去就是这样（2026-09-21 用户被它困惑）。
+  const coverAssetIds = new Set(
+    assets.filter((asset) => asset.type === "cover").map((asset) => asset.id)
+  );
   const plainTextBlockIds = options.plainTextBlockIds;
   const content = [...blocks]
     .sort((left, right) => left.order - right.order)
@@ -162,6 +168,10 @@ export function renderWechatStripFlowHtml(
         return url
           ? `<section style="margin:0;"><img src="${escapeHtml(url)}" alt="${alt}" loading="lazy" style="display:block;width:100%;max-width:100%;height:auto;"></section>`
           : "";
+      }
+      // 与推送侧同一条跳过逻辑：封面块无论预览还是推送都不渲染进正文。
+      if (block.type === "image" && block.assetId && coverAssetIds.has(block.assetId)) {
+        return "";
       }
       const isPlainText = Boolean(plainTextBlockIds?.has(block.id));
       // 纯文字段的段落块渲染成文字卡（与段图文字带同款）；heading 等其他块照旧。

@@ -134,6 +134,38 @@ describe("renderWechatStripFlowHtml", () => {
     ).toContain('src="/api/image-assets/asset-1/content"');
   });
 
+  it("封面块恒不进正文流：预览开了残留文本也不渲染（封面是草稿头图不是正文）", () => {
+    // 回归（2026-09-21 用户被困惑）：预览把封面当残留块渲染，还带上 altText
+    // 说明文字（「文章标题 封面」）的 figcaption——推出去其实没有，预览误导。
+    const cover = { ...stripAsset("cover-1"), type: "cover" as const, anchorBlockId: null };
+    const withCover: ContentBlock[] = [
+      {
+        id: "cover-block",
+        type: "image",
+        content: "/api/image-assets/cover-1/content",
+        assetId: "cover-1",
+        altText: "文章标题 封面",
+        order: 0,
+        version: 1
+      },
+      ...blocks.map((block, index) => ({ ...block, order: index + 1 }))
+    ];
+
+    for (const options of [
+      undefined,
+      { includeResidualText: true }
+    ] as const) {
+      const html = renderWechatStripFlowHtml(withCover, [cover, ...assets], "ink", options);
+      expect(html).not.toContain('src="/api/image-assets/cover-1/content"');
+      expect(html).not.toContain("文章标题 封面");
+      expect(html).not.toContain("figcaption");
+    }
+    // 段图不受影响，照常渲染。
+    expect(
+      renderWechatStripFlowHtml(withCover, [cover, ...assets], "ink")
+    ).toContain('src="/api/image-assets/strip-1/content"');
+  });
+
   it("未生成的段图资产不算段图，其 image 块默认不渲染", () => {
     const pendingAssets = [
       stripAsset("strip-1"),
