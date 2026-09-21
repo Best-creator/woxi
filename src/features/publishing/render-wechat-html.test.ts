@@ -162,10 +162,10 @@ describe("renderWechatStripFlowHtml", () => {
       plainTextBlockIds: new Set(["plain-1"])
     });
 
-    // 卡片视觉：暖纸白底 + 描边 + 圆角 + 居中窄栏（与段图文字带同一套卡片语言）。
+    // 条带视觉：与段图文字带同一形态——内容区宽占比 91%、暖纸白底 + 描边 + 居中。
+    expect(html).toContain("width:91%");
     expect(html).toContain("background:#FCFAF4");
     expect(html).toContain("border:2px solid #E8E1D2");
-    expect(html).toContain("border-radius:16px");
     expect(html).toContain("text-align:center");
     // 13 字预算下 21 字文案断成两行，行间用 <br>，断行由服务端预排。
     expect(html).toContain("<br>");

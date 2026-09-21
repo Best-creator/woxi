@@ -138,8 +138,8 @@ describe("WechatPreview", () => {
     await user.click(screen.getByRole("button", { name: "复制到公众号" }));
 
     const html = copy.mock.calls[0][0] as string;
-    // 点名的纯文字段是米白卡片 + 服务端预断行，不是普通的两端对齐段落。
-    expect(html).toContain("max-width:260px");
+    // 点名的纯文字段是段图文字带同款条带（全宽 91%）+ 服务端预断行，不是普通的两端对齐段落。
+    expect(html).toContain("width:91%");
     expect(html).toContain("<br>");
     expect(html).not.toContain('text-align:justify;">雾蒙蒙');
   });

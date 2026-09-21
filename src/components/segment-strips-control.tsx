@@ -114,7 +114,7 @@ export function SegmentStripsControl({
     }
     const textOnlyCount = readiness.totalSegments - readiness.composableSegments;
     const textOnlyNote = textOnlyCount
-      ? `；另有 ${textOnlyCount} 段纯文字直接进正文，不拼图`
+      ? `；另有 ${textOnlyCount} 段纯文字以文字带进正文，不拼图`
       : "";
     return `已就绪 ${readiness.readySegments} 段，将拼成 ${readiness.composableSegments} 张段图${textOnlyNote}，文案会按所选字体与文字大小烘进图里。`;
   })();
@@ -292,7 +292,7 @@ export function SegmentStripsControl({
                       </div>
                       <span className="segment-strips-manifest-meta">
                         {isTextOnly
-                          ? "纯文字段 · 不拼段图，文案直接进正文"
+                          ? "纯文字段 · 不拼段图，文字带直接进正文"
                           : `帧 ${row.readyFrames}/${row.requiredFrames} · ${
                               row.hasCopy ? "文案就绪" : "文案不在正文"
                             }`}
