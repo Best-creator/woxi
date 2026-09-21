@@ -1,5 +1,9 @@
 import type { ContentBlock } from "@/features/articles/domain";
 import type { ImageAsset } from "@/features/images/domain";
+import {
+  TEXT_BAND_MAX_CHARS_PER_LINE,
+  wrapText
+} from "@/features/images/comic-strip";
 import { WECHAT_THEMES, type ThemeId, type WechatTheme } from "./themes";
 
 function escapeHtml(value: string) {
@@ -41,8 +45,33 @@ function renderKnowledgeCard(block: ContentBlock, theme: WechatTheme) {
   return `<section style="display:grid;gap:10px;margin:24px 0;padding:18px 20px;background:${theme.surface};border:1px solid ${theme.border};border-left:4px solid ${theme.accent};"><strong style="color:${theme.accent};font-size:16px;line-height:1.5;">${escapeHtml(title)}</strong>${items}</section>`;
 }
 
-function renderBlock(block: ContentBlock, theme: WechatTheme) {
-  switch (block.type) {
+// 纯文字段（text_only）正文卡的固定视觉参数：与段图文字带同一套卡片语言
+// （comic-strip.ts 的文字带 = 暖纸白底 + 描边 + 圆角 + 硬阴影）。不进主题——
+// 段图本身就是固定色烘死的像素，卡片跟着主题换色反而会与上下段图脱节。
+// 微信编辑器粘贴会过滤 box-shadow，硬阴影省略，靠底色 + 描边 + 圆角撑住卡片感。
+const PLAIN_TEXT_CARD_BACKGROUND = "#FCFAF4";
+const PLAIN_TEXT_CARD_BORDER = "#E8E1D2";
+const PLAIN_TEXT_CARD_TEXT = "#2C2C2A";
+const PLAIN_TEXT_CARD_FONT_SIZE = 16;
+
+/**
+ * 纯文字段（text_only）的正文卡：自成一段，视觉与段图里的文字带同款。
+ *
+ * 断行复用段图同一套 wrapText 三步算法（句读优先/禁则/孤行平衡）与 13 字口径——
+ * 「四个路由里的文字按标点换行」由此全覆盖：前三路由烘在段图里，纯文字段烘在这张卡里。
+ * 服务端预断行后任何屏宽下断点一致，不依赖客户端的自动折行。
+ */
+function renderPlainTextCard(block: ContentBlock) {
+  const lines = wrapText(
+    block.content,
+    TEXT_BAND_MAX_CHARS_PER_LINE * PLAIN_TEXT_CARD_FONT_SIZE,
+    PLAIN_TEXT_CARD_FONT_SIZE
+  );
+  const body = lines.map((line) => escapeHtml(line)).join("<br>");
+  return `<section style="margin:26px auto;padding:18px 20px;max-width:260px;box-sizing:border-box;background:${PLAIN_TEXT_CARD_BACKGROUND};border:2px solid ${PLAIN_TEXT_CARD_BORDER};border-radius:16px;text-align:center;"><p style="margin:0;color:${PLAIN_TEXT_CARD_TEXT};font-size:${PLAIN_TEXT_CARD_FONT_SIZE}px;line-height:1.9;">${body}</p></section>`;
+}
+
+function renderBlock(block: ContentBlock, theme: WechatTheme) {  switch (block.type) {
     case "heading": {
       const level = block.level ?? 2;
       const tag = level === 1 ? "h1" : level === 3 ? "h3" : "h2";
@@ -127,8 +156,10 @@ export function renderWechatStripFlowHtml(
           ? `<section style="margin:0;"><img src="${escapeHtml(url)}" alt="${alt}" loading="lazy" style="display:block;width:100%;max-width:100%;height:auto;"></section>`
           : "";
       }
-      const renderText =
-        options.includeResidualText || Boolean(plainTextBlockIds?.has(block.id));
+      const isPlainText = Boolean(plainTextBlockIds?.has(block.id));
+      // 纯文字段的段落块渲染成文字卡（与段图文字带同款）；heading 等其他块照旧。
+      if (isPlainText && block.type === "paragraph") return renderPlainTextCard(block);
+      const renderText = options.includeResidualText || isPlainText;
       return renderText ? renderBlock(block, theme) : "";
     })
     .join("");

@@ -144,4 +144,48 @@ describe("renderWechatStripFlowHtml", () => {
     expect(html).toContain('src="/api/image-assets/strip-1/content"');
     expect(html).not.toContain('src="/api/image-assets/strip-2/content"');
   });
+
+  it("纯文字段正文渲染成文字卡：与段图文字带同款视觉，且按标点预断行", () => {
+    // 一段 20 字无句读文案 + 显式标点文案：卡片自带居中窄栏，断点跟标点走。
+    const textOnlyBlocks: ContentBlock[] = [
+      { id: "s1", type: "image", content: "/api/image-assets/strip-1/content", altText: "段图", order: 0, version: 1 },
+      {
+        id: "plain-1",
+        type: "paragraph",
+        content: "雾蒙蒙的清晨小鹿踩着露水走进森林深处寻找蘑菇",
+        order: 1,
+        version: 1
+      },
+      { id: "s2", type: "image", content: "/api/image-assets/strip-2/content", altText: "段图", order: 2, version: 1 }
+    ];
+    const html = renderWechatStripFlowHtml(textOnlyBlocks, assets, "ink", {
+      plainTextBlockIds: new Set(["plain-1"])
+    });
+
+    // 卡片视觉：暖纸白底 + 描边 + 圆角 + 居中窄栏（与段图文字带同一套卡片语言）。
+    expect(html).toContain("background:#FCFAF4");
+    expect(html).toContain("border:2px solid #E8E1D2");
+    expect(html).toContain("border-radius:16px");
+    expect(html).toContain("text-align:center");
+    // 13 字预算下 21 字文案断成两行，行间用 <br>，断行由服务端预排。
+    expect(html).toContain("<br>");
+    expect(html).toContain("雾蒙蒙的清晨小鹿踩着露水");
+  });
+
+  it("预览模式（includeResidualText）下纯文字段同样是文字卡，残留块仍是普通段落", () => {
+    const html = renderWechatStripFlowHtml(
+      [
+        ...blocks,
+        { id: "plain-1", type: "paragraph", content: "纯文字段", order: 3, version: 1 }
+      ],
+      assets,
+      "ink",
+      { includeResidualText: true, plainTextBlockIds: new Set(["plain-1"]) }
+    );
+
+    // 纯文字段走卡片；普通残留导语走通用 <p>。
+    expect(html).toContain("background:#FCFAF4");
+    expect(html).toContain("纯文字段");
+    expect(html).toContain('<p style="margin:0 0 18px;');
+  });
 });
