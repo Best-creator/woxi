@@ -93,6 +93,7 @@ describe("inspectSegmentStrips", () => {
     expect(result).toEqual({
       totalSegments: 0,
       readySegments: 0,
+      composableSegments: 0,
       pendingFrames: 0,
       missingCopySegments: 0,
       segments: []
@@ -109,9 +110,61 @@ describe("inspectSegmentStrips", () => {
     expect(result).toMatchObject({
       totalSegments: 2,
       readySegments: 2,
+      composableSegments: 2,
       pendingFrames: 0,
       missingCopySegments: 0
     });
+  });
+
+  it("treats text-only segments as ready without frames or strips", () => {
+    // 纯文字段 0 帧天然就绪、不占 pending；拼图段数比总段数少 1；
+    // 它的文案块被删也不挡拼接（拼接根本不碰它）。
+    const segments = [
+      ...SEGMENTS,
+      {
+        id: "seg-3",
+        sectionKey: "s3",
+        title: "收束",
+        route: "text_only" as const,
+        copyBlockIds: ["p3"],
+        frameAssetIds: [],
+        order: 2
+      }
+    ];
+    const blocks = [
+      ...BLOCKS,
+      { id: "p3", type: "paragraph", content: "纯文字收束。", order: 4, segmentId: "seg-3", version: 1 }
+    ] as Article["blocks"];
+    const result = inspectSegmentStrips(article({
+      blocks,
+      planning: {
+        lengthPreset: "standard",
+        recommendedTotalWords: 1200,
+        confirmedOutlineRevisionId: null,
+        contentOutlineRevisionId: null,
+        storyboardSegments: segments
+      }
+    }), [frame("f1"), frame("f2a"), frame("f2b")]);
+
+    expect(result.totalSegments).toBe(3);
+    expect(result.composableSegments).toBe(2);
+    expect(result.readySegments).toBe(3);
+    expect(result.pendingFrames).toBe(0);
+    expect(result.missingCopySegments).toBe(0);
+    expect(result.segments[2]).toMatchObject({ route: "text_only", requiredFrames: 0, hasCopy: true });
+
+    // 文案被删的纯文字段不算 missing：拼接不消费它的块。
+    const withoutCopy = inspectSegmentStrips(article({
+      blocks: BLOCKS,
+      planning: {
+        lengthPreset: "standard",
+        recommendedTotalWords: 1200,
+        confirmedOutlineRevisionId: null,
+        contentOutlineRevisionId: null,
+        storyboardSegments: segments
+      }
+    }), [frame("f1"), frame("f2a"), frame("f2b")]);
+    expect(withoutCopy.missingCopySegments).toBe(0);
   });
 
   it("counts placeholder frames and missing assets as pending", () => {

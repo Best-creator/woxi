@@ -20,7 +20,7 @@ export class DemoStoryboardDesigner implements StoryboardDesigner {
     const storyComic = input.presentation === "story_comic";
     const segments: StoryboardDesignSegment[] = input.outline.map((section, index) => {
       const goal = section.goal?.trim() || section.title;
-      const route = demoRouteFor(index, input.outline.length);
+      const route = demoRouteFor(index, input.outline.length, storyComic);
       return {
         sectionKey: section.id,
         title: section.title,
@@ -80,10 +80,21 @@ export class DemoStoryboardDesigner implements StoryboardDesigner {
   }
 }
 
-function demoRouteFor(index: number, total: number): StoryboardRoute {
+/**
+ * 演示路由分配。讲解式维持旧三样（首段 图+文，中段 图+文+图，末段 文+图）；
+ * 剧情漫画从 2026-09-21 起带第四种路由 text_only（纯文字段，0 帧）：
+ * 每三段一段纯文字 + 末段固定纯文字，保证「纯文字占比 ≥30%」的红线压线达标
+ * （3 章 demo = 1/3）；同时 3 段里仍有 2 个对白帧（首段单帧 + 中段 iti 落点），
+ * 满足对白密度 ≥ 段数÷5 且最少 2 个的红线。
+ */
+function demoRouteFor(index: number, total: number, storyComic: boolean): StoryboardRoute {
   if (index === 0) return "image_text";
-  if (index === total - 1) return "text_image";
-  return "image_text_image";
+  if (!storyComic) {
+    if (index === total - 1) return "text_image";
+    return "image_text_image";
+  }
+  if (index === total - 1 || (index + 1) % 3 === 0) return "text_only";
+  return index % 2 === 1 ? "image_text_image" : "text_image";
 }
 
 function demoIllustratedCopy(goal: string, title: string): string {
@@ -95,6 +106,8 @@ function demoIllustratedCopy(goal: string, title: string): string {
 }
 
 function demoIllustratedFrames(route: StoryboardRoute, title: string, goal: string) {
+  // 纯文字段没有画面；正常流程不会给讲解式 demo 分到 text_only，兜底只为类型周全。
+  if (route === "text_only") return [];
   const scene = `纯白背景，主角站在讲解台前讲解「${goal}」，${DEFAULT_DRAWING_STYLE}`;
   if (route === "image_text_image") {
     return [
@@ -138,13 +151,17 @@ function demoStoryComicCopy(index: number): string {
 }
 
 /**
- * 剧情漫画的演示帧：同一物种的复数角色、各自分工，画面里一个字都不写
- * （真实设计器同样被红线禁止让生图模型画字）。
- * 台词在部分帧上带（对白 ≤10 字 / 旁白 ≤25 字，与真实红线同口径）、
- * 部分帧刻意不带——E2E 与组件测试靠它同时覆盖「有台词渲染橙条」
- * 与「旧帧无台词跳过渲染」两条路径。
+ * 剧情漫画的演示帧：同一物种的复数角色、各自分工。文字红线与真实设计器同口径——
+ * 旁白帧与无台词帧的画面里一个字都不写；**对白帧画进气泡**，prompt 末尾按
+ * 「画面文字：对白气泡『台词』」带上台词原句（红线会查台词是否写进 prompt）。
+ * 对白密度红线（全篇 ≥ 段数÷5 且最少 2 个）同样要满足：3 章 demo 的路由是
+ * [image_text, image_text_image, text_only]——首段单帧 + 中段 iti 落点帧各带一句
+ * dialogue，恰好 2 个达标；纯文字段没有帧，天然不参与对白与画面红线。
+ * E2E 与组件测试靠首段「单帧无旁白条 + 对白气泡」、中段「旁白橙条 + 对白气泡」
+ * 同时覆盖「旁白渲染橙条」「对白只在气泡里」「旧帧无台词跳过渲染」三条路径。
  */
 function demoStoryComicFrames(route: StoryboardRoute, title: string) {
+  if (route === "text_only") return [];
   const cast = "三只圆滚滚的柴犬，短腿、卷尾、都围着同一条蓝色围裙";
   const style = `纯白背景，${DEFAULT_DRAWING_STYLE}`;
   if (route === "image_text_image") {
@@ -155,7 +172,7 @@ function demoStoryComicFrames(route: StoryboardRoute, title: string) {
         speechLine: { kind: "narration" as const, text: "干活最卖力的，往往是饭量最大的。" }
       },
       {
-        prompt: `近景。同一场景的下一秒，箱子翻倒，三只柴犬一起摔在地上，最胖那只强撑体面但眼神已经垮下来。${style}`,
+        prompt: `近景。同一场景的下一秒，箱子翻倒，三只柴犬一起摔在地上，最胖那只强撑体面但眼神已经垮下来，旁边一只捂嘴憋笑看它。${style}。画面文字：对白气泡『说好的轮流呢！』`,
         altText: `${title}剧情分镜（翻了）`,
         speechLine: { kind: "dialogue" as const, text: "说好的轮流呢！" }
       }
@@ -163,8 +180,9 @@ function demoStoryComicFrames(route: StoryboardRoute, title: string) {
   }
   return [
     {
-      prompt: `全景。${cast}，一只蹲在门口发呆，两只挤在门缝边探头探脑，都盯着同一只打翻的食盆。${style}`,
-      altText: `${title}剧情分镜`
+      prompt: `全景。${cast}，一只蹲在门口发呆，另外两只挤在门缝边探头探脑互相对吼，都盯着同一只打翻的食盆。${style}。画面文字：对白气泡『先吃的是赢家！』`,
+      altText: `${title}剧情分镜`,
+      speechLine: { kind: "dialogue" as const, text: "先吃的是赢家！" }
     }
   ];
 }

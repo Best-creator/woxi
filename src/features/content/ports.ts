@@ -173,6 +173,11 @@ export interface ReviewableStoryboardSegment {
   /** 该段文案所在的正文块 id（标题块 + 文案块），用于把问题定位回界面。 */
   blockIds: string[];
   title: string;
+  /**
+   * 段的呈现路由（新快照才带）：纯文字段（text_only）不参与对白密度与段图类红线，
+   * 全篇「纯文字占比 ≥30%」也按它数。老快照缺省时按非纯文字段处理。
+   */
+  route?: StoryboardRoute;
   copy: string;
   frames: ReviewableStoryboardFrame[];
 }
@@ -185,9 +190,9 @@ export interface ReviewContentInput {
   outline: GenerateContentOutlineSection[];
   sourceContext?: string;
   /**
-   * 呈现形态：story_comic 时审核要按剧情漫画的红线判（每段 60 字、每句 22 字、
-   * 台词长度、画面不许写字、总字数预算），并由服务端补一遍机械检查；
-   * illustrated（默认）按原口径。
+   * 呈现形态：story_comic 时审核要按剧情漫画的红线判（每段 60 字、每句 26 字、
+   * 台词长度、画面不许写字、总字数预算——具体阈值见 story-comic-rules），
+   * 并由服务端补一遍机械检查；illustrated（默认）按原口径。
    */
   presentation?: StoryboardPresentation;
   /**

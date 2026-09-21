@@ -1,5 +1,11 @@
 import { z } from "zod";
 import { styleProfileSchema } from "@/features/content/schemas";
+import {
+  LENGTH_PRESET_IDS,
+  MAX_RECOMMENDED_WORDS,
+  MIN_RECOMMENDED_WORDS,
+  STORYBOARD_ROUTES
+} from "@/features/articles/domain";
 
 export const articleStatusSchema = z.enum([
   "draft",
@@ -35,7 +41,8 @@ export const storyboardSegmentSchema = z.object({
   id: z.string().min(1),
   sectionKey: z.string().min(1),
   title: z.string().min(1).max(120),
-  route: z.enum(["image_text", "text_image", "image_text_image"]),
+  // 从 STORYBOARD_ROUTES 派生（含 text_only），别手抄第二份：漏了就是「下拉里能选、保存时 400」。
+  route: z.enum(STORYBOARD_ROUTES),
   copyBlockIds: z.array(z.string().min(1)),
   frameAssetIds: z.array(z.string().min(1)),
   order: z.number().int().nonnegative()
@@ -50,8 +57,13 @@ export const outlineSectionSchema = z.object({
 });
 
 export const articlePlanningSchema = z.object({
-  lengthPreset: z.enum(["short", "standard", "deep"]),
-  recommendedTotalWords: z.number().int().min(800).max(2000).nullable(),
+  lengthPreset: z.enum(LENGTH_PRESET_IDS),
+  recommendedTotalWords: z
+    .number()
+    .int()
+    .min(MIN_RECOMMENDED_WORDS)
+    .max(MAX_RECOMMENDED_WORDS)
+    .nullable(),
   confirmedOutlineRevisionId: z.string().min(1).nullable(),
   contentOutlineRevisionId: z.string().min(1).nullable(),
   // 漫画长图排法决策（视觉规划器写入）：原样透传，消费端用 isComicStripMode 校验。

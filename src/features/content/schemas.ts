@@ -1,22 +1,26 @@
 import { z } from "zod";
+import {
+  MAX_RECOMMENDED_WORDS,
+  STORYBOARD_ROUTES
+} from "@/features/articles/domain";
 import type { ContentReviewResult } from "./ports";
+import {
+  STORY_COMIC_SEGMENT_TOLERANCE,
+  storyComicSegmentTarget
+} from "./story-comic-rules";
 import {
   MAX_AVOID_ITEM_LENGTH,
   MAX_AVOID_ITEMS,
   MAX_CUSTOM_INSTRUCTIONS_LENGTH,
+  STYLE_PRESET_IDS,
   type StyleProfile
 } from "./style-profile";
 
-export const stylePresetSchema = z.enum([
-  "popular_science_teacher",
-  "plain_explainer",
-  "rational_analyst",
-  "friend_chat",
-  "storyteller",
-  "funny_storyteller",
-  "knowledge_cards",
-  "custom"
-]);
+/**
+ * 预设清单从 `style-profile.ts` 派生：加新预设不必再来这里补一份。
+ * 旧写法手抄一份 id 列表，漏登记就是「下拉里能选、提交时 400」。
+ */
+export const stylePresetSchema = z.enum(STYLE_PRESET_IDS);
 
 export const audienceSchema = z.enum(["general_beginner", "office_desk", "senior_reader"]);
 
@@ -35,8 +39,11 @@ export const styleProfileSchema = z.object({
   avoid: z.array(z.string().trim().min(1).max(MAX_AVOID_ITEM_LENGTH)).max(MAX_AVOID_ITEMS)
 }) satisfies z.ZodType<StyleProfile>;
 
-/** 分镜段的呈现路由；取值与 articles/domain 的 StoryboardRoute 一致。 */
-export const storyboardRouteSchema = z.enum(["image_text", "text_image", "image_text_image"]);
+/**
+ * 分镜段的呈现路由；取值从 articles/domain 的 STORYBOARD_ROUTES 派生，别再手抄第二份
+ * （2026-09-21 加 text_only 时就把三处手抄枚举收敛成了同一份）。
+ */
+export const storyboardRouteSchema = z.enum(STORYBOARD_ROUTES);
 
 /**
  * 帧的台词/旁白。text 上限 30 是**结构闸**（放得进 JSON 就收）：
@@ -60,12 +67,32 @@ export const storyboardDesignSegmentSchema = z.object({
   title: z.string().trim().min(1).max(60),
   route: storyboardRouteSchema,
   copy: z.string().trim().min(1).max(2_000),
-  frames: z.array(storyboardDesignFrameSchema).min(1).max(2)
+  /**
+   * 帧数下限不设（0 帧是 text_only 纯文字段的合法形态）；每段帧数与路由的**精确对应**
+   * 由 validateStoryboardDesign 的结构闸把关——那里的报错才带「该路由需要几帧」。
+   */
+  frames: z.array(storyboardDesignFrameSchema).max(2)
 });
+
+/**
+ * segments 数组的结构上限。这是**结构闸**（放得进 JSON 就收），不是内容红线——
+ * 段数够不够、每段有没有超 60 字，一律交给审核侧的红线闸说。
+ *
+ * 上限**由段数反推公式推出**，不写死：预算上限（`MAX_RECOMMENDED_WORDS`，深度档 2000）
+ * ÷ 55 ≈ 36 段，加「允许上下浮动两段」再留两段余量就是 40。这样改长度档位区间
+ * 会自动把闸门一起抬起来，不会出现「档位涨了、闸门没涨」的错位。
+ *
+ * 2026-09-20 真实模型验收就栽在这里：上限还停在讲解式时代的 16，而剧情漫画提示词
+ * 按 1000 字要 18 段，模型老老实实照提示词产出却被 schema 判成
+ * `Too big: expected array to have <=16 items`——看着像模型写错，其实是闸门没跟着公式走。
+ * `schemas.test.ts` 有守卫测试盯着这条不变量。
+ */
+export const MAX_STORYBOARD_SEGMENTS =
+  storyComicSegmentTarget(MAX_RECOMMENDED_WORDS) + STORY_COMIC_SEGMENT_TOLERANCE + 2;
 
 export const storyboardDesignSchema = z.object({
   title: z.string().trim().min(1).max(120),
-  segments: z.array(storyboardDesignSegmentSchema).min(1).max(16)
+  segments: z.array(storyboardDesignSegmentSchema).min(1).max(MAX_STORYBOARD_SEGMENTS)
 });
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -137,6 +164,14 @@ function normalizeContentReview(value: unknown) {
   };
 }
 
+/**
+ * 一条审核结果最多能带多少条意见。上限同样跟着段数走：极端情况是「每段都被贴一条红线」，
+ * 再给几条全篇问题留位置，所以是段数上限 + 8。旧值 24 是讲解式（段数上限 16）时代的数，
+ * 段数抬上来后会把一份正常审核整份作废。服务端自己贴的机械红线不经过这里（净化后才追加），
+ * 这条只拦模型乱喷。
+ */
+export const MAX_REVIEW_ISSUES = MAX_STORYBOARD_SEGMENTS + 8;
+
 const contentReviewIssueSchema = z.object({
   blockIds: z.array(z.string().trim().min(1).max(128)).max(24),
   severity: z.enum(["warning", "blocking"]),
@@ -154,5 +189,5 @@ export const contentReviewResultSchema = z.preprocess(normalizeContentReview, z.
   outlineCoverage: z.number().int().min(1).max(5),
   sourceFidelity: z.number().int().min(1).max(5).nullable(),
   styleMatch: z.number().int().min(1).max(5),
-  issues: z.array(contentReviewIssueSchema).max(24)
+  issues: z.array(contentReviewIssueSchema).max(MAX_REVIEW_ISSUES)
 })) satisfies z.ZodType<ContentReviewResult>;

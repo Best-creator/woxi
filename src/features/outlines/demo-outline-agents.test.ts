@@ -39,6 +39,22 @@ describe("demo outline agents", () => {
       .toBe(outline.recommendedTotalWords);
   });
 
+  it("plans the new brief tier inside its own narrow range", async () => {
+    const generator = new DemoOutlineGenerator();
+
+    const outline = await generator.generate({
+      topic: "机会成本",
+      targetAudience: "零基础读者",
+      lengthPreset: "brief",
+      wordRange: { min: 550, max: 650 }
+    });
+
+    expect(outline.recommendedTotalWords).toBeGreaterThanOrEqual(550);
+    expect(outline.recommendedTotalWords).toBeLessThanOrEqual(650);
+    expect(outline.outline.reduce((total, section) => total + section.recommendedWords, 0))
+      .toBe(outline.recommendedTotalWords);
+  });
+
   it("reports source support when source context is available", async () => {
     const reviewer = new DemoOutlineReviewer();
 

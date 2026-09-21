@@ -9,34 +9,50 @@ coverage、granularity、beginnerFriendliness、logicalOrder、sourceSupport（�
 
 type JsonClient = Pick<OpenAiJsonClient, "complete">;
 
-function invalidOutlineReview(): never {
-  throw new Error("大纲审核结果不符合要求");
-}
-
 function sectionKeys(input: ReviewOutlineInput) {
-  const keys = input.outline.map((section) => section.key ?? section.id);
-  if (keys.some((key) => !key)) invalidOutlineReview();
-  return new Set(keys);
+  return new Set(
+    input.outline.map((section) => section.key ?? section.id).filter((key): key is string => Boolean(key))
+  );
 }
 
-function validateOutlineReview(result: OutlineReviewResult, input: ReviewOutlineInput) {
-  const keys = sectionKeys(input);
+/** 把模型可能给的位置编号（section-2）映射回真实章节键；映射不了原样返回。 */
+function resolveSectionKey(sectionKey: string, input: ReviewOutlineInput): string {
+  const position = /^section-(\d+)$/.exec(sectionKey)?.[1];
+  const index = position ? Number(position) - 1 : -1;
   const orderedKeys = input.outline.map((section) => section.key ?? section.id).filter((key): key is string => Boolean(key));
-  const normalized = {
-    ...result,
-    issues: result.issues.map((issue) => {
-      const position = /^section-(\d+)$/.exec(issue.sectionKey)?.[1];
-      const index = position ? Number(position) - 1 : -1;
-      return index >= 0 && orderedKeys[index] ? { ...issue, sectionKey: orderedKeys[index] } : issue;
-    })
-  };
-  if (normalized.issues.some((issue) => !keys.has(issue.sectionKey))) invalidOutlineReview();
-  if (!input.sourceContext?.trim() && normalized.sourceSupport !== null) invalidOutlineReview();
-  if (input.sourceContext?.trim() && normalized.sourceSupport === null) invalidOutlineReview();
-  if (normalized.status === "blocked" && !normalized.issues.some((issue) => issue.severity === "blocking")) {
-    invalidOutlineReview();
+  return index >= 0 && orderedKeys[index] ? orderedKeys[index]! : sectionKey;
+}
+
+/**
+ * 语义校验：返回给模型的纠错说明，合规时返回 null。
+ *
+ * 通过 client 的 validate 钩子接入纠错重试——语义错误（引用不存在的章节、
+ * 资料口径自相矛盾、blocked 却没有 blocking 级问题）与 JSON 结构错误同款待遇：
+ * 附上具体问题重试一次，而不是直接把 502 甩给作者。
+ */
+function semanticComplaint(result: OutlineReviewResult, input: ReviewOutlineInput): string | null {
+  const keys = sectionKeys(input);
+  if (result.issues.some((issue) => !keys.has(resolveSectionKey(issue.sectionKey, input)))) {
+    return "issues 里的 sectionKey 不在输入给出的章节键集合中";
   }
-  return normalized;
+  const hasSource = Boolean(input.sourceContext?.trim());
+  if (!hasSource && result.sourceSupport !== null) return "没有资料时 sourceSupport 必须为 null";
+  if (hasSource && result.sourceSupport === null) return "有资料时 sourceSupport 必须是 1-5 的整数";
+  if (result.status === "blocked" && !result.issues.some((issue) => issue.severity === "blocking")) {
+    return "status 为 blocked 时至少要有一个 severity 为 blocking 的 issue";
+  }
+  return null;
+}
+
+/** 纯转换：把位置编号（section-2）换成真实章节键；语义校验已在 client 层通过。 */
+function normalizeOutlineReview(result: OutlineReviewResult, input: ReviewOutlineInput): OutlineReviewResult {
+  return {
+    ...result,
+    issues: result.issues.map((issue) => ({
+      ...issue,
+      sectionKey: resolveSectionKey(issue.sectionKey, input)
+    }))
+  };
 }
 
 export class OpenAiOutlineReviewer implements OutlineReviewer {
@@ -54,10 +70,11 @@ export class OpenAiOutlineReviewer implements OutlineReviewer {
         }))
       },
       schema: outlineReviewResultSchema,
+      validate: (candidate) => semanticComplaint(candidate, input),
       // 审核是单次打分调用，实测 glm-5.3-flash ~10s、深度推理模型 ~100s；
       // 180s 已有充足裕量，超时后失败快速可见而不是干等 10 分钟。
       timeoutMs: 180_000
     });
-    return validateOutlineReview(result, input);
+    return normalizeOutlineReview(result, input);
   }
 }

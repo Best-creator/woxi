@@ -82,9 +82,11 @@ describe("content generate route", () => {
 
     expect(response.status).toBe(200);
     const segments = ((await response.json()) as {
-      article: { planning: { storyboardSegments: { frameAssetIds: string[] }[] } };
+      article: { planning: { storyboardSegments: { route: string; frameAssetIds: string[] }[] } };
     }).article.planning.storyboardSegments;
+    // text_only 段 0 帧 0 资产是设计本身；只有带画面的段才必须有帧资产。
     for (const segment of segments) {
+      if (segment.route === "text_only") continue;
       expect(segment.frameAssetIds.length).toBeGreaterThan(0);
     }
   });

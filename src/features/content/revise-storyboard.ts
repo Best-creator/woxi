@@ -151,7 +151,9 @@ function restoreCurrentDesign(
         : [];
     });
     // 结构残缺的段（块或帧丢失）不进修订输入：模型看不到就改不到，落库时随新设计退役。
-    if (!copy.trim() || !frames.length) continue;
+    // text_only 段本来就 0 帧，不能因「无帧」被当成残缺——它的文案要留在修订输入里，
+    // 否则整章从 currentDesign 消失，结构闸会误报「遗漏章节」。
+    if (!copy.trim() || (plan.route !== "text_only" && !frames.length)) continue;
     pairs.push({
       plan,
       design: {
@@ -229,6 +231,9 @@ export async function reviseStoryboard(
   }
 
   const model = resolveContentModel(command.model, dependencies.defaultModel);
+  // 形态从文章推断（生成时就落库了）：修订必须用与初版同一套编排提示词与红线，
+  // 展开正文块时也按它决定要不要产出标题块（剧情漫画的段名不进正文）。
+  const presentation = resolveStoryboardPresentation(article.planning);
   const reviseInput: ReviseStoryboardDesignInput = {
     topic: article.topic,
     targetAudience: describeAudience(command.styleProfile.audience),
@@ -242,8 +247,7 @@ export async function reviseStoryboard(
     })),
     recommendedTotalWords: article.planning.recommendedTotalWords as number,
     styleProfile: command.styleProfile,
-    // 形态从文章推断（生成时就落库了）：修订必须用与初版同一套编排提示词与红线。
-    presentation: resolveStoryboardPresentation(article.planning),
+    presentation,
     currentDesign: {
       title: article.title,
       segments: currentPairs.map((pair) => pair.design)
@@ -307,18 +311,21 @@ export async function reviseStoryboard(
     }
     replacedSegments += 1;
     const segmentId = randomUUID();
-    const headingId = randomUUID();
     const copyParts = splitStoryboardCopy(segment.copy);
     const copyIds = copyParts.map(() => randomUUID());
-    textBlocks.push({
-      id: headingId,
-      type: "heading",
-      content: segment.title,
-      order: textBlocks.length,
-      level: 2,
-      segmentId,
-      version: 1
-    });
+    // 与初版同一口径：讲解式才产标题块，剧情漫画的段名只留在计划里当内部段名。
+    const headingId = presentation === "story_comic" ? null : randomUUID();
+    if (headingId) {
+      textBlocks.push({
+        id: headingId,
+        type: "heading",
+        content: segment.title,
+        order: textBlocks.length,
+        level: 2,
+        segmentId,
+        version: 1
+      });
+    }
     copyParts.forEach((part, index) => {
       textBlocks.push({
         id: copyIds[index]!,
@@ -334,7 +341,7 @@ export async function reviseStoryboard(
       sectionKey: segment.sectionKey,
       title: segment.title,
       route: segment.route,
-      copyBlockIds: [headingId, ...copyIds],
+      copyBlockIds: headingId ? [headingId, ...copyIds] : copyIds,
       frames: segment.frames.map((frame) => ({
         prompt: frame.prompt,
         altText: frame.altText,
@@ -345,6 +352,7 @@ export async function reviseStoryboard(
 
   // 快照随版本保存本次修订后的设计：保留段记下帧资产 id 与描述符（图还在），
   // 替换段记下帧描述符（恢复这一版时按它重建占位帧重新出图）。
+  // frameAssetIds 与 planning 同口径恒为数组（text_only / 新替换段 = []），不省略字段。
   const assetById = new Map(assets.map((asset) => [asset.id, asset]));
   const snapshotSegments: StoryboardSnapshotSegment[] = plans.map((plan, index) => ({
     id: plan.id,
@@ -368,9 +376,7 @@ export async function reviseStoryboard(
             : [];
         })
       : plan.frames,
-    ...(plan.retainedFrameAssetIds?.length
-      ? { frameAssetIds: [...plan.retainedFrameAssetIds] }
-      : {})
+    frameAssetIds: [...(plan.retainedFrameAssetIds ?? [])]
   }));
 
   // 落库第一步：正文块与版本（reason=review_applied，与改大纲同款）。

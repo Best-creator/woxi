@@ -94,6 +94,7 @@ export function StoryboardSegmentList({
       {cards.map(({ segment, blocks: cardBlocks, typeCountSeed }) => {
         const required = storyboardFrameCount(segment.route);
         const routeMismatch = segment.frameAssetIds.length !== required;
+        const isTextOnly = segment.route === "text_only";
         return (
           <article
             className="storyboard-segment-card"
@@ -120,7 +121,9 @@ export function StoryboardSegmentList({
 
             {routeMismatch ? (
               <p className="storyboard-segment-warning" role="status">
-                该排法需要 {required} 帧，当前 {segment.frameAssetIds.length} 帧
+                {isTextOnly
+                  ? "纯文字段不配画面；切回其他排法可恢复这些帧的占位"
+                  : `该排法需要 ${required} 帧，当前 ${segment.frameAssetIds.length} 帧`}
               </p>
             ) : null}
 
@@ -146,7 +149,11 @@ export function StoryboardSegmentList({
                 })}
               </ul>
             ) : (
-              <p className="storyboard-segment-warning" role="status">这一段还没有分镜帧</p>
+              <p className="storyboard-segment-warning" role="status">
+                {isTextOnly
+                  ? "纯文字段：不配画面，文案作为普通正文段落排在段图之间"
+                  : "这一段还没有分镜帧"}
+              </p>
             )}
 
             {cardBlocks.length ? (

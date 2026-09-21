@@ -37,6 +37,11 @@ export interface PublishReadiness {
   totalSegments: number;
   missingStrips: MissingStripSegment[];
   residualBlocks: ResidualPublishBlock[];
+  /**
+   * 纯文字段（text_only）的文案块 id：段图流里它们不是残留块，而是要
+   * **始终渲染**的普通图文——推送门与渲染器都以这份清单为准。
+   */
+  plainTextBlockIds: string[];
   /** 第一段成稿文案的开头（≤50 字，微信 digest 上限 120、过长的意义不大）。 */
   suggestedDigest: string;
 }
@@ -58,6 +63,7 @@ export function inspectPublishReadiness(
       totalSegments: 0,
       missingStrips: [],
       residualBlocks: [],
+      plainTextBlockIds: [],
       suggestedDigest: ""
     };
   }
@@ -103,8 +109,19 @@ export function inspectPublishReadiness(
         block.type === "image" ? block.altText || "未命名配图" : block.content.trim()
     }));
 
+  // 纯文字段（text_only）本来就不拼段图：它的文案以普通正文块随段图序列一起发布，
+  // 不算「没拼完」；同时这些块全部记入 plainTextBlockIds 交给渲染器与推送门，
+  // 让它们免于「残留块」的 force 门（残留块的判定用 copyBlockIds 本就覆盖了它们）。
+  const plainTextBlockIds = new Set<string>();
+  for (const segment of segments) {
+    if (segment.route !== "text_only") continue;
+    for (const blockId of segment.copyBlockIds) plainTextBlockIds.add(blockId);
+  }
+
   const missingStrips = segments
-    .filter((segment) => !strippedSegmentIds.has(segment.id))
+    .filter(
+      (segment) => segment.route !== "text_only" && !strippedSegmentIds.has(segment.id)
+    )
     .map((segment) => ({ id: segment.id, title: segment.title }));
 
   const firstSegment = segments[0] as (typeof segments)[number];
@@ -123,6 +140,7 @@ export function inspectPublishReadiness(
     totalSegments: segments.length,
     missingStrips,
     residualBlocks,
+    plainTextBlockIds: [...plainTextBlockIds],
     suggestedDigest
   };
 }

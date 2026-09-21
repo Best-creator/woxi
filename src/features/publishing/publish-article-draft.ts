@@ -94,8 +94,8 @@ export type PublishArticleDraftResult =
 /**
  * 把文章推送到公众号草稿箱，按「有无分镜设计」走两条路：
  *
- * - 纯段图流（有 planning.storyboardSegments）：正文必须全部拼成段图，
- *   推送内容 = 封面 + 段图序列（无可复制正文文字）；残留块默认拒推，
+ * - 纯段图流（有 planning.storyboardSegments）：每个拼图段都必须已拼好段图，
+ *   推送内容 = 封面 + 段图序列 + 纯文字段（text_only）的正文图文；残留块默认拒推，
  *   作者 force 确认后保留为段图之间的图文；digest 取第一段文案开头显式传入。
  * - 旧混合流（无分镜设计的文章）：行为与历史完全一致——hasText 门 +
  *   通用块渲染，digest 留空由微信抓取正文。
@@ -161,7 +161,10 @@ export async function publishArticleDraft(
   const contentHtml = stripFlow
     ? renderWechatStripFlowHtml(article.blocks, assets, themeId, {
         // 走到这里时 residualBlocks 非空必然是 force 放行：残留块按作者意愿保留。
-        includeResidualText: readiness.residualBlocks.length > 0
+        includeResidualText: readiness.residualBlocks.length > 0,
+        // 纯文字段的文案是设计出来的「段图之间的图文」，始终渲染——
+        // 不传的话残留块为零的干净文章会把纯文字段从草稿里静默丢掉。
+        plainTextBlockIds: new Set(readiness.plainTextBlockIds)
       })
     : renderWechatHtml(article.blocks, themeId);
   // 纯段图正文没有文字可让微信抓摘要，必须显式给；旧流留空维持微信默认行为。

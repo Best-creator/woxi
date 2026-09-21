@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
+import type { OpenAiJsonClient } from "@/features/llm/openai-json-client";
 import { OpenAiOutlineReviewer } from "./openai-outline-reviewer";
 
 const reviewInput = {
@@ -10,9 +11,49 @@ const reviewInput = {
   ]
 };
 
+type CompleteFn = Pick<OpenAiJsonClient, "complete">["complete"];
+
+/**
+ * 模拟真实 JsonClient 的行为契约：schema（mock 里略过）之后执行 validate 钩子，
+ * 语义不合规就抛与 openai-json-client 同款的错误文案。
+ * 合法值测试也走它——否则「语义校验放行合法结果」这条根本没被测到。
+ * 不用 vi.fn：它对泛型函数的类型推导会退化成 unknown。
+ */
+function fakeClient(payload: unknown) {
+  const calls: Array<Record<string, unknown>> = [];
+  const complete: CompleteFn = async (request) => {
+    calls.push(request as unknown as Record<string, unknown>);
+    const validate = request.validate as ((result: unknown) => string | null) | undefined;
+    if (validate) {
+      const complaint = validate(payload);
+      if (complaint) throw new Error(`语言模型服务返回了无效结果（${complaint}），请稍后重试。`);
+    }
+    return payload as never;
+  };
+  return { complete, calls };
+}
+
+/** 同 fakeClient，但按调用次序依次返回多个载荷（模拟一次坏、一次好的重试序列）。 */
+function fakeQueuedClient(payloads: unknown[]) {
+  const queue = [...payloads];
+  const calls: Array<Record<string, unknown>> = [];
+  const complete: CompleteFn = async (request) => {
+    calls.push(request as unknown as Record<string, unknown>);
+    const payload = queue.shift();
+    if (!payload) throw new Error("fake client ran out of payloads");
+    const validate = request.validate as ((result: unknown) => string | null) | undefined;
+    if (validate) {
+      const complaint = validate(payload);
+      if (complaint) throw new Error(`语言模型服务返回了无效结果（${complaint}），请稍后重试。`);
+    }
+    return payload as never;
+  };
+  return { complete, calls };
+}
+
 describe("OpenAiOutlineReviewer", () => {
   it("accepts a passed independent review without source context only when source support is null", async () => {
-    const complete = vi.fn().mockResolvedValue({
+    const { complete, calls } = fakeClient({
       status: "passed",
       summary: "结构完整且适合零基础读者。",
       coverage: 5,
@@ -30,14 +71,14 @@ describe("OpenAiOutlineReviewer", () => {
 
     expect(result.status).toBe("passed");
     expect(result.sourceSupport).toBeNull();
-    expect(complete).toHaveBeenCalledWith(expect.objectContaining({
+    expect(calls[0]).toMatchObject({
       timeoutMs: 180_000,
       systemPrompt: expect.stringContaining("status")
-    }));
+    });
   });
 
   it("rejects a review issue that cites a section outside the input outline", async () => {
-    const complete = vi.fn().mockResolvedValue({
+    const { complete } = fakeClient({
       status: "needs_revision",
       summary: "有一个章节需要调整。",
       coverage: 4,
@@ -51,11 +92,12 @@ describe("OpenAiOutlineReviewer", () => {
     });
     const reviewer = new OpenAiOutlineReviewer({ complete });
 
-    await expect(reviewer.review(reviewInput)).rejects.toThrow("大纲审核结果不符合要求");
+    // 语义校验失败走 client 的纠错重试通道，最终报错带具体问题而不是一句空话。
+    await expect(reviewer.review(reviewInput)).rejects.toThrow("sectionKey");
   });
 
   it("accepts a needs-revision review that cites an input section", async () => {
-    const complete = vi.fn().mockResolvedValue({
+    const { complete } = fakeClient({
       status: "needs_revision",
       summary: "第二节需要补一个具体例子。",
       coverage: 4,
@@ -76,7 +118,7 @@ describe("OpenAiOutlineReviewer", () => {
   });
 
   it("maps positional section keys from provider review responses", async () => {
-    const complete = vi.fn().mockResolvedValue({
+    const { complete } = fakeClient({
       status: "needs_revision",
       summary: "第二节需要补充证据。",
       coverage: 4,
@@ -96,7 +138,7 @@ describe("OpenAiOutlineReviewer", () => {
   });
 
   it("rejects a blocked review unless it contains a blocking issue", async () => {
-    const complete = vi.fn().mockResolvedValue({
+    const { complete } = fakeClient({
       status: "blocked",
       summary: "缺少必要内容。",
       coverage: 1,
@@ -110,12 +152,12 @@ describe("OpenAiOutlineReviewer", () => {
     });
     const reviewer = new OpenAiOutlineReviewer({ complete });
 
-    await expect(reviewer.review(reviewInput)).rejects.toThrow("大纲审核结果不符合要求");
+    await expect(reviewer.review(reviewInput)).rejects.toThrow("blocking");
   });
 
   it("accepts a blocked review with a blocking issue and rejects source support without sources", async () => {
-    const complete = vi.fn()
-      .mockResolvedValueOnce({
+    const { complete } = fakeQueuedClient([
+      {
         status: "blocked",
         summary: "核心定义缺失，无法判断章节是否正确。",
         coverage: 1,
@@ -126,8 +168,8 @@ describe("OpenAiOutlineReviewer", () => {
         hiddenPrerequisites: ["读者需要先理解最佳替代选择。"],
         complexDependencies: ["后续章节依赖尚未定义的核心概念。"],
         issues: [{ sectionKey: "section-a", severity: "blocking", message: "先定义核心概念。" }]
-      })
-      .mockResolvedValueOnce({
+      },
+      {
         status: "passed",
         summary: "结构完整。",
         coverage: 5,
@@ -138,10 +180,11 @@ describe("OpenAiOutlineReviewer", () => {
         hiddenPrerequisites: [],
         complexDependencies: [],
         issues: []
-      });
+      }
+    ]);
     const reviewer = new OpenAiOutlineReviewer({ complete });
 
     await expect(reviewer.review(reviewInput)).resolves.toMatchObject({ status: "blocked" });
-    await expect(reviewer.review(reviewInput)).rejects.toThrow("大纲审核结果不符合要求");
+    await expect(reviewer.review(reviewInput)).rejects.toThrow("sourceSupport");
   });
 });

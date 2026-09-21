@@ -79,13 +79,13 @@ test.describe("content workflow", () => {
     await expect(
       page.getByRole("heading", { name: "用大白话讲清楚：什么是机会成本" })
     ).toBeVisible();
-    // 第三步重排为「设计正文分镜」：demo 设计器逐章一段，排法覆盖三种
-    // （首段 图+文 / 中段 图+文+图 / 末段 文+图）。
+    // 第三步重排为「设计正文分镜」：demo 设计器逐章一段，排法覆盖三种拼图排法 + 纯文字
+    // （首段 图+文 / 中段 图+文+图 / 末段 纯文字——纯文字占比 1/3 压线 ≥30% 红线）。
     const segmentCards = page.locator(".storyboard-segment-card");
     await expect(segmentCards).toHaveCount(3);
     await expect(segmentCards.nth(0).getByRole("combobox")).toHaveValue("image_text");
     await expect(segmentCards.nth(1).getByRole("combobox")).toHaveValue("image_text_image");
-    await expect(segmentCards.nth(2).getByRole("combobox")).toHaveValue("text_image");
+    await expect(segmentCards.nth(2).getByRole("combobox")).toHaveValue("text_only");
     await expect(page.getByRole("button", { name: "查看正文 v1" })).toBeVisible();
     // 审核为可选步骤：未审核时确认按钮可用，文案为「直接确认（未审核）」。
     await expect(page.getByRole("button", { name: "直接确认（未审核）" })).toBeEnabled();

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { LENGTH_PRESET_IDS } from "@/features/articles/domain";
 import { generateOutline, type GenerateOutlineDependencies } from "@/features/outlines/generate-outline";
 import { getArticleRepository, getOutlineDefaultModel, getOutlineGenerator, getOutlineWorkflowRepository, getSourceRepository } from "@/server/services";
 
@@ -12,7 +13,7 @@ interface RouteContext {
 const generateRequestSchema = z.object({
   expectedUpdatedAt: z.iso.datetime(),
   model: z.string().trim().min(1).optional(),
-  lengthPreset: z.enum(["short", "standard", "deep"])
+  lengthPreset: z.enum(LENGTH_PRESET_IDS)
 });
 
 export function createOutlineGenerateRouteHandler(dependencies: GenerateOutlineDependencies) {

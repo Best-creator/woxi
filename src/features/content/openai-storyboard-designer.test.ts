@@ -12,6 +12,16 @@ import {
   validateStoryboardDesign
 } from "./openai-storyboard-designer";
 import type { GenerateContentInput, ReviseStoryboardDesignInput, StoryboardDesign } from "./ports";
+import { MAX_STORYBOARD_SEGMENTS } from "./schemas";
+import {
+  STORY_COMIC_MAX_DIALOGUE_CHARS,
+  STORY_COMIC_MAX_NARRATION_CHARS,
+  STORY_COMIC_MAX_SEGMENT_CHARS,
+  STORY_COMIC_MAX_SENTENCE_CHARS,
+  STORY_COMIC_MIN_DIALOGUE_FRAMES,
+  STORY_COMIC_SEGMENTS_PER_DIALOGUE,
+  STORY_COMIC_WORDS_PER_SEGMENT
+} from "./story-comic-rules";
 
 function demoBrief(): KnowledgeBrief {
   return {
@@ -134,7 +144,7 @@ describe("validateStoryboardDesign 的剧情漫画红线（生成阶段不再打
 
   it("lets a 29-character sentence through so the design can be saved as a version", () => {
     // 作者原话：「你得先有东西出来」——生成阶段必须先产出可版本化的设计稿，
-    // 「每句不超过 22 字」这类限制由审核环节标出来，不在生成阶段打回。
+    // 「每句不超过 26 字」这类限制由审核环节标出来，不在生成阶段打回。
     const design = storyComicDesign();
     design.segments[0]!.copy = "鲜笋被塞进无氧陶坛，厌氧菌疯狂干饭，硬把整坛鲜味熬成生化弹";
     const result = validateStoryboardDesign(design, storyComicInput);
@@ -241,16 +251,85 @@ describe("OpenAiStoryboardDesigner", () => {
     expect(reviseRequest.systemPrompt).toBe(STORYBOARD_REVISER_STORY_COMIC_PROMPT);
   });
 
-  it("anchors the group-anthropomorphism and no-text rules in the story comic prompts", () => {
-    // 群体拟人化（R5）与「画面里不写字」是新形态的两条命脉，钉在提示词里防回退。
+  it("anchors the group-anthropomorphism and bubble-text rules in the story comic prompts", () => {
+    // 群体拟人化（R5）与「画面文字只允许对白气泡」是新形态的两条命脉，钉在提示词里防回退。
     expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).toContain("角色可以复数");
-    expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).toContain("不超过 60 字");
+    expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).toContain(`${STORY_COMIC_MAX_SEGMENT_CHARS} 字`);
     expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).toContain("一段一个梗");
-    expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).toContain("严禁画面里出现任何文字");
-    // 旧的「画面文字：对白气泡『XXX』」条款必须只剩讲解式那套，不能出现在剧情漫画里。
-    expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).not.toContain("画面文字：");
-    expect(STORYBOARD_REVISER_STORY_COMIC_PROMPT).toContain("不超过 60 字");
-    expect(STORYBOARD_REVISER_STORY_COMIC_PROMPT).not.toContain("画面文字：");
+    // 对白画进格内气泡：prompt 末尾带「画面文字：对白气泡『台词』」，台词一字不改。
+    expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).toContain("对白气泡");
+    expect(STORYBOARD_REVISER_STORY_COMIC_PROMPT).toContain("对白气泡");
+    // 但旁白与无台词的格仍然一个字都不画。
+    expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).toContain("不要旁白框");
+    expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).not.toContain("旁白气泡");
+    expect(STORYBOARD_REVISER_STORY_COMIC_PROMPT).not.toContain("旁白气泡");
+  });
+
+  it("anchors the dialogue quota and two-way exchange rules in the story comic prompts", () => {
+    // 2026-09-20 真机验收：提示词把 dialogue 写成「可选、宁缺毋滥」，模型就一篇对白都不写
+    // （17 段全旁白独角戏）。对白密度因此升格为带数量下限的硬约束；用户同时拍板
+    // 「禁止单一气泡框」——对白必须是角色之间一来一往，画面对白帧至少两只角色。
+    for (const prompt of [
+      STORYBOARD_DESIGNER_STORY_COMIC_PROMPT,
+      STORYBOARD_REVISER_STORY_COMIC_PROMPT
+    ]) {
+      // 数量下限是插值，不是手抄（与段数公式同一条纪律）。
+      expect(prompt).toContain(`段数 ÷ ${STORY_COMIC_SEGMENTS_PER_DIALOGUE}`);
+      expect(prompt).toContain(`最少 ${STORY_COMIC_MIN_DIALOGUE_FRAMES} 个`);
+      // 一来一往与禁止单一气泡的口径。
+      expect(prompt).toContain("一来一往");
+      expect(prompt).toContain("自问自答");
+      expect(prompt).toContain("对白气泡");
+    }
+    expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).toContain("悬在半空没人认领");
+    expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).toContain("听讲反应");
+    // 「宁缺毋滥」只留给 narration——对白不再适用这个口径。
+    expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).not.toContain("宁缺毋滥），未点名");
+  });
+
+  it("anchors the budget-derived segment count in both story comic prompts", () => {
+    // 回退锚点：剧情漫画提示词曾经通篇不提预算，模型于是「一章一段」——
+    // 四章只写出 191 字，兑现率 19%。字段名是稳定锚点，措辞可以自由重写。
+    expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).toContain("recommendedTotalWords");
+    expect(STORYBOARD_REVISER_STORY_COMIC_PROMPT).toContain("recommendedTotalWords");
+    // 段名是内部段名（不进正文也不进图），所以每段 60 字只算 copy。
+    expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).not.toContain("title 与 copy 合计");
+    expect(STORYBOARD_REVISER_STORY_COMIC_PROMPT).not.toContain("title 与 copy 合计");
+    // 除数与段数上限都是插值进来的，不是又抄一份字面量：提示词要的段数必须落在
+    // segments 数组的结构上限之内，否则模型按提示词产出也会被 schema 打回。
+    expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).toContain(`÷ ${STORY_COMIC_WORDS_PER_SEGMENT}`);
+    expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).toContain(`${MAX_STORYBOARD_SEGMENTS} 段`);
+    expect(STORYBOARD_REVISER_STORY_COMIC_PROMPT).toContain(`${MAX_STORYBOARD_SEGMENTS} 段`);
+  });
+
+  it("anchors the per-sentence limit on copy, not on frames（每句话字数）", () => {
+    // 真跑踩到的坑：这条规则原来写成「每格最多一句话、不超过 15 字；每一句话都不超过 22 字」，
+    // 但本形态画面里一个字都不许出现——模型于是把它读成「帧的台词规则」，写正文时按 60 字
+    // 整段写成长句，21 段里 16 段踩了单句红线。现在明确挂在 copy 上。
+    expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).toContain("每句话");
+    expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).toContain(
+      `${STORY_COMIC_MAX_SENTENCE_CHARS} 字`
+    );
+    expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).not.toContain("每格最多一句话");
+    expect(STORYBOARD_REVISER_STORY_COMIC_PROMPT).toContain(
+      `${STORY_COMIC_MAX_SENTENCE_CHARS} 字`
+    );
+  });
+
+  it("anchors every story comic red-line number as an interpolation（不手抄数字）", () => {
+    // 这些数字原来在提示词里各抄了一份字面量（60 / 22 / 10 / 25），改红线常量时漏改一处
+    // 就会出现「提示词要求 22、审核按 26 报」的错位——正是 2026-09-20 修的那类 bug。
+    for (const prompt of [
+      STORYBOARD_DESIGNER_STORY_COMIC_PROMPT,
+      STORYBOARD_REVISER_STORY_COMIC_PROMPT
+    ]) {
+      expect(prompt).toContain(`${STORY_COMIC_MAX_SEGMENT_CHARS} 字`);
+      expect(prompt).toContain(`${STORY_COMIC_MAX_SENTENCE_CHARS} 字`);
+      expect(prompt).toContain(`${STORY_COMIC_MAX_DIALOGUE_CHARS} 字`);
+      expect(prompt).toContain(`${STORY_COMIC_MAX_NARRATION_CHARS} 字`);
+      // 旧的字面量不该再有残留（22 是唯一会被别的数字偶然命中的，单独盯它）。
+      expect(prompt).not.toContain("不超过 22 字");
+    }
   });
 
   it("anchors the short-card rhythm discipline in both prompts（copy 空行分块）", () => {
@@ -428,15 +507,47 @@ describe("DemoStoryboardDesigner 的剧情漫画形态", () => {
 
     expect(() => validateStoryboardDesign(design, storyComicInput)).not.toThrow();
     for (const segment of design.segments) {
-      expect((segment.title + segment.copy).replace(/\s/g, "").length).toBeLessThanOrEqual(60);
+      // 每段 60 字只算文案：段名是内部段名，不进正文也不进图。
+      expect(segment.copy.replace(/\s/g, "").length).toBeLessThanOrEqual(60);
     }
-    // 群体拟人化：同一物种的复数角色一起演出，且不要求生图模型画字。
+    // 群体拟人化：同一物种的复数角色一起演出。
     const frames = design.segments.flatMap((segment) => segment.frames);
     expect(frames.length).toBeGreaterThan(0);
     expect(frames.every((frame) => frame.prompt.includes("三只"))).toBe(true);
-    expect(frames.some((frame) => frame.prompt.includes("画面文字"))).toBe(false);
+    // 画字指令只允许出现在对白帧（气泡要画台词）；旁白帧与无台词帧一个字都不画。
+    const dialogueFrames = frames.filter((frame) => frame.speechLine?.kind === "dialogue");
+    expect(dialogueFrames.length).toBeGreaterThan(0);
+    for (const frame of frames) {
+      expect(frame.prompt.includes("画面文字")).toBe(frame.speechLine?.kind === "dialogue");
+    }
     // 末段不再追加「一句话记住」（落点由梗本身收尾，避免超出 60 字）。
     expect(design.segments.at(-1)!.copy).not.toContain("一句话记住");
+  });
+
+  it("meets the dialogue quota on a three-section outline（demo 也要过对白密度红线）", async () => {
+    // 3 章是 demo 大纲生成器的固定章数：E2E 走的就是这条路径。机械红线会数对白帧，
+    // demo 凑不够就会让本地与 E2E 的每一篇都变成「需要修订」。
+    const { DemoStoryboardDesigner } = await import("./demo-storyboard-designer");
+    const { storyComicDialogueTarget } = await import("./story-comic-rules");
+    const design = await new DemoStoryboardDesigner().design({
+      ...storyComicInput,
+      outline: [
+        { id: "section-1", title: "什么是机会成本", order: 0, recommendedWords: 200 },
+        { id: "section-2", title: "怎么权衡", order: 1, recommendedWords: 200 },
+        { id: "section-3", title: "怎么用", order: 2, recommendedWords: 200 }
+      ]
+    });
+
+    const dialogueFrames = design.segments.flatMap((segment) => segment.frames).filter(
+      (frame) => frame.speechLine?.kind === "dialogue"
+    );
+    expect(dialogueFrames.length).toBeGreaterThanOrEqual(
+      storyComicDialogueTarget(design.segments.length)
+    );
+    // 对白帧的台词必须原样写进 prompt（气泡里画的就是这句）。
+    for (const frame of dialogueFrames) {
+      expect(frame.prompt).toContain(frame.speechLine!.text);
+    }
   });
 
   it("keeps the illustrated demo copy untouched by default", async () => {

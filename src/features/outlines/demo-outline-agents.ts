@@ -8,6 +8,8 @@ import type { OutlineGenerator, OutlineReviewer } from "./ports";
 
 function preferredTotalWords(input: GenerateOutlineInput) {
   switch (input.lengthPreset) {
+    case "brief":
+      return 600;
     case "short":
       return 1_000;
     case "standard":

@@ -63,6 +63,34 @@ describe("wrapText", () => {
     // SVG 里没有 <text> 就会变成空块，高度算错；给一个空格占位最省事。
     expect(wrapText("   ", 320, 32)).toEqual([" "]);
   });
+
+  it("prefers breaking at punctuation instead of mid-sentence", () => {
+    // 676px / 52px ≈ 13 全角字预算：三个句读单元各自成行，断点全落在逗号/句号之后。
+    expect(
+      wrapText("雾蒙蒙的清晨，小鹿踩着露水走进森林深处，寻找传说会唱歌的蘑菇。", 676, 52)
+    ).toEqual(["雾蒙蒙的清晨，", "小鹿踩着露水走进森林深处，", "寻找传说会唱歌的蘑菇。"]);
+  });
+
+  it("never lets closing punctuation start a line", () => {
+    // 5 字预算：「，」放不进第一行时带一个字陪它（五，），而不是孤零零落在新行行首。
+    expect(wrapText("一二三四五，七八九十", 160, 32)).toEqual(["一二三四", "五，", "七八九十"]);
+  });
+
+  it("rebalances the last two lines when the tail is a 1-2 char orphan", () => {
+    // 13 字预算下 14 字文本：旧贪心会断成 13 + 1 的孤行；重排后两行均分（7 + 7）。
+    expect(wrapText("一二三四五六七八九十一二三四", 676, 52)).toEqual([
+      "一二三四五六七",
+      "八九十一二三四"
+    ]);
+  });
+
+  it("keeps an opening quote off the end of a hard-wrapped line", () => {
+    // 硬切点恰好在「之后：「跟去下一行，不孤悬行尾；顺带触发末两行重排（7 + 7）。
+    expect(wrapText("一二三四五六七八九十十一「三", 676, 52)).toEqual([
+      "一二三四五六七",
+      "八九十十一「三"
+    ]);
+  });
 });
 
 describe("layoutComicStripTextBlock", () => {

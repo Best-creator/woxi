@@ -2,25 +2,20 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_STYLE_PROFILE,
   MAX_AVOID_ITEMS,
+  MAX_CUSTOM_INSTRUCTIONS_LENGTH,
+  STYLE_PRESET_IDS,
   STYLE_PRESET_LABELS,
   STYLE_PRESETS,
   describeStyleProfile,
   parseStyleProfileJson,
   resolveStyleProfile,
-  sanitizeStyleProfile,
-  type StylePreset
+  sanitizeStyleProfile
 } from "./style-profile";
+import { STORY_COMIC_MAX_SENTENCE_CHARS } from "./story-comic-rules";
 
-const ALL_PRESETS: StylePreset[] = [
-  "popular_science_teacher",
-  "plain_explainer",
-  "rational_analyst",
-  "friend_chat",
-  "storyteller",
-  "funny_storyteller",
-  "knowledge_cards",
-  "custom"
-];
+// 从预设清单派生（不手抄）：新加预设自动纳入下面所有遍历型断言，
+// 漏登记会在「清单 / 标签 / 定义三处一致」那条里立刻报出来。
+const ALL_PRESETS = [...STYLE_PRESET_IDS];
 
 describe("style presets", () => {
   it("describes every preset with a complete profile", () => {
@@ -85,9 +80,9 @@ describe("funny storyteller preset", () => {
     expect(funny.humorLevel).toBe("high");
     expect(funny.contentDensity).toBe("low");
     expect(funny.explanationStyle).toContain("一段一个梗");
-    expect(funny.sentenceStyle).toContain("22 字");
+    expect(funny.sentenceStyle).toContain(`${STORY_COMIC_MAX_SENTENCE_CHARS} 字`);
     expect(funny.avoid).toContain("教科书式解释");
-    expect(funny.avoid).toContain("超过 22 字的长句");
+    expect(funny.avoid).toContain(`超过 ${STORY_COMIC_MAX_SENTENCE_CHARS} 字的长句`);
     // 术语必须晚于大白话出现（与剧情漫画提示词同口径）。
     expect(funny.explanationStyle).toContain("术语第一次出现前必须先用大白话说过一遍");
   });
@@ -98,6 +93,63 @@ describe("funny storyteller preset", () => {
       humorLevel: "high"
     });
     expect(STYLE_PRESET_LABELS.funny_storyteller).toBe("搞笑剧情解说");
+  });
+});
+
+describe("preset registry", () => {
+  it("keeps the id list, the labels and the definitions in sync", () => {
+    // 三处必须一一对应。清单是唯一事实源，漏登记的表现是「下拉里没有」或「提交被 400」。
+    expect([...STYLE_PRESET_IDS].sort()).toEqual(Object.keys(STYLE_PRESET_LABELS).sort());
+    expect(Object.keys(STYLE_PRESETS).sort()).toEqual(
+      STYLE_PRESET_IDS.filter((preset) => preset !== "custom").sort()
+    );
+  });
+});
+
+describe("hunzhi comic preset", () => {
+  it("turns dynasties into a class or a company with modern nicknames", () => {
+    const hunzhi = STYLE_PRESETS.hunzhi_comic;
+
+    expect(hunzhi.humorLevel).toBe("high");
+    expect(hunzhi.contentDensity).toBe("high");
+    // 招牌手法与常用词必须真的写进了自带说明里，否则整篇就只剩一个「幽默」标签。
+    expect(hunzhi.customInstructions).toContain("招牌手法");
+    expect(hunzhi.customInstructions).toContain("多用这类词");
+    expect(hunzhi.customInstructions).toContain("外号");
+    expect(hunzhi.sentenceStyle).toContain("漫画分镜");
+    expect(hunzhi.avoid).toContain("把制度讲成说明书条目而不画成公司架构/班级座位");
+  });
+
+  it("keeps its own instructions inside the length limit", () => {
+    // 超上限会被 clampText 静默截尾——被截掉的正是末尾那行「多用这类词」。
+    expect(STYLE_PRESETS.hunzhi_comic.customInstructions.length).toBeLessThanOrEqual(
+      MAX_CUSTOM_INSTRUCTIONS_LENGTH
+    );
+    expect(STYLE_PRESETS.hunzhi_comic.customInstructions.endsWith("开车。")).toBe(true);
+  });
+});
+
+describe("presets that carry their own instructions", () => {
+  it("keeps the preset's own instructions when the caller passes nothing", () => {
+    // 界面切预设时传进来的就是空串：旧实现按位覆盖，会把预设自带的那段抹成空的。
+    const profile = resolveStyleProfile("hunzhi_comic");
+
+    expect(profile.customInstructions).toBe(STYLE_PRESETS.hunzhi_comic.customInstructions);
+    expect(profile.customInstructions.length).toBeGreaterThan(0);
+    expect(profile.persona).toBe(STYLE_PRESETS.hunzhi_comic.persona);
+  });
+
+  it("lets an explicit instruction replace the preset's own one", () => {
+    expect(resolveStyleProfile("hunzhi_comic", "只讲宣威火腿").customInstructions).toBe("只讲宣威火腿");
+  });
+
+  it("does not leak one preset's instructions into another preset", () => {
+    // 从混知风切到大白话：必须拿到大白话自己的说明（空），不能继承混知那几百字。
+    expect(resolveStyleProfile("plain_explainer", "").customInstructions).toBe("");
+  });
+
+  it("reads the new preset back from stored rows", () => {
+    expect(parseStyleProfileJson(JSON.stringify({ preset: "hunzhi_comic" })).preset).toBe("hunzhi_comic");
   });
 });
 

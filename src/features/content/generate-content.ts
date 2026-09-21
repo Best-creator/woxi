@@ -93,30 +93,42 @@ export function splitStoryboardCopy(copy: string): string[] {
 
 /**
  * 把设计稿展开成正文块（展开桥的前半段）：
- * 每段 = 标题块（段落小标题）+ 若干文案块（copy 按空行分块，每块一个段落块），都带 segmentId。
+ * 每段 = 若干文案块（copy 按空行分块，每块一个段落块），都带 segmentId。
+ *
+ * 标题块按形态分支：讲解式的段名要进正文（也烘进段图当首条文字带的 title），
+ * 剧情漫画的段名只是**内部段名**（界面列表与审核定位用），不进正文——
+ * 段图随之没有标题带，读者看到的是一段接一段的连续旁白，
+ * 而不是「小标题 + 一段话」重复 N 遍的图文卡。
+ *
  * 分镜帧不进正文块——它们是 image_assets 里的分镜资产，
  * 段图拼接阶段再按路由把文案烘进图里。
  */
-function buildSegmentBlocks(design: StoryboardDesign): {
+function buildSegmentBlocks(
+  design: StoryboardDesign,
+  presentation: StoryboardPresentation
+): {
   blocks: ContentBlock[];
   plans: StoryboardSegmentPlan[];
 } {
+  const includeSegmentTitle = presentation !== "story_comic";
   const blocks: ContentBlock[] = [];
   const plans: StoryboardSegmentPlan[] = [];
   for (const segment of design.segments) {
     const segmentId = randomUUID();
-    const headingId = randomUUID();
     const copyParts = splitStoryboardCopy(segment.copy);
     const copyIds = copyParts.map(() => randomUUID());
-    blocks.push({
-      id: headingId,
-      type: "heading",
-      content: segment.title,
-      order: blocks.length,
-      level: 2,
-      segmentId,
-      version: 1
-    });
+    const headingId = includeSegmentTitle ? randomUUID() : null;
+    if (headingId) {
+      blocks.push({
+        id: headingId,
+        type: "heading",
+        content: segment.title,
+        order: blocks.length,
+        level: 2,
+        segmentId,
+        version: 1
+      });
+    }
     copyParts.forEach((part, index) => {
       blocks.push({
         id: copyIds[index]!,
@@ -132,7 +144,7 @@ function buildSegmentBlocks(design: StoryboardDesign): {
       sectionKey: segment.sectionKey,
       title: segment.title,
       route: segment.route,
-      copyBlockIds: [headingId, ...copyIds],
+      copyBlockIds: headingId ? [headingId, ...copyIds] : copyIds,
       frames: segment.frames.map((frame) => ({
         prompt: frame.prompt,
         altText: frame.altText,
@@ -180,7 +192,7 @@ export async function generateContent(
       ...(sourceContext ? { sourceContext } : {}),
       model
     });
-    const expanded = buildSegmentBlocks(design);
+    const expanded = buildSegmentBlocks(design, presentation);
     blocks = expanded.blocks;
     plans = expanded.plans;
     // 设计器给出的「最终标题」才是成稿标题；为空时保留原标题，避免把标题清空。

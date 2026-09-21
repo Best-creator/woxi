@@ -218,11 +218,14 @@ describe("reviseStoryboard", () => {
       segments.slice(1).map((segment) => segment.frameAssetIds)
     );
 
-    // 正文块：改动段换了新块（旧块消失；演示文案按空行分块 = 标题 + 2 段落），保留段沿用旧块。
+    // 正文块：改动段换了新块（旧块消失），保留段沿用旧块。
+    // 剧情漫画的段名不进正文，所以替换段只有段落块（演示文案按空行分两块），没有标题块。
     const blocks = result.article.blocks;
-    expect(
-      blocks.filter((block) => plannedSegments[0]!.copyBlockIds.includes(block.id))
-    ).toHaveLength(3);
+    const replacedBlocks = blocks.filter((block) =>
+      plannedSegments[0]!.copyBlockIds.includes(block.id)
+    );
+    expect(replacedBlocks).toHaveLength(2);
+    expect(replacedBlocks.every((block) => block.type === "paragraph")).toBe(true);
     expect(
       blocks.some((block) => segments[0]!.copyBlockIds.includes(block.id))
     ).toBe(false);
@@ -234,10 +237,11 @@ describe("reviseStoryboard", () => {
 
     // 修订后的版本快照携带本次设计：保留段带帧资产 id（图还在），
     // 替换段带帧描述符（恢复这一版时按它重建占位帧）。
+    // frameAssetIds 与 planning 同口径恒为数组：替换段与 text_only 段都是 []。
     const versions = await fixture.contentWorkflow.listContentVersions(result.article.id);
     const snapshotSegments = versions[0]?.snapshot.storyboardSegments ?? [];
     expect(snapshotSegments).toHaveLength(segments.length);
-    expect(snapshotSegments[0]!.frameAssetIds).toBeUndefined();
+    expect(snapshotSegments[0]!.frameAssetIds).toEqual([]);
     expect(snapshotSegments[0]!.frames.length).toBe(plannedSegments[0]!.frameAssetIds.length);
     for (const [index, kept] of segments.slice(1).entries()) {
       const snapshotSegment = snapshotSegments[index + 1]!;

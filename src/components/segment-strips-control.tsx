@@ -112,7 +112,11 @@ export function SegmentStripsControl({
     if (stripsExist) {
       return `正文里现在是 ${stripCount} 张段图；重新拼接会按当前文案与所选字体、文字大小重出一遍。`;
     }
-    return `已就绪 ${readiness.readySegments} 段，将拼成 ${readiness.totalSegments} 张段图，文案会按所选字体与文字大小烘进图里。`;
+    const textOnlyCount = readiness.totalSegments - readiness.composableSegments;
+    const textOnlyNote = textOnlyCount
+      ? `；另有 ${textOnlyCount} 段纯文字直接进正文，不拼图`
+      : "";
+    return `已就绪 ${readiness.readySegments} 段，将拼成 ${readiness.composableSegments} 张段图${textOnlyNote}，文案会按所选字体与文字大小烘进图里。`;
   })();
 
   async function run(action: () => Promise<ImageMutationPayload>) {
@@ -271,7 +275,8 @@ export function SegmentStripsControl({
             <ol className="segment-strips-manifest-list">
               {readiness.segments.map((row, index) => {
                 const strip = row.stripAssetId ? assetById.get(row.stripAssetId) : undefined;
-                const rowReady = row.readyFrames === row.requiredFrames && row.hasCopy;
+                const isTextOnly = row.route === "text_only";
+                const rowReady = isTextOnly || (row.readyFrames === row.requiredFrames && row.hasCopy);
                 const size = strip ? sizes[strip.id] : undefined;
                 return (
                   <li key={row.segmentId} className="segment-strips-manifest-row">
@@ -286,8 +291,11 @@ export function SegmentStripsControl({
                         </span>
                       </div>
                       <span className="segment-strips-manifest-meta">
-                        帧 {row.readyFrames}/{row.requiredFrames} ·{" "}
-                        {row.hasCopy ? "文案就绪" : "文案不在正文"}
+                        {isTextOnly
+                          ? "纯文字段 · 不拼段图，文案直接进正文"
+                          : `帧 ${row.readyFrames}/${row.requiredFrames} · ${
+                              row.hasCopy ? "文案就绪" : "文案不在正文"
+                            }`}
                       </span>
                     </div>
                     {strip ? (
@@ -316,7 +324,7 @@ export function SegmentStripsControl({
                           rowReady ? "ready" : "pending"
                         }`}
                       >
-                        {rowReady ? "待拼接" : "待补齐"}
+                        {isTextOnly ? "纯文字" : rowReady ? "待拼接" : "待补齐"}
                       </span>
                     )}
                   </li>

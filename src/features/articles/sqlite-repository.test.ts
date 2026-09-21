@@ -17,7 +17,7 @@ describe("SqliteArticleRepository", () => {
 
     expect(first.title).toBe("什么是机会成本");
     expect(first.planning).toEqual({
-      lengthPreset: "standard",
+      lengthPreset: "brief",
       recommendedTotalWords: null,
       confirmedOutlineRevisionId: null,
       contentOutlineRevisionId: null
@@ -109,7 +109,8 @@ describe("SqliteArticleRepository", () => {
     const article = await new SqliteArticleRepository(db).findById("legacy-article");
 
     expect(article?.planning).toEqual({
-      lengthPreset: "standard",
+      // 默认档位 = 轻量（brief）：剧情漫画的体量预期是十段左右，见 DEFAULT_ARTICLE_PLANNING。
+      lengthPreset: "brief",
       recommendedTotalWords: null,
       confirmedOutlineRevisionId: null,
       contentOutlineRevisionId: null

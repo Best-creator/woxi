@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { AUDIENCE_LABELS, type AudienceId } from "@/features/content/audience";
 import {
   MAX_CUSTOM_INSTRUCTIONS_LENGTH,
+  STYLE_PRESET_IDS,
   STYLE_PRESET_LABELS,
   resolveStyleProfile,
   type StylePreset,
@@ -15,17 +16,6 @@ export interface StyleProfileControlProps {
   disabled?: boolean;
   onChange: (profile: StyleProfile) => void;
 }
-
-const presetOrder: StylePreset[] = [
-  "popular_science_teacher",
-  "plain_explainer",
-  "rational_analyst",
-  "friend_chat",
-  "storyteller",
-  "funny_storyteller",
-  "knowledge_cards",
-  "custom"
-];
 
 const audienceOrder: AudienceId[] = ["general_beginner", "office_desk", "senior_reader"];
 
@@ -39,7 +29,11 @@ export function StyleProfileControl({ value, disabled = false, onChange }: Style
 
   function selectPreset(preset: StylePreset) {
     // 受众与预设正交：换风格不能顺手把读者也重置掉。
-    onChange(resolveStyleProfile(preset, instructions, value.audience));
+    // 说明文本只在「当前就在自定义」时才算用户手写的、才跟着走；其余情况一律传空串——
+    // 否则上一个预设自带的招牌手法（混知风整段就寄存在那）会串到下一个预设身上，
+    // 或被空串把新预设自带的那份抹掉（保留逻辑在 resolveStyleProfile 里）。
+    const carried = value.preset === "custom" ? instructions : "";
+    onChange(resolveStyleProfile(preset, carried, value.audience));
   }
 
   function selectAudience(audience: AudienceId) {
@@ -81,7 +75,7 @@ export function StyleProfileControl({ value, disabled = false, onChange }: Style
         disabled={disabled}
         onChange={(event) => selectPreset(event.target.value as StylePreset)}
       >
-        {presetOrder.map((preset) => (
+        {STYLE_PRESET_IDS.map((preset) => (
           <option key={preset} value={preset}>
             {STYLE_PRESET_LABELS[preset]}
           </option>

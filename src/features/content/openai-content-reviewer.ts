@@ -1,7 +1,15 @@
 import type { OpenAiJsonClient } from "@/features/llm/openai-json-client";
 import { DEFAULT_AUDIENCE_ID, describeAudience } from "./audience";
 import { contentReviewResultSchema } from "./schemas";
-import { charCount, inspectStoryComicSegment, STORY_COMIC_TOLERANCE } from "./story-comic-rules";
+import {
+  charCount,
+  inspectStoryComicDialogueBalance,
+  inspectStoryComicSegment,
+  inspectStoryComicTextOnlyBalance,
+  STORY_COMIC_MAX_SEGMENT_CHARS,
+  STORY_COMIC_MAX_SENTENCE_CHARS,
+  STORY_COMIC_TOLERANCE
+} from "./story-comic-rules";
 import { describeStyleProfile } from "./style-profile";
 import type {
   ContentReviewIssue,
@@ -18,7 +26,7 @@ export const CONTENT_REVIEWER_SYSTEM_PROMPT = `你是独立的正文审核员，
 hookStrength 只看「前几句话有没有让人想读下去」：开场是不是具体画面或反常事实、有没有一句让人想继续滑的钩子；空泛的万金油提问（「你有没有想过」「你知道吗」——问题不具体、答案也不当场兑现）、先给结论再举例、开头就说「今天我们来聊聊」都要扣分并在 issues 里指出。
 检查时要代入 targetAudience 描述的读者：他们的兴趣、痛点和禁忌就是判断标准，不要用泛泛的「普通人」标准打分。
 styleMatch 还要检查标题与表达是否守规矩：悬念式标题、夸大或施压句式（如「90% 的人都不知道」「不看就晚了」）、促销引流措辞，一律扣分并在 issues 里指出。
-presentation 为 story_comic（剧情漫画）时，文案按剧情漫画的红线判：每段（小标题 + 文案）不超过 60 字、每句话不超过 22 字，全篇总字数不要明显超出 recommendedTotalWords 的预算；出现「首先 / 其次 / 最后 / 因为…所以」这类解释连接词、超过 3 项的并列列举、教科书式推进，都要在 issues 里指出并扣 engagement 与 hookStrength 的分——读者要的是「有意思」，不是「讲得全」。冷开场设问（具体问题 + 当场抖出荒谬答案）、外号命名、段末设问钩子是剧情漫画的合法节拍，不要按提问式开场或过渡词扣分。你只管判文案：分镜提示词是否要求画面写字、台词是否超长这类机械红线由服务端逐条核对，不必重复检查。
+presentation 为 story_comic（剧情漫画）时，文案按剧情漫画的红线判：每段文案不超过 ${STORY_COMIC_MAX_SEGMENT_CHARS} 字（段名是内部用的，不进正文也不占这 ${STORY_COMIC_MAX_SEGMENT_CHARS} 字）、每句话不超过 ${STORY_COMIC_MAX_SENTENCE_CHARS} 字，全篇总字数要落在 recommendedTotalWords 的七成到预算之间，明显不足和明显超出都要在 issues 里指出；出现「首先 / 其次 / 最后 / 因为…所以」这类解释连接词、超过 3 项的并列列举、教科书式推进，都要在 issues 里指出并扣 engagement 与 hookStrength 的分——读者要的是「有意思」，不是「讲得全」。冷开场设问（具体问题 + 当场抖出荒谬答案）、外号命名、段末设问钩子是剧情漫画的合法节拍，不要按提问式开场或过渡词扣分。你只管判文案：分镜提示词是否要求画面写字、台词是否超长、全篇对白帧够不够这类机械红线由服务端逐条核对，不必重复检查。
 有资料时 sourceFidelity 为 1 到 5 的整数；没有资料时 sourceFidelity 必须为 null。
 blocked 必须至少包含一个 severity 为 blocking 的 issue。
 issues 的 blockIds 只能引用输入 blocks 中给出的 id，不能虚构块；无法定位到具体块时用空数组。`;
@@ -27,7 +35,11 @@ type JsonClient = Pick<OpenAiJsonClient, "complete">;
 
 /**
  * 剧情漫画形态的机械检查：红线口径集中在 story-comic-rules（设计提示词与这里同源），
- * 逐段核对每段字数、单句长度、词句风格、画面写字、台词长度，外加全篇字数预算。
+ * 逐段核对每段文案字数、单句长度、词句风格、画面写字、台词长度，外加全篇字数预算上限。
+ *
+ * 全篇预算**只在这里判上限**：欠量（段数太少导致字数不够）不做机械判据——
+ * 无 API Key 的 Demo 设计器固定「逐章一段」，机械判欠量会让本地与 E2E 的每一篇
+ * 都变成「需要修订」。欠量交给设计提示词（段数按预算反推）与审核模型的判断题。
  *
  * 生成阶段不再用这些红线打回设计稿（作者要先有东西可看、可改、可退），
  * 「越界了」这件事由这里接管：全部报成定位到段的 warning，并把 status 拉下来，
@@ -43,10 +55,13 @@ export function storyComicRedlineIssues(input: ReviewContentInput): ContentRevie
   const issues: ContentReviewIssue[] = [];
   for (const segment of segments) {
     for (const complaint of inspectStoryComicSegment({
-      title: segment.title,
       copy: segment.copy,
-      prompts: segment.frames.map((frame) => frame.prompt),
-      speechLines: segment.frames.flatMap((frame) => (frame.speechLine ? [frame.speechLine] : []))
+      // prompt 与台词按帧成对：对白帧查「台词是否写进 prompt」（气泡要画这句词），
+      // 旁白帧与无台词帧查「画面里是否出现画字指令」。
+      frames: segment.frames.map((frame) => ({
+        prompt: frame.prompt,
+        speechLine: frame.speechLine ?? null
+      }))
     })) {
       issues.push({
         blockIds: segment.blockIds.slice(0, 1),
@@ -57,10 +72,8 @@ export function storyComicRedlineIssues(input: ReviewContentInput): ContentRevie
   }
   const budget = input.recommendedTotalWords ?? 0;
   if (budget > 0) {
-    const totalChars = segments.reduce(
-      (sum, segment) => sum + charCount(segment.title + segment.copy),
-      0
-    );
+    // 段名是内部段名、不进正文也不进图，所以全篇口径与每段一致：只数读者读到的 copy。
+    const totalChars = segments.reduce((sum, segment) => sum + charCount(segment.copy), 0);
     if (totalChars > Math.round(budget * STORY_COMIC_TOLERANCE)) {
       issues.push({
         // 不定位到任何块：全篇问题，不该只算在某一段头上。
@@ -68,6 +81,45 @@ export function storyComicRedlineIssues(input: ReviewContentInput): ContentRevie
         severity: "warning",
         message: `剧情漫画红线：全篇文案 ${totalChars} 字，超出目标 ${budget} 字的预算（全篇问题，压掉冗余再改）`
       });
+    }
+  }
+  // 全篇对白密度 + 纯文字占比：只对带分镜的输入判——老快照的退化路径帧与路由信息全空，
+  // 判不了也不该判（否则每一篇老文章都会凭空多出两条全篇警告）。两者都是全篇级配额，不定位到段。
+  if (input.storyboardSegments?.length) {
+    const dialogueFrameCount = input.storyboardSegments.reduce(
+      (sum, segment) =>
+        sum + segment.frames.filter((frame) => frame.speechLine?.kind === "dialogue").length,
+      0
+    );
+    for (const complaint of inspectStoryComicDialogueBalance({
+      segmentCount: input.storyboardSegments.length,
+      dialogueFrameCount
+    })) {
+      issues.push({
+        blockIds: [],
+        severity: "warning",
+        message: `剧情漫画红线：${complaint}（全篇问题，优先在重写或新增的段里补一来一往的对白）`
+      });
+    }
+    // 纯文字段占比 ≥30%：老快照没有 route 字段，一律按非纯文字段数——
+    // 缺 route 的输入判出来的只会是误报，所以只在 route 真实存在时才数。
+    const routeKnown = input.storyboardSegments.filter(
+      (segment) => segment.route !== undefined
+    ).length;
+    if (routeKnown === input.storyboardSegments.length) {
+      const textOnlyCount = input.storyboardSegments.filter(
+        (segment) => segment.route === "text_only"
+      ).length;
+      for (const complaint of inspectStoryComicTextOnlyBalance({
+        segmentCount: input.storyboardSegments.length,
+        textOnlyCount
+      })) {
+        issues.push({
+          blockIds: [],
+          severity: "warning",
+          message: `剧情漫画红线：${complaint}（全篇问题，把不需要画面的段改成「纯文字」排法）`
+        });
+      }
     }
   }
   return issues;

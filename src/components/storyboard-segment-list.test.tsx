@@ -107,15 +107,41 @@ describe("StoryboardSegmentList", () => {
     expect(screen.getByLabelText("收束 排法")).toHaveValue("text_image");
   });
 
-  it("offers exactly the three storyboard routes in every card", () => {
+  it("offers exactly the four storyboard routes in every card", () => {
     setup();
 
     const select = screen.getByLabelText("开场 排法") as HTMLSelectElement;
     expect(Array.from(select.options).map((option) => option.value)).toEqual([
       "image_text",
       "text_image",
-      "image_text_image"
+      "image_text_image",
+      "text_only"
     ]);
+  });
+
+  it("labels a text-only segment instead of demanding frames", () => {
+    // 天生纯文字段（设计期就是 text_only，0 帧）：不能报「还没有分镜帧」。
+    setup({
+      segments: SEGMENTS.map((segment) =>
+        segment.id === "seg-2"
+          ? { ...segment, route: "text_only" as const, frameAssetIds: [] }
+          : segment
+      )
+    });
+
+    expect(screen.getByText("纯文字段：不配画面，文案作为普通正文段落排在段图之间")).toBeVisible();
+    expect(screen.queryByText("该排法需要 0 帧，当前 2 帧")).not.toBeInTheDocument();
+  });
+
+  it("explains dormant frames when a segment is switched to text-only", () => {
+    // 两帧段被切成纯文字：帧资产进入休眠（不删），提示切回排法可恢复。
+    setup({
+      segments: SEGMENTS.map((segment) =>
+        segment.id === "seg-2" ? { ...segment, route: "text_only" as const } : segment
+      )
+    });
+
+    expect(screen.getByText("纯文字段不配画面；切回其他排法可恢复这些帧的占位")).toBeVisible();
   });
 
   it("reports the route override back through onRouteChange", async () => {

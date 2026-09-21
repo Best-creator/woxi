@@ -8,13 +8,46 @@ export type ArticleStatus =
   | "content_ready"
   | "ready_to_publish";
 
-export type LengthPreset = "short" | "standard" | "deep";
-
+/**
+ * 长度档位的**唯一事实源**：键的书写顺序就是界面上的档位顺序，值是该档允许的推荐总字数区间。
+ * `LENGTH_PRESET_IDS`（下拉顺序）、`LENGTH_PRESET_LABELS`（显示名）、schema 的枚举与
+ * 推荐字数上下限全部由它派生——加一档只改这里，漏登记会被类型和守卫测试同时挡下。
+ *
+ * `brief` 是给剧情漫画体量预留的一档，也是**新文章的默认档**（见 DEFAULT_ARTICLE_PLANNING）：
+ * 漫画一段只演一个节拍、每段 ≤60 字，同样的字数在漫画形态下要多摊成三四个小段。
+ * 区间收在 550-650 是用户拍板的体量：按「段数 ≈ 预算 ÷ 55」正好 **10-12 段**——
+ * 「整体尽可能十段左右」，再宽模型就会在区间里自由取值，段数稳不住（2026-09-20 的教训）。
+ */
 export const LENGTH_RANGES = {
+  brief: { min: 550, max: 650 },
   short: { min: 800, max: 1200 },
   standard: { min: 1000, max: 1500 },
   deep: { min: 1500, max: 2000 }
 } as const;
+
+export type LengthPreset = keyof typeof LENGTH_RANGES;
+
+export const LENGTH_PRESET_IDS = [
+  "brief",
+  "short",
+  "standard",
+  "deep"
+] as const satisfies readonly LengthPreset[];
+
+export const LENGTH_PRESET_LABELS: Record<LengthPreset, string> = {
+  brief: "轻量",
+  short: "短篇",
+  standard: "标准",
+  deep: "深度"
+};
+
+/** 推荐总字数的合法区间：由各档区间推导，档位与 schema 不会再各写一份数。 */
+export const MIN_RECOMMENDED_WORDS = Math.min(
+  ...Object.values(LENGTH_RANGES).map((range) => range.min)
+);
+export const MAX_RECOMMENDED_WORDS = Math.max(
+  ...Object.values(LENGTH_RANGES).map((range) => range.max)
+);
 
 export interface ArticlePlanning {
   lengthPreset: LengthPreset;
@@ -55,29 +88,36 @@ export interface ArticlePlanning {
 
 /**
  * 分镜段的段内呈现路由：决定该段「分镜帧 + 成稿文案」的拼图排法。
- * 取值与漫画长图 ComicStripMode 一致，分段拼接复用同一套拼接引擎。
+ * 前三种取值与漫画长图 ComicStripMode 一致，分段拼接复用同一套拼接引擎；
+ * text_only（纯文字）是第四种：0 帧、不拼段图，文案以普通正文块直接发布。
  */
-export type StoryboardRoute = "image_text" | "text_image" | "image_text_image";
+export type StoryboardRoute = "image_text" | "text_image" | "image_text_image" | "text_only";
 
 export const STORYBOARD_ROUTES: readonly StoryboardRoute[] = [
   "image_text",
   "text_image",
-  "image_text_image"
+  "image_text_image",
+  "text_only"
 ];
 
 export const STORYBOARD_ROUTE_LABELS: Record<StoryboardRoute, string> = {
   image_text: "图 + 文",
   text_image: "文 + 图",
-  image_text_image: "图 + 文 + 图"
+  image_text_image: "图 + 文 + 图",
+  text_only: "纯文字"
 };
 
 export function isStoryboardRoute(value: unknown): value is StoryboardRoute {
   return typeof value === "string" && (STORYBOARD_ROUTES as readonly string[]).includes(value);
 }
 
-/** 路由需要的分镜帧数：图+文 / 文+图 各 1 帧，图+文+图 2 帧。 */
-export function storyboardFrameCount(route: StoryboardRoute): 1 | 2 {
-  return route === "image_text_image" ? 2 : 1;
+/**
+ * 路由需要的分镜帧数：图+文 / 文+图 各 1 帧，图+文+图 2 帧，纯文字 0 帧。
+ * 0 帧时该段不产生任何分镜资产，拼接阶段整段跳过。
+ */
+export function storyboardFrameCount(route: StoryboardRoute): 0 | 1 | 2 {
+  if (route === "image_text_image") return 2;
+  return route === "text_only" ? 0 : 1;
 }
 
 /**
@@ -135,7 +175,9 @@ export interface StoryboardSegment {
 }
 
 export const DEFAULT_ARTICLE_PLANNING: ArticlePlanning = {
-  lengthPreset: "standard",
+  // 默认轻量档：剧情漫画一段一个节拍，550-650 字正好摊成 10-12 段（「十段左右」的体量）。
+  // 旧默认 standard 会让漫画长到 17-22 段，作者每次都要手动往回调。
+  lengthPreset: "brief",
   recommendedTotalWords: null,
   confirmedOutlineRevisionId: null,
   contentOutlineRevisionId: null

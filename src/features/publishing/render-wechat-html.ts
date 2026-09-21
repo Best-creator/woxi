@@ -89,20 +89,26 @@ export function blocksToPlainText(blocks: readonly ContentBlock[]) {
 }
 
 /**
- * 纯段图流渲染：正文 = 一串段图（每段一张，文字已烘进图里），没有可复制的正文文本。
+ * 纯段图流渲染：正文 = 一串段图（每段一张，文字已烘进图里）+ 纯文字段的正文图文。
  *
  * 与 renderWechatHtml 的差异：
  * - 只输出「指向已生成段图资产」的 image 块，且**不带 figcaption**——
  *   段图的 altText（「文章标题｜段图｜段标题」）是给无障碍用的，不该印在读者眼前；
  * - 不属于任何段的残留块默认不渲染（推送门会先拦下并要求作者处理）；
- *   作者确认保留（force）后按通用块渲染，插在段图之间。
+ *   作者确认保留（force）后按通用块渲染，插在段图之间；
+ * - 纯文字段（text_only）的文案块**始终渲染**——它们不是残留块，而是设计出来的
+ *   「段图之间的图文」，由 plainTextBlockIds 显式点名（推送门与预览共用）。
  * 预览与推送共用本函数，保证所见即所推。
  */
 export function renderWechatStripFlowHtml(
   blocks: readonly ContentBlock[],
   assets: readonly ImageAsset[],
   themeId: ThemeId,
-  options: { includeResidualText?: boolean } = {}
+  options: {
+    includeResidualText?: boolean;
+    /** 始终渲染的正文块 id（纯文字段的文案块）；预览侧也可不传——它本来就把全部文本渲染出来。 */
+    plainTextBlockIds?: ReadonlySet<string>;
+  } = {}
 ) {
   const theme = WECHAT_THEMES[themeId];
   const stripUrls = new Set(
@@ -110,6 +116,7 @@ export function renderWechatStripFlowHtml(
       .filter((asset) => asset.type === "comic_strip" && asset.status === "generated")
       .map((asset) => `/api/image-assets/${asset.id}/content`)
   );
+  const plainTextBlockIds = options.plainTextBlockIds;
   const content = [...blocks]
     .sort((left, right) => left.order - right.order)
     .map((block) => {
@@ -120,7 +127,9 @@ export function renderWechatStripFlowHtml(
           ? `<section style="margin:0;"><img src="${escapeHtml(url)}" alt="${alt}" loading="lazy" style="display:block;width:100%;max-width:100%;height:auto;"></section>`
           : "";
       }
-      return options.includeResidualText ? renderBlock(block, theme) : "";
+      const renderText =
+        options.includeResidualText || Boolean(plainTextBlockIds?.has(block.id));
+      return renderText ? renderBlock(block, theme) : "";
     })
     .join("");
   return `<section style="box-sizing:border-box;margin:0 auto;max-width:677px;padding:24px 18px;background:${theme.background};font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;letter-spacing:0;">${content}</section>`;

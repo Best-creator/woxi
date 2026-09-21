@@ -56,6 +56,8 @@ export function reviewStoryboardSegments(
       return {
         blockIds: blocks.map((block) => block.id),
         title: heading?.content.trim() ?? segment.title,
+        // 路由随快照带进审核：全篇「纯文字占比 ≥30%」与帧类红线的豁免都靠它。
+        route: segment.route,
         copy: blocks
           .filter((block) => block.type !== "heading")
           .map((block) => block.content.trim())

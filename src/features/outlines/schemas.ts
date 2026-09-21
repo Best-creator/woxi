@@ -1,4 +1,8 @@
 import { knowledgeBriefSchema } from "@/features/articles/schemas";
+import {
+  MAX_RECOMMENDED_WORDS,
+  MIN_RECOMMENDED_WORDS
+} from "@/features/articles/domain";
 import { z } from "zod";
 import type { GeneratedOutline, OutlineReviewResult } from "./domain";
 
@@ -127,7 +131,11 @@ const generatedOutlineSectionSchema = z.strictObject({
 
 export const generatedOutlineSchema = z.preprocess(normalizeGeneratedOutline, z.strictObject({
   workingTitle: z.string().trim().min(1).max(120),
-  recommendedTotalWords: z.number().int().min(800).max(2000),
+  recommendedTotalWords: z
+    .number()
+    .int()
+    .min(MIN_RECOMMENDED_WORDS)
+    .max(MAX_RECOMMENDED_WORDS),
   brief: knowledgeBriefSchema.strict(),
   outline: z.array(generatedOutlineSectionSchema).min(2).max(12)
 })) satisfies z.ZodType<GeneratedOutline>;

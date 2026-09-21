@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { resolveStyleProfile } from "./style-profile";
 import { sanitizeContentReview } from "./openai-content-reviewer";
 import type { ContentReviewResult, ReviewContentInput } from "./ports";
+import { STORY_COMIC_MAX_SENTENCE_CHARS } from "./story-comic-rules";
 
 function reviewInput(overrides: Partial<ReviewContentInput> = {}): ReviewContentInput {
   return {
@@ -147,7 +148,7 @@ describe("sanitizeContentReview 的剧情漫画红线", () => {
         { id: "seg1-h", type: "heading", content: "开场", order: 0 },
         { id: "seg1-p", type: "paragraph", content: "首先说清背景；其次再讲代价。", order: 1 },
         { id: "seg1-p2", type: "paragraph", content: "苹果、香蕉、橘子、梨、葡萄都摆着。", order: 2 },
-        { id: "seg1-p3", type: "paragraph", content: "这句话故意写得很长很长，就是要超过二十二个字的限制才行。", order: 3 }
+        { id: "seg1-p3", type: "paragraph", content: "这句话故意写得特别长，长到远远超过我们给单个句子定下的那条字数限制，还得再多写一截才够。", order: 3 }
       ]
     });
 
@@ -178,7 +179,7 @@ describe("sanitizeContentReview 的剧情漫画红线", () => {
         {
           id: "seg1-p",
           type: "paragraph",
-          content: "鲜笋被塞进无氧陶坛，厌氧菌疯狂干饭，硬把整坛鲜味熬成生化弹",
+          content: "鲜笋被塞进无氧陶坛，厌氧菌在锅里疯狂干饭，硬生生把整坛鲜味熬成了一枚威力惊人的生化炸弹",
           order: 1
         }
       ]
@@ -187,7 +188,9 @@ describe("sanitizeContentReview 的剧情漫画红线", () => {
     const sanitized = sanitizeContentReview(reviewResult({ status: "passed" }), input);
 
     expect(sanitized.status).toBe("needs_revision");
-    expect(sanitized.issues[0]!.message).toContain("每句话不超过 22 字");
+    expect(sanitized.issues[0]!.message).toContain(
+      `每句话不超过 ${STORY_COMIC_MAX_SENTENCE_CHARS} 字`
+    );
   });
 
   it("checks frame prompts and speech lines when the input carries the storyboard", () => {
@@ -219,7 +222,7 @@ describe("sanitizeContentReview 的剧情漫画红线", () => {
 
   it("warns about the whole-article total when the copy outgrows the budget", () => {
     const input = storyComicInput({
-      recommendedTotalWords: 20,
+      recommendedTotalWords: 15,
       storyboardSegments: [
         { blockIds: ["seg1-h", "seg1-p"], title: "开场", copy: "一二三四五六七八九十。", frames: [] },
         { blockIds: ["seg2-h", "seg2-p"], title: "机制", copy: "一二三四五六七八九十。", frames: [] }
@@ -233,6 +236,121 @@ describe("sanitizeContentReview 的剧情漫画红线", () => {
     // 全篇问题不算在某一段头上：blockIds 为空，界面显示为「不可定位」。
     expect(budgetIssue!.blockIds).toEqual([]);
     expect(sanitized.status).toBe("needs_revision");
+  });
+
+  it("counts only the copy against the whole-article budget (段名不进正文)", () => {
+    // 两段各 11 字文案 + 3 字段名 = 老口径 28 字，会冒出一条预算警告；
+    // 新口径只数读者读到的 22 字文案，预算内就没有问题——段名不进正文，自然也不占预算。
+    const input = storyComicInput({
+      recommendedTotalWords: 20,
+      storyboardSegments: [
+        { blockIds: ["seg1-h", "seg1-p"], title: "开场白", copy: "一二三四五六七八九十。", frames: [] },
+        { blockIds: ["seg2-h", "seg2-p"], title: "机制说", copy: "一二三四五六七八九十。", frames: [] }
+      ]
+    });
+
+    const sanitized = sanitizeContentReview(reviewResult({ status: "passed" }), input);
+
+    expect(sanitized.issues.some((issue) => issue.message.includes("预算"))).toBe(false);
+  });
+
+  it("counts only the copy against the per-segment cap (段名再长也不占 60 字)", () => {
+    const input = storyComicInput({
+      storyboardSegments: [
+        {
+          blockIds: ["seg1-h", "seg1-p"],
+          title: "开场：一群小家伙排队进场的完整段名",
+          copy: "字".repeat(60),
+          frames: []
+        }
+      ]
+    });
+
+    const messages = sanitizeContentReview(reviewResult({ status: "passed" }), input).issues.map(
+      (issue) => issue.message
+    );
+
+    // 文案正好 60 字：卡在上限内，不该因为段名有 17 字就被判越界。
+    expect(messages.some((message) => message.includes("超过剧情漫画每段"))).toBe(false);
+  });
+
+  it("flags a dialogue deficit as a whole-article issue（全篇对白密度）", () => {
+    // 带分镜的输入才判对白密度：2 段至少要 2 个对白帧，一个都没有就是旁白独角戏。
+    const input = storyComicInput({
+      storyboardSegments: [
+        {
+          blockIds: ["seg1-h", "seg1-p"],
+          title: "开场",
+          copy: "一群小家伙围上来。",
+          frames: [{ prompt: "全景。三只柴犬围上来。纯白背景。" }]
+        },
+        {
+          blockIds: ["seg2-h", "seg2-p"],
+          title: "机制",
+          copy: "带头的先跳上去。",
+          frames: [
+            {
+              prompt: "近景。带头的跳上去。纯白背景。",
+              speechLine: { kind: "narration", text: "看热闹的先看见门道。" }
+            }
+          ]
+        }
+      ]
+    });
+
+    const sanitized = sanitizeContentReview(reviewResult({ status: "passed" }), input);
+    const dialogueIssue = sanitized.issues.find((issue) => issue.message.includes("对白帧"));
+
+    expect(dialogueIssue).toBeDefined();
+    expect(dialogueIssue!.blockIds).toEqual([]);
+    expect(dialogueIssue!.message).toContain("一来一往");
+    expect(sanitized.status).toBe("needs_revision");
+  });
+
+  it("stays quiet when the dialogue quota is met", () => {
+    const input = storyComicInput({
+      storyboardSegments: [
+        {
+          blockIds: ["seg1-h", "seg1-p"],
+          title: "开场",
+          copy: "一群小家伙围上来。",
+          frames: [
+            {
+              prompt: "全景。三只柴犬围上来。纯白背景。画面文字：对白气泡『让让呗』",
+              speechLine: { kind: "dialogue", text: "让让呗" }
+            }
+          ]
+        },
+        {
+          blockIds: ["seg2-h", "seg2-p"],
+          title: "机制",
+          copy: "带头的先跳上去。",
+          frames: [
+            {
+              prompt: "近景。带头的跳上去，旁边那只捂嘴看它。纯白背景。画面文字：对白气泡『你行你上』",
+              speechLine: { kind: "dialogue", text: "你行你上" }
+            }
+          ]
+        }
+      ]
+    });
+
+    expect(sanitizeContentReview(reviewResult({ status: "passed" }), input).issues).toEqual([]);
+  });
+
+  it("skips the dialogue quota for legacy snapshots without frames（老快照不误伤）", () => {
+    // 老快照走「小标题块 + 文案块」的退化路径，帧信息全空——判不了也不该判对白密度，
+    // 否则每一篇老文章都会凭空多出一条「对白不足」。
+    const input = storyComicInput({
+      blocks: [
+        { id: "seg1-h", type: "heading", content: "开场", order: 0 },
+        { id: "seg1-p", type: "paragraph", content: "一群小家伙围上来。", order: 1 },
+        { id: "seg2-h", type: "heading", content: "机制", order: 2 },
+        { id: "seg2-p", type: "paragraph", content: "带头的先跳上去。", order: 3 }
+      ]
+    });
+
+    expect(sanitizeContentReview(reviewResult({ status: "passed" }), input).issues).toEqual([]);
   });
 
   it("leaves the illustrated form alone", () => {

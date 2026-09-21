@@ -120,7 +120,9 @@ describe("SqliteContentWorkflowRepository", () => {
       design.map((segment) => segment.frameAssetIds)
     );
     // 生成版快照本来就带描述符：帧缺失的将来版本仍可按它重建。
+    // text_only 段 0 帧是设计本身，不算「帧缺失」。
     for (const segment of fixture.contentRevision.snapshot.storyboardSegments ?? []) {
+      if (segment.route === "text_only") continue;
       expect(segment.frames.length).toBeGreaterThan(0);
       for (const frame of segment.frames) {
         expect(frame.prompt.length).toBeGreaterThan(0);

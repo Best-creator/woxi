@@ -50,11 +50,13 @@ describe("generateContent", () => {
       revision: { scope: "content", version: 1, model: "writer-large", reason: "generated" }
     });
     if (result.kind !== "generated") throw new Error("expected generated");
-    // 每段 = 标题块 + copy 按空行分块后的段落块；无图片块（分镜帧是独立资产，不进正文块）。
+    // 每段 = copy 按空行分块后的段落块；新文默认剧情漫画，段名是内部段名、不进正文，
+    // 所以正文里一个标题块都没有（讲解式才产标题块）。无图片块（分镜帧是独立资产）。
     const plannedSegments = result.article.planning.storyboardSegments ?? [];
     expect(result.article.blocks.length).toBe(
       plannedSegments.reduce((total, segment) => total + segment.copyBlockIds.length, 0)
     );
+    expect(result.article.blocks.some((block) => block.type === "heading")).toBe(false);
     expect(result.article.blocks.every((block) => block.type !== "image")).toBe(true);
     expect(result.article.blocks.map((block) => block.order)).toEqual(
       result.article.blocks.map((_, index) => index)
@@ -75,20 +77,18 @@ describe("generateContent", () => {
       expect(copyBlocks.map((block) => block.segmentId)).toEqual(
         segment.copyBlockIds.map(() => segment.id)
       );
-      // 分块节奏：标题块打头，后面至少 2 个段落块（演示文案用空行分成短块）。
-      expect(copyBlocks[0]?.type).toBe("heading");
-      expect(copyBlocks.slice(1).map((block) => block.type)).toEqual(
-        copyBlocks.slice(1).map(() => "paragraph")
-      );
-      expect(copyBlocks.length).toBeGreaterThanOrEqual(3);
+      // 分块节奏：剧情漫画不产标题块，段内全是段落块（演示文案用空行分成两块）。
+      expect(copyBlocks.every((block) => block.type === "paragraph")).toBe(true);
+      expect(copyBlocks.length).toBeGreaterThanOrEqual(2);
       for (const frameAssetId of segment.frameAssetIds) {
         const asset = await fixture.imageAssets.findById(result.article.id, frameAssetId);
         expect(asset).toMatchObject({ type: "storyboard", status: "placeholder" });
       }
     }
-    // 演示路由：首段 图+文，中段 图+文+图，末段 文+图（覆盖三种排法）。
+    // 演示路由（剧情漫画，2026-09-21 起带第四种）：首段 图+文，中段 图+文+图，
+    // 末段 纯文字——覆盖三种拼图排法 + text_only，且纯文字占比 1/3 压线 ≥30% 红线。
     expect(segments[0]?.route).toBe("image_text");
-    expect(segments[segments.length - 1]?.route).toBe("text_image");
+    expect(segments[segments.length - 1]?.route).toBe("text_only");
     expect(segments[1]?.route).toBe("image_text_image");
   });
 
@@ -117,6 +117,11 @@ describe("generateContent", () => {
       (result.article.planning.storyboardSegments ?? []).map((segment) => segment.sectionKey)
     );
     for (const segment of segments) {
+      // 帧数与路由硬性对应：纯文字段 0 帧，其余排法至少 1 帧（快照帧已由仓储补齐描述符）。
+      if (segment.route === "text_only") {
+        expect(segment.frames).toHaveLength(0);
+        continue;
+      }
       expect(segment.frames.length).toBeGreaterThan(0);
       for (const frame of segment.frames) {
         expect(frame.prompt.length).toBeGreaterThan(0);
@@ -435,6 +440,8 @@ describe("generateContent 的呈现形态", () => {
 
     expect(result.article.planning.presentation).toBe("illustrated");
     expect(result.article.blocks.some((block) => block.content.includes("先从一个具体场景说起"))).toBe(true);
+    // 讲解式的段名要进正文（也烘进段图当第一条文字带的标题），所以首块是标题块。
+    expect(result.article.blocks[0]?.type).toBe("heading");
   });
 
   it("keeps articles designed before this change on the illustrated path", async () => {

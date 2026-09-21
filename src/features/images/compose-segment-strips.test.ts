@@ -222,8 +222,9 @@ describe("composeSegmentStrips", () => {
     expect(metadata.width).toBe(DEFAULT_COMIC_STRIP_METRICS.width);
   });
 
-  it("bakes a frame's speech line as an extra band and keeps it on the asset", async () => {
+  it("bakes a frame's narration line as an extra band and keeps it on the asset", async () => {
     // 帧带台词（剧情漫画）：设计计划 → 帧资产 → 段图台词条的全链路。
+    // 旁白落成图外的台词条；对白不排带（已画进格内气泡，见下一条用例）。
     const plans = segmentPlans().map((segment) => ({
       ...segment,
       frames: segment.frames.map((frame, index) => ({
@@ -260,6 +261,34 @@ describe("composeSegmentStrips", () => {
     if (plain.kind !== "composed") throw new Error("baseline compose should pass");
     expect(withSpeech.strips[0]!.height).toBeGreaterThan(plain.strips[0]!.height);
     expect(withSpeech.strips[1]!.height).toBeGreaterThan(plain.strips[1]!.height);
+  });
+
+  it("keeps dialogue inside the image bubble instead of a band（对白不再重复排带）", async () => {
+    // 对白由生图阶段画进格内气泡（prompt 末尾的「画面文字：对白气泡」），
+    // 排版层若再排一条台词条，读者就会把同一句话读两遍。所以对白帧的高度必须与无台词时一致。
+    const plans = segmentPlans().map((segment) => ({
+      ...segment,
+      frames: segment.frames.map((frame) => ({
+        ...frame,
+        speechLine: { kind: "dialogue" as const, text: "说好的轮流呢！" } as const
+      }))
+    }));
+    const fixture = await storyboardFixture({ plans });
+    const withDialogue = await composeSegmentStrips(
+      { articleId: fixture.articleId, expectedUpdatedAt: fixture.expectedUpdatedAt },
+      { articles: fixture.articles, images: fixture.images, storageDir: fixture.storageDir }
+    );
+    if (withDialogue.kind !== "composed") throw new Error("compose should pass");
+
+    const baseline = await storyboardFixture();
+    const plain = await composeSegmentStrips(
+      { articleId: baseline.articleId, expectedUpdatedAt: baseline.expectedUpdatedAt },
+      { articles: baseline.articles, images: baseline.images, storageDir: baseline.storageDir }
+    );
+    if (plain.kind !== "composed") throw new Error("baseline compose should pass");
+    expect(withDialogue.strips.map((strip) => strip.height)).toEqual(
+      plain.strips.map((strip) => strip.height)
+    );
   });
 
   it("bakes the chosen font and persists the choice for recomposition", async () => {
@@ -456,15 +485,6 @@ describe("composeSegmentStrips", () => {
 });
 
 describe("stripTextBandsOf", () => {
-  const segment: Parameters<typeof stripTextBandsOf>[0] = {
-    id: "segment-1",
-    sectionKey: "section-1",
-    title: "设计期标题",
-    route: "image_text",
-    copyBlockIds: [],
-    frameAssetIds: [],
-    order: 0
-  };
   const heading: ContentBlock = {
     id: "h",
     type: "heading",
@@ -484,7 +504,7 @@ describe("stripTextBandsOf", () => {
   });
 
   it("gives each paragraph its own band and rides the heading on the first", () => {
-    const bands = stripTextBandsOf(segment, [
+    const bands = stripTextBandsOf([
       heading,
       paragraph("p1", "第一块", 1),
       paragraph("p2", "第二块", 2)
@@ -496,13 +516,14 @@ describe("stripTextBandsOf", () => {
   });
 
   it("keeps a single band for legacy heading plus one paragraph segments", () => {
-    const bands = stripTextBandsOf(segment, [heading, paragraph("p1", "唯一一段", 1)]);
+    const bands = stripTextBandsOf([heading, paragraph("p1", "唯一一段", 1)]);
     expect(bands).toEqual([{ kind: "text", title: "正文标题", body: "唯一一段" }]);
   });
 
-  it("falls back to the design-time title when the heading block is missing", () => {
-    const bands = stripTextBandsOf(segment, [paragraph("p1", "只剩正文", 1)]);
-    expect(bands).toEqual([{ kind: "text", title: "设计期标题", body: "只剩正文" }]);
+  it("leaves no title band when the heading block is missing (story comic never creates one)", () => {
+    // 段名是内部段名，绝不拿它兜底——一兜底剧情漫画的段名就会漏进段图里。
+    const bands = stripTextBandsOf([paragraph("p1", "只剩正文", 1)]);
+    expect(bands).toEqual([{ kind: "text", body: "只剩正文" }]);
   });
 });
 

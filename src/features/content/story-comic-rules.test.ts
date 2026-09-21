@@ -4,18 +4,30 @@ import { describe, expect, it } from "vitest";
 import {
   STORY_COMIC_MAX_SEGMENT_CHARS,
   STORY_COMIC_MAX_SENTENCE_CHARS,
+  STORY_COMIC_MIN_DIALOGUE_FRAMES,
+  STORY_COMIC_MIN_TEXT_ONLY_SHARE,
   STORY_COMIC_SEGMENT_LIMIT,
+  STORY_COMIC_SEGMENTS_PER_DIALOGUE,
   STORY_COMIC_SENTENCE_LIMIT,
+  STORY_COMIC_SENTENCE_TOLERANCE,
+  STORY_COMIC_TOLERANCE,
   charCount,
+  inspectStoryComicDialogueBalance,
   inspectStoryComicDesign,
   inspectStoryComicSegment,
-  splitSentences
+  inspectStoryComicTextOnlyBalance,
+  splitSentences,
+  storyComicDialogueTarget,
+  storyComicTextOnlyTarget
 } from "./story-comic-rules";
 import type { StoryboardDesign } from "./ports";
 
 /**
  * 这份用例盯的是「三处口径必须一致」的那一份数：阈值、容差、误伤边界。
  * 生成闸门抛什么、审核器贴什么，都由这里的判据决定。
+ *
+ * 每段字数只算文案（copy）：段名是内部段名，不进正文也不进段图，所以不占这 60 字——
+ * 这条口径与 `buildSegmentBlocks` 不产标题块、`stripTextBandsOf` 不烘标题是同一件事。
  */
 
 /** 用「短句 + 句号」拼出恰好 N 个字的文案（避开长句判据，只让段落总长生效）。 */
@@ -54,36 +66,55 @@ describe("charCount / splitSentences", () => {
 });
 
 describe("阈值与容差", () => {
-  it("判定线 = 上限 × 容差（60→69，22→25）", () => {
+  it("判定线 = 上限 × 容差（段长 60→69，单句 30→40）", () => {
     expect(STORY_COMIC_SEGMENT_LIMIT).toBe(69);
-    expect(STORY_COMIC_SENTENCE_LIMIT).toBe(25);
+    // 单句的容差故意比别处宽（1.33）：它是风格目标，判定线要落在模型的自然句长带（26-35）之外。
+    expect(STORY_COMIC_SENTENCE_LIMIT).toBe(40);
     expect(STORY_COMIC_SEGMENT_LIMIT).toBeGreaterThan(STORY_COMIC_MAX_SEGMENT_CHARS);
     expect(STORY_COMIC_SENTENCE_LIMIT).toBeGreaterThan(STORY_COMIC_MAX_SENTENCE_CHARS);
+    expect(STORY_COMIC_SENTENCE_TOLERANCE).toBeGreaterThan(STORY_COMIC_TOLERANCE);
   });
 
   it("刚好卡在判定线上的段落不算越界", () => {
     const copy = copyOfLength(STORY_COMIC_SEGMENT_LIMIT);
     expect(charCount(copy)).toBe(STORY_COMIC_SEGMENT_LIMIT);
-    expect(inspectStoryComicSegment({ title: "", copy })).toEqual([]);
+    expect(inspectStoryComicSegment({ copy })).toEqual([]);
   });
 
-  it("判据用「标题 + 文案」合计，且报的是人定的 60 而不是放大后的 69", () => {
+  it("判据只算文案：段名不进正文，多长都不占这 60 字", () => {
     const copy = copyOfLength(STORY_COMIC_SEGMENT_LIMIT - 1);
-    const complaints = inspectStoryComicSegment({ title: "排队", copy });
+    expect(charCount(copy)).toBe(STORY_COMIC_SEGMENT_LIMIT - 1);
+    expect(inspectStoryComicSegment({ copy })).toEqual([]);
+  });
+
+  it("越界时报的是人定的 60 而不是放大后的 69", () => {
+    const copy = copyOfLength(STORY_COMIC_SEGMENT_LIMIT + 1);
+    const complaints = inspectStoryComicSegment({ copy });
     expect(complaints).toHaveLength(1);
-    // 合计 68 + 2 = 70 字；错误信息里报人定的 60，不报被容差放大过的 69。
-    expect(complaints[0]).toContain("70 字");
+    expect(complaints[0]).toContain(`${STORY_COMIC_SEGMENT_LIMIT + 1} 字`);
     expect(complaints[0]).toContain(`${STORY_COMIC_MAX_SEGMENT_CHARS} 字的上限`);
     expect(complaints[0]).not.toContain(`${STORY_COMIC_SEGMENT_LIMIT} 字的上限`);
   });
 
-  it("长句单独判：超 25 字报错，且错误里报的是 22", () => {
-    const complaints = inspectStoryComicSegment({
-      title: "排队",
-      copy: "它们排成一队等着进门，谁也没有插队的意思，秩序好得让人意外。"
-    });
+  it("长句单独判：超判定线报错，且错误里报的是人定的上限", () => {
+    // 造一句恰好越过判定线的句子（无句末标点，所以整段就是一句）。
+    const copy = "狗".repeat(STORY_COMIC_SENTENCE_LIMIT + 1);
+    const complaints = inspectStoryComicSegment({ copy });
     expect(complaints).toHaveLength(1);
     expect(complaints[0]).toContain(`${STORY_COMIC_MAX_SENTENCE_CHARS} 字`);
+  });
+
+  it("刚好卡在判定线上的句子不算越界（30-40 字的容差区）", () => {
+    const copy = "狗".repeat(STORY_COMIC_SENTENCE_LIMIT);
+    expect(inspectStoryComicSegment({ copy })).toEqual([]);
+  });
+
+  it("31-39 字：超过提示词目标但在容差内，不报警告（风格目标是心锚，不是闸门）", () => {
+    // 31-34 字正是模型最常写出来的长度。判定线若落在这个带里，每轮都会报掉一半段落，
+    // 作者学会无视它——那才是规则真的失效。
+    for (const length of [STORY_COMIC_MAX_SENTENCE_CHARS + 1, 34, STORY_COMIC_SENTENCE_LIMIT - 1]) {
+      expect(inspectStoryComicSegment({ copy: "狗".repeat(length) })).toEqual([]);
+    }
   });
 });
 
@@ -91,13 +122,10 @@ describe("连接词：只抓成对，不误伤口语", () => {
   it("单独的「最后」「因为」是正常口语，不报", () => {
     expect(
       inspectStoryComicSegment({
-        title: "找门",
         copy: "最后还是最小的那只先找对了门道"
       })
     ).toEqual([]);
-    expect(
-      inspectStoryComicSegment({ title: "插队", copy: "因为它插了队，同伴都回头看它" })
-    ).toEqual([]);
+    expect(inspectStoryComicSegment({ copy: "因为它插了队，同伴都回头看它" })).toEqual([]);
   });
 
   it("成对出现即判：首先…其次 / 首先…最后 / 因为…所以", () => {
@@ -106,55 +134,77 @@ describe("连接词：只抓成对，不误伤口语", () => {
       "首先它站到队尾，最后它还是插了队",
       "因为它插了队，所以同伴都回头看它"
     ]) {
-      const complaints = inspectStoryComicSegment({ title: "插队", copy });
+      const complaints = inspectStoryComicSegment({ copy });
       expect(complaints.join("")).toContain("教科书");
     }
   });
 
   it("书面过渡语单独出现即判", () => {
     for (const copy of ["由此可见，队伍秩序很关键", "总之，先排队再进门"]) {
-      expect(inspectStoryComicSegment({ title: "结论", copy }).join("")).toContain("书面过渡语");
+      expect(inspectStoryComicSegment({ copy }).join("")).toContain("书面过渡语");
     }
   });
 });
 
 describe("列举与画面写字", () => {
   it("一句话里顿号超过 3 个才算堆列表", () => {
-    expect(inspectStoryComicSegment({ title: "道具", copy: "带着碗、绳、球、哨子" })).toEqual([]);
-    expect(
-      inspectStoryComicSegment({ title: "道具", copy: "带着碗、绳、球、哨子、骨头" }).join("")
-    ).toContain("并列列举");
+    expect(inspectStoryComicSegment({ copy: "带着碗、绳、球、哨子" })).toEqual([]);
+    expect(inspectStoryComicSegment({ copy: "带着碗、绳、球、哨子、骨头" }).join("")).toContain(
+      "并列列举"
+    );
   });
 
-  it("分镜提示词里出现「画字」指令才报，普通画面描述不报", () => {
+  it("旁白帧与无台词帧：出现「画字」指令才报，普通画面描述不报", () => {
     expect(
       inspectStoryComicSegment({
-        title: "排队",
         copy: "三只柴犬排成一队",
-        prompts: ["三只柴犬在门口排队，没人看镜头"]
+        frames: [{ prompt: "三只柴犬在门口排队，没人看镜头" }]
       })
     ).toEqual([]);
     expect(
       inspectStoryComicSegment({
-        title: "排队",
         copy: "三只柴犬排成一队",
-        prompts: ["柴犬头顶气泡，气泡里写着一句话"]
+        frames: [{ prompt: "柴犬头顶气泡，气泡里写着一句话" }]
       }).join("")
     ).toContain("画面里不得出现任何文字");
   });
 
+  it("对白帧：台词必须原样写进 prompt，气泡里才画得出这句话", () => {
+    expect(
+      inspectStoryComicSegment({
+        copy: "三只柴犬排成一队",
+        frames: [
+          {
+            prompt: "近景，一只柴犬张嘴喊话，画面文字：对白气泡『插队的出去！』",
+            speechLine: { kind: "dialogue", text: "插队的出去！" }
+          }
+        ]
+      })
+    ).toEqual([]);
+    expect(
+      inspectStoryComicSegment({
+        copy: "三只柴犬排成一队",
+        frames: [
+          {
+            prompt: "近景，一只柴犬张嘴喊话，头顶画一个空白气泡",
+            speechLine: { kind: "dialogue", text: "插队的出去！" }
+          }
+        ]
+      }).join("")
+    ).toContain("没有写进分镜提示词");
+  });
+
   it("多个违规一次报全，段内不短路", () => {
     const complaints = inspectStoryComicSegment({
-      title: "排队",
-      copy: "首先它站到队尾，其次它带着碗、绳、球、哨子、骨头排了很久很久，久到同伴都困了。",
-      prompts: ["画面里出现旁白框"]
+      copy: "首先它站到队尾，其次它带着碗、绳、球、哨子、骨头排了很久很久，久到同伴都困了又都散了。",
+      frames: [{ prompt: "画面里出现旁白框" }]
     });
     expect(complaints.length).toBeGreaterThanOrEqual(3);
   });
 });
 
 describe("整份设计", () => {
-  it("只回有问题的段，标题用于定位", () => {
+  it("只回有问题的段，段名用于定位", () => {
     const design: StoryboardDesign = {
       title: "插队",
       segments: [
@@ -185,16 +235,14 @@ describe("台词/旁白红线", () => {
   it("对白 10 字内合规，超过容差判线打回", () => {
     expect(
       inspectStoryComicSegment({
-        title: "排队",
         copy: "三只柴犬排成一队",
-        speechLines: [{ kind: "dialogue", text: "说好的轮流呢！" }]
+        frames: [{ speechLine: { kind: "dialogue", text: "说好的轮流呢！" } }]
       })
     ).toEqual([]);
     expect(
       inspectStoryComicSegment({
-        title: "排队",
         copy: "三只柴犬排成一队",
-        speechLines: [{ kind: "dialogue", text: "你们排队排得也太慢了吧真急死我了" }]
+        frames: [{ speechLine: { kind: "dialogue", text: "你们排队排得也太慢了吧真急死我了" } }]
       }).join("")
     ).toContain("对白");
   });
@@ -202,17 +250,15 @@ describe("台词/旁白红线", () => {
   it("旁白 25 字内合规，超长打回并报类型", () => {
     expect(
       inspectStoryComicSegment({
-        title: "排队",
         copy: "三只柴犬排成一队",
-        speechLines: [{ kind: "narration", text: "干活最卖力的往往是饭量最大的那只柴犬。" }]
+        frames: [{ speechLine: { kind: "narration", text: "干活最卖力的往往是饭量最大的那只柴犬。" } }]
       })
     ).toEqual([]);
     expect(
       inspectStoryComicSegment({
-        title: "排队",
         copy: "三只柴犬排成一队",
-        speechLines: [
-          { kind: "narration", text: "干活最卖力的往往是饭量最大的那只柴犬，这一点从来没有例外过。" }
+        frames: [
+          { speechLine: { kind: "narration", text: "干活最卖力的往往是饭量最大的那只柴犬，这一点从来没有例外过。" } }
         ]
       }).join("")
     ).toContain("旁白");
@@ -231,7 +277,7 @@ describe("台词/旁白红线", () => {
             {
               prompt: "一只柴犬挤到队首",
               altText: "一只柴犬挤到队首",
-              speechLine: { kind: "dialogue", text: "你们排队排得也太慢了吧真急死我了" }
+              speechLine: { kind: "dialogue", text: "你们排队排得太慢了吧真急死我了" }
             }
           ]
         }
@@ -241,5 +287,56 @@ describe("台词/旁白红线", () => {
     const inspected = inspectStoryComicDesign(design);
     expect(inspected).toHaveLength(1);
     expect(inspected[0]?.complaints.join("")).toContain("对白");
+  });
+});
+
+describe("全篇对白密度", () => {
+  it("目标 = 段数÷5 向下取整，最少 2 个（单个孤立对白正是要禁止的）", () => {
+    expect(STORY_COMIC_SEGMENTS_PER_DIALOGUE).toBe(5);
+    expect(STORY_COMIC_MIN_DIALOGUE_FRAMES).toBe(2);
+    expect(storyComicDialogueTarget(3)).toBe(2);
+    expect(storyComicDialogueTarget(10)).toBe(2);
+    expect(storyComicDialogueTarget(11)).toBe(2);
+    expect(storyComicDialogueTarget(15)).toBe(3);
+    expect(storyComicDialogueTarget(22)).toBe(4);
+  });
+
+  it("对白帧不足时报全篇理由，写明一来一往的口径", () => {
+    const complaints = inspectStoryComicDialogueBalance({ segmentCount: 21, dialogueFrameCount: 0 });
+    expect(complaints).toHaveLength(1);
+    expect(complaints[0]).toContain("至少要 4 个");
+    expect(complaints[0]).toContain("一来一往");
+    expect(complaints[0]).toContain("孤立气泡");
+  });
+
+  it("达标与超额都合规", () => {
+    expect(
+      inspectStoryComicDialogueBalance({ segmentCount: 21, dialogueFrameCount: 4 })
+    ).toEqual([]);
+    expect(
+      inspectStoryComicDialogueBalance({ segmentCount: 21, dialogueFrameCount: 9 })
+    ).toEqual([]);
+  });
+});
+
+describe("全篇纯文字配比", () => {
+  it("目标 = 段数 × 30% 向上取整（3 段至少 1 段，10 段至少 3 段）", () => {
+    expect(STORY_COMIC_MIN_TEXT_ONLY_SHARE).toBe(0.3);
+    expect(storyComicTextOnlyTarget(3)).toBe(1);
+    expect(storyComicTextOnlyTarget(4)).toBe(2);
+    expect(storyComicTextOnlyTarget(10)).toBe(3);
+    expect(storyComicTextOnlyTarget(11)).toBe(4);
+  });
+
+  it("配比不足时报全篇理由，写明纯文字段承接节奏的口径", () => {
+    const complaints = inspectStoryComicTextOnlyBalance({ segmentCount: 10, textOnlyCount: 2 });
+    expect(complaints).toHaveLength(1);
+    expect(complaints[0]).toContain("至少要 3 段");
+    expect(complaints[0]).toContain("text_only");
+  });
+
+  it("压线与超额都合规", () => {
+    expect(inspectStoryComicTextOnlyBalance({ segmentCount: 3, textOnlyCount: 1 })).toEqual([]);
+    expect(inspectStoryComicTextOnlyBalance({ segmentCount: 10, textOnlyCount: 5 })).toEqual([]);
   });
 });

@@ -10,6 +10,14 @@ export interface JsonCompletionRequest<T> {
   userPayload: unknown;
   schema: z.ZodType<T>;
   timeoutMs: number;
+  /**
+   * schema 之后的语义校验：返回给模型的纠错说明，合规时返回 null。
+   *
+   * 结构校验（Zod）与语义校验（字段取值互相矛盾、引用了不存在的键）走同一条
+   * 纠错重试通道——旧实现里语义校验在 client 之外硬抛，模型没有第二次机会，
+   * 用户只会看到一句没头没尾的 502。
+   */
+  validate?: (result: T) => string | null;
 }
 
 function isTimeout(error: unknown) {
@@ -296,6 +304,14 @@ export class OpenAiJsonClient {
           : "";
         correctiveNote = `上一次的 JSON 结构有问题，出在「${detail}」这个字段上。${RETRY_NOTE}`;
         continue;
+      }
+      if (request.validate) {
+        const complaint = request.validate(result.data);
+        if (complaint) {
+          detail = complaint.slice(0, 160);
+          correctiveNote = `上一次的 JSON 内容不合规，问题出在「${detail}」。${RETRY_NOTE}`;
+          continue;
+        }
       }
       return result.data;
     }

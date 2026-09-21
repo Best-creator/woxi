@@ -91,16 +91,16 @@ function byOrder(left: ContentBlock, right: ContentBlock): number {
 }
 
 /**
- * 段内文案拆成文字带：每个文案块一条带（标题块当首条带的 title），块与块之间由
- * 渲染器的 gap 自然隔开——短卡节奏，读者一眼一行。历史文章（标题 + 单段落）
- * 切出来还是一条带，视觉与旧版完全一致。
+ * 段内文案拆成文字带：每个文案块一条带（有标题块就把它当首条带的 title），
+ * 块与块之间由渲染器的 gap 自然隔开——短卡节奏，读者一眼一行。
+ * 历史文章（标题 + 单段落）切出来还是一条带，视觉与旧版完全一致。
+ *
+ * 标题带只有一个来源：**正文里的标题块**。剧情漫画不产标题块，段图自然就没有标题；
+ * 段名（segment.title）是内部段名，这里绝不能拿它兜底——一兜底它就会漏进图里。
  */
-export function stripTextBandsOf(
-  segment: StoryboardSegment,
-  copyBlocks: readonly ContentBlock[]
-): ComicStripTextBlock[] {
+export function stripTextBandsOf(copyBlocks: readonly ContentBlock[]): ComicStripTextBlock[] {
   const heading = copyBlocks.find((block) => block.type === "heading");
-  const title = heading?.content.trim() || segment.title.trim() || "";
+  const title = heading?.content.trim() || "";
   const bodies = copyBlocks
     .filter((block) => block.type !== "heading" && CONSUMABLE_BLOCK_TYPES.has(block.type))
     .map((block) => block.content.trim())
@@ -180,6 +180,8 @@ export async function composeSegmentStrips(
 
   interface PreparedSegment {
     segment: StoryboardSegment;
+    /** 收窄后的拼图路由（text_only 已在上面整段跳过）：mode 字段与块序分支只认这三种。 */
+    route: Exclude<StoryboardRoute, "text_only">;
     frameAssets: ImageAsset[];
     consumedBlocks: ContentBlock[];
     resumeBeforeBlockId: string | null;
@@ -188,8 +190,11 @@ export async function composeSegmentStrips(
 
   // 所有段会被吃掉的块先并成一个大集合：相邻段的「插回位置」必须落在
   // 没人吃的块上——如果落在别的段要吃的块上，那段图也隐身了，还原时定位不到。
+  // 纯文字段（text_only）不拼图、文案留在正文里，它的块绝不能进这个集合，
+  // 否则相邻段的插回位置会绕开它们，段图之间的纯文字就被吞掉了。
   const consumedEverywhere = new Set<string>();
   for (const segment of segments) {
+    if (segment.route === "text_only") continue;
     for (const blockId of segment.copyBlockIds) {
       const block = blockById.get(blockId);
       if (block && CONSUMABLE_BLOCK_TYPES.has(block.type)) consumedEverywhere.add(block.id);
@@ -198,6 +203,11 @@ export async function composeSegmentStrips(
 
   const prepared: PreparedSegment[] = [];
   for (const segment of segments) {
+    // 纯文字段整段跳过：不要求帧、不校验文案、不产出段图——它的 copyBlockIds
+    // 指向的正文块原样留在正文里，发布时按普通图文渲染。
+    if (segment.route === "text_only") continue;
+    // narrow 到三种拼图路由：下面 mode 字段与块序分支只认这三种（ComicStripMode）。
+    const route: Exclude<StoryboardRoute, "text_only"> = segment.route;
     const frameAssets = segment.frameAssetIds
       .slice(0, storyboardFrameCount(segment.route))
       .map((id) => assetById.get(id))
@@ -226,10 +236,11 @@ export async function composeSegmentStrips(
 
     prepared.push({
       segment,
+      route,
       frameAssets,
       consumedBlocks,
       resumeBeforeBlockId,
-      textBands: stripTextBandsOf(segment, consumedBlocks)
+      textBands: stripTextBandsOf(consumedBlocks)
     });
   }
 
@@ -295,12 +306,13 @@ export async function composeSegmentStrips(
 
       // 段内路由在设计期就定了：图+文 / 文+图 / 图+文+图，两图夹一文时帧序即设计序。
       // 文案按块拆成多条文字带——每块一条短卡，不再是一整段长文。
-      // 帧与它的台词绑定成组：帧资产带 speechLine 时紧跟一条台词条
-      // （旁白=橙底头像条，对白=白底橙描边条）；旧帧没有台词 → 只有图，零迁移。
+      // 帧与它的台词绑定成组，但只有**旁白**落成台词条（旁白=橙底头像条，挂在图外）；
+      // **对白已经画进这一格的气泡里**（生图阶段按 prompt 末尾的「画面文字：对白气泡」烘字），
+      // 再排一条带就重复了。旧帧没有台词 → 只有图，零迁移。
       const frameBlocksWithSpeech = (index: number): ComicStripBlock[] => {
         const line = entry.frameAssets[index]?.speechLine;
         const blocks: ComicStripBlock[] = [{ kind: "image", binary: binaries[index]! }];
-        if (line?.text.trim()) {
+        if (line?.kind === "narration" && line.text.trim()) {
           blocks.push({
             kind: "speech",
             speechKind: line.kind,
@@ -311,9 +323,9 @@ export async function composeSegmentStrips(
       };
 
       const stripBlocks: ComicStripBlock[] =
-        entry.segment.route === "text_image"
+        entry.route === "text_image"
           ? [...entry.textBands, ...frameBlocksWithSpeech(0)]
-          : entry.segment.route === "image_text_image"
+          : entry.route === "image_text_image"
             ? [
                 ...frameBlocksWithSpeech(0),
                 ...entry.textBands,
@@ -343,8 +355,8 @@ export async function composeSegmentStrips(
         input: {
           assetId,
           generationId,
-          // 段内路由与长图排法共用同一套取值，仓储侧原样落库。
-          mode: entry.segment.route,
+          // 段内路由与长图排法共用同一套取值（text_only 已被上面 continue 排除）。
+          mode: entry.route,
           anchorBlockId: entry.consumedBlocks[0]!.id,
           consumedContent: {
             blocks: entry.consumedBlocks.map((block) => ({ ...block })),
