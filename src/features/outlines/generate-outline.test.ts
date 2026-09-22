@@ -46,6 +46,9 @@ describe("generateOutline", () => {
     expect(sourceContext).not.toContain("不得传递");
     if (result.kind === "generated") {
       expect(result.article.outline.every((section) => section.id.length > 0)).toBe(true);
+      // 剧情推演随大纲落库：文章 planning 与版本快照都要带上，第三步设计器靠它编排衔接。
+      expect(result.article.planning.storyline).toContain("开场");
+      expect(result.revision.snapshot.storyline).toContain("开场");
     }
   });
 

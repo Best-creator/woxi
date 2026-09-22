@@ -29,6 +29,12 @@ export interface GenerateContentInput {
   targetAudience: string;
   brief: KnowledgeBrief;
   outline: GenerateContentOutlineSection[];
+  /**
+   * 全篇剧情推演（大纲步骤产出的故事线蓝图）：设计器的最高写作约束——
+   * 每段落笔前先对齐推演走到哪了，段间衔接与伏笔回收都从它来。
+   * 旧文没有它（null/缺省）：按原口径写，不做硬性约束。
+   */
+  storyline?: string;
   recommendedTotalWords: number;
   styleProfile: StyleProfile;
   sourceContext?: string;
@@ -97,6 +103,8 @@ export interface ReviseStoryboardDesignInput {
   targetAudience: string;
   brief: KnowledgeBrief;
   outline: GenerateContentOutlineSection[];
+  /** 全篇剧情推演；修订与初版同一口径：改动段要重新对齐推演，伏笔与回收位置不能丢。 */
+  storyline?: string;
   recommendedTotalWords: number;
   styleProfile: StyleProfile;
   /** 当前分镜设计（由 planning.storyboardSegments + 正文块 + 帧资产还原）。 */
@@ -188,6 +196,8 @@ export interface ReviewContentInput {
   styleProfile: StyleProfile;
   blocks: ReviewableContentBlock[];
   outline: GenerateContentOutlineSection[];
+  /** 全篇剧情推演；给了它 coherence 就连带判「前文埋的伏笔后文有没有兑现」。 */
+  storyline?: string;
   sourceContext?: string;
   /**
    * 呈现形态：story_comic 时审核要按剧情漫画的红线判（每段 60 字、每句 26 字、

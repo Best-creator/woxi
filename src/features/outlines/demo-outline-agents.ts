@@ -39,6 +39,9 @@ export class DemoOutlineGenerator implements OutlineGenerator {
     return {
       workingTitle: revising ? `用日常选择理解${input.topic}` : `理解${input.topic}`,
       recommendedTotalWords: total,
+      storyline: revising
+        ? `从读者昨天刚做过的一个选择讲起，让他先承认「我当时也没得选」；顺势给出${input.topic}这个词，把取舍讲清楚；再用两个日常决策演示怎么比较不同选项，最后收回开场那个选择——原来懂得取舍的人不是选得更对，而是知道自己放弃了什么。`
+        : `从一个谁都经历过的两难场景开场，先让读者看见${input.topic}就在身边；接着把这个词讲透，说明取舍的两面；最后回到开场的场景，把方法用回日常决策，收在一句可带走的大白话上。`,
       brief: {
         oneSentence: revising
           ? `每个关于${input.topic}的选择，都会放弃别的可能。`

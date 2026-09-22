@@ -24,6 +24,10 @@ export interface OutlineSnapshotInput {
   lengthPreset: LengthPreset;
   recommendedTotalWords: number;
   sourceContextSnapshot: string;
+  /**
+   * 全篇剧情推演；可选——旧文与旧测试夹具没有它，缺省时不进快照（哈希口径不变）。
+   */
+  storyline?: string;
 }
 
 export interface OutlineWorkflowRepository {
@@ -91,7 +95,9 @@ export function toOutlineRevisionSnapshot(input: OutlineSnapshotInput): OutlineR
     outline: input.outline,
     lengthPreset: input.lengthPreset,
     recommendedTotalWords: input.recommendedTotalWords,
-    sourceContextSnapshot: input.sourceContextSnapshot
+    sourceContextSnapshot: input.sourceContextSnapshot,
+    // 缺省时不写该键：让没有推演的旧文快照哈希与历史版本保持一致。
+    ...(input.storyline ? { storyline: input.storyline } : {})
   };
 }
 

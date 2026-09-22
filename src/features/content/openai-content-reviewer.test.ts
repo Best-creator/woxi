@@ -392,4 +392,13 @@ describe("CONTENT_REVIEWER_SYSTEM_PROMPT 连贯性判据", () => {
     expect(CONTENT_REVIEWER_SYSTEM_PROMPT).toContain("总而言之");
     expect(CONTENT_REVIEWER_SYSTEM_PROMPT).toContain("coherence 给 2 或更低");
   });
+
+  it("pins the foreshadow-payoff and dangling-reference criteria", () => {
+    // 2026-09-22 割裂感治理第二阶段：伏笔抛了不收、段首凭空指代、比喻各开各的，
+    // 都是抹香鲸文实拍里最典型的割裂病灶，必须写进判据。
+    expect(CONTENT_REVIEWER_SYSTEM_PROMPT).toContain("伏笔");
+    expect(CONTENT_REVIEWER_SYSTEM_PROMPT).toContain("抛了不收");
+    expect(CONTENT_REVIEWER_SYSTEM_PROMPT).toContain("凭空重起开场或出现前文从未铺垫过的指代");
+    expect(CONTENT_REVIEWER_SYSTEM_PROMPT).toContain("互不相干的新喻体");
+  });
 });

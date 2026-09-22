@@ -1040,6 +1040,25 @@ h2 {
   margin: 0;
 }
 
+.outline-storyline {
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  gap: 6px;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+}
+
+.outline-storyline .panel-label {
+  margin: 0;
+}
+
+.outline-storyline-text {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+  margin: 0;
+}
+
 .outline-section-words {
   white-space: nowrap;
 }

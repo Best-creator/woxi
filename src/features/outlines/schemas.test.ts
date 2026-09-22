@@ -75,6 +75,76 @@ describe("generated outline schema", () => {
       expect(result.data.brief.misconceptions).toEqual(["24小时是自然常数"]);
     }
   });
+
+  it("keeps the storyline verbatim when the model provides one", () => {
+    const result = generatedOutlineSchema.safeParse({
+      workingTitle: "一天为什么是24小时？",
+      storyline: "从一个人看表迟到讲起，让读者先意识到「一天多长」是被定义出来的；再切到地球自转的现场，讲自然周期；最后回到历法史，看人类怎么把这一天切成24份，收在钟表统一时间的那一幕。",
+      recommendedTotalWords: 1000,
+      brief: {
+        topic: "一天为什么是24小时？",
+        coreMessage: "24小时是人类对一天的约定性划分。",
+        prerequisites: [],
+        commonMisconceptions: [],
+        unsupportedNotes: []
+      },
+      outline: [
+        { key: "history", title: "历史来源", goal: "解释来源", recommendedWords: 500 },
+        { key: "standard", title: "标准化", goal: "解释固定时长", recommendedWords: 500 }
+      ]
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.storyline).toContain("看表迟到");
+    }
+  });
+
+  it("accepts storyline field-name variants and falls back to joined goals", () => {
+    const result = generatedOutlineSchema.safeParse({
+      workingTitle: "一天为什么是24小时？",
+      storyLine: "先看一个迟到的早晨，再拆开地球自转，最后看人类把一天切成24份的历史。",
+      recommendedTotalWords: 1000,
+      brief: {
+        topic: "一天为什么是24小时？",
+        coreMessage: "24小时是人类对一天的约定性划分。",
+        prerequisites: [],
+        commonMisconceptions: [],
+        unsupportedNotes: []
+      },
+      outline: [
+        { key: "history", title: "历史来源", goal: "解释来源", recommendedWords: 500 },
+        { key: "standard", title: "标准化", goal: "解释固定时长", recommendedWords: 500 }
+      ]
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.storyline).toContain("迟到的早晨");
+    }
+
+    const fallback = generatedOutlineSchema.safeParse({
+      workingTitle: "一天为什么是24小时？",
+      recommendedTotalWords: 1000,
+      brief: {
+        topic: "一天为什么是24小时？",
+        coreMessage: "24小时是人类对一天的约定性划分。",
+        prerequisites: [],
+        commonMisconceptions: [],
+        unsupportedNotes: []
+      },
+      outline: [
+        { key: "history", title: "历史来源", goal: "先看一个迟到的早晨，引出时间被定义这件事。", recommendedWords: 500 },
+        { key: "standard", title: "标准化", goal: "再讲人类把一天切成24份的历史。", recommendedWords: 500 }
+      ]
+    });
+
+    expect(fallback.success).toBe(true);
+    if (fallback.success) {
+      expect(fallback.data.storyline).toContain("迟到的早晨");
+      expect(fallback.data.storyline).toContain("切成24份");
+    }
+  });
 });
 
 describe("outline review schema", () => {

@@ -76,7 +76,8 @@ export async function generateOutline(
     outline,
     lengthPreset: command.lengthPreset,
     recommendedTotalWords: generated.recommendedTotalWords,
-    sourceContextSnapshot: sourceContext
+    sourceContextSnapshot: sourceContext,
+    storyline: generated.storyline
   });
   return result.kind === "saved" ? { kind: "generated", article: result.article, revision: result.revision } : result;
 }

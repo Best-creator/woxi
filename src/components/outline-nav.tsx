@@ -6,6 +6,8 @@ import type { OutlineSection } from "@/features/articles/domain";
 
 export interface OutlineNavProps {
   sections: OutlineSection[];
+  /** 全篇剧情推演（大纲生成器产出的故事线蓝图）；只读展示，改它靠重新生成或修订大纲。 */
+  storyline?: string | null;
   readOnly?: boolean;
   disabled?: boolean;
   onChange?: (sections: OutlineSection[]) => void;
@@ -13,6 +15,7 @@ export interface OutlineNavProps {
 
 export function OutlineNav({
   sections,
+  storyline,
   readOnly = false,
   disabled = false,
   onChange
@@ -76,6 +79,12 @@ export function OutlineNav({
           ) : null}
         </span>
       </div>
+      {storyline ? (
+        <div className="outline-storyline">
+          <p className="panel-label">剧情推演</p>
+          <p className="outline-storyline-text">{storyline}</p>
+        </div>
+      ) : null}
       {sections.length === 0 ? (
         <p className="panel-empty">生成初稿后显示章节</p>
       ) : (

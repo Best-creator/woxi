@@ -20,6 +20,12 @@ export interface GeneratedOutline {
   recommendedTotalWords: number;
   brief: KnowledgeBrief;
   outline: GeneratedOutlineSection[];
+  /**
+   * 全篇剧情推演（故事线蓝图）：200-400 字的连续叙事，讲清楚开场怎么进、
+   * 情绪怎么铺、场景怎么切换、伏笔在哪里抛、末尾落位到哪。
+   * 它是大纲章节之间的「缝合层」——章节只是推演切出来的节拍。
+   */
+  storyline: string;
 }
 
 export interface OutlineReviewFeedback {
@@ -38,6 +44,8 @@ export interface GenerateOutlineInput {
   sourceContext?: string;
   currentBrief?: KnowledgeBrief;
   currentOutline?: GeneratedOutlineSection[];
+  /** 修订时的现役剧情推演：模型必须在它基础上更新，而不是另起一条无关故事线。 */
+  currentStoryline?: string;
   reviewFeedback?: OutlineReviewFeedback;
   /**
    * 作者本人用自然语言提的修改要求。
@@ -86,6 +94,8 @@ export interface ReviewOutlineInput {
   recommendedTotalWords?: number;
   brief?: KnowledgeBrief;
   outline: ReviewableOutlineSection[];
+  /** 全篇剧情推演；给了它审核就要连带判故事线质量（连贯、转场有承载、伏笔有回收）。 */
+  storyline?: string;
   sourceContext?: string;
   model?: string;
 }

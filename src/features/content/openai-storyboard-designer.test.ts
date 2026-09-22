@@ -252,6 +252,64 @@ describe("OpenAiStoryboardDesigner", () => {
     expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).toContain("只有末段允许纯收束不抛钩");
   });
 
+  it("anchors the storyline as the top constraint plus metaphor and foreshadow discipline", () => {
+    // 2026-09-22 割裂感治理第二阶段：全篇剧情推演是最高写作约束（借自参考项目的
+    // 「200-400 字逻辑蓝图」），统一比喻设定与伏笔必收是防「各段各抓一个喻体」「抛了不收」。
+    for (const prompt of [STORYBOARD_DESIGNER_SYSTEM_PROMPT, STORYBOARD_DESIGNER_STORY_COMIC_PROMPT]) {
+      expect(prompt).toContain("storyline");
+      expect(prompt).toContain("最高");
+      expect(prompt).toContain("回收前文伏笔");
+    }
+    expect(STORYBOARD_DESIGNER_SYSTEM_PROMPT).toContain("比喻纪律");
+    expect(STORYBOARD_DESIGNER_SYSTEM_PROMPT).toContain("核心比喻设定");
+    expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).toContain("外号与设定里延伸");
+    // 修订提示词同样不许把伏笔链改断。
+    for (const reviser of [STORYBOARD_REVISER_SYSTEM_PROMPT, STORYBOARD_REVISER_STORY_COMIC_PROMPT]) {
+      expect(reviser).toContain("storyline");
+      expect(reviser).toContain("伏笔与回收位置");
+    }
+  });
+
+  it("forwards the storyline to the design and revision payloads when present", async () => {
+    const complete = vi.fn(async (request: { schema: { parse: (value: unknown) => unknown } }) => {
+      const raw = { title: "三只柴犬推箱子", segments: storyComicDesign().segments };
+      request.schema.parse(raw);
+      return raw as never;
+    });
+    const designer = new OpenAiStoryboardDesigner({ complete } as never);
+    const storyline = "从推箱子翻车讲起，中段换成搭梯子，末段收在分工上。";
+
+    await designer.design({ ...baseInput, storyline });
+    await designer.revise({
+      ...baseInput,
+      storyline,
+      currentDesign: storyComicDesign(),
+      flaggedSectionKeys: []
+    });
+
+    const payloads = complete.mock.calls.map(
+      (call) => (call[0] as unknown as { userPayload: { storyline?: string } }).userPayload
+    );
+    expect(payloads[0]?.storyline).toBe(storyline);
+    expect(payloads[1]?.storyline).toBe(storyline);
+  });
+
+  it("omits the storyline key entirely for legacy articles without one", async () => {
+    const complete = vi.fn(async (request: { schema: { parse: (value: unknown) => unknown } }) => {
+      const raw = { title: "三只柴犬推箱子", segments: storyComicDesign().segments };
+      request.schema.parse(raw);
+      return raw as never;
+    });
+    const designer = new OpenAiStoryboardDesigner({ complete } as never);
+
+    await designer.design({ ...baseInput });
+
+    const payload = (
+      complete.mock.calls[0]?.[0] as unknown as { userPayload: Record<string, unknown> }
+    ).userPayload;
+    expect(payload).not.toHaveProperty("storyline");
+  });
+
   it("switches to the story comic prompt when the form is 剧情漫画", async () => {
     const complete = vi.fn(async (request: { schema: { parse: (value: unknown) => unknown } }) => {
       const raw = { title: "三只柴犬推箱子", segments: storyComicDesign().segments };

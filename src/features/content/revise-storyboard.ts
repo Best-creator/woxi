@@ -245,6 +245,7 @@ export async function reviseStoryboard(
       ...(section.recommendedWords ? { recommendedWords: section.recommendedWords } : {}),
       order: section.order
     })),
+    ...(article.planning.storyline ? { storyline: article.planning.storyline } : {}),
     recommendedTotalWords: article.planning.recommendedTotalWords as number,
     styleProfile: command.styleProfile,
     presentation,

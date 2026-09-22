@@ -41,7 +41,9 @@ export async function confirmOutline(
     outline: article.outline,
     lengthPreset: article.planning.lengthPreset,
     recommendedTotalWords: article.planning.recommendedTotalWords,
-    sourceContextSnapshot
+    sourceContextSnapshot,
+    // 与 reviewOutline 的 checkpoint 快照同构（哈希必须逐字节一致）。
+    ...(article.planning.storyline ? { storyline: article.planning.storyline } : {})
   };
   const current = await dependencies.workflow.findCurrentOutlineReview({ articleId: article.id, snapshot });
   if (!current) return { kind: "review_required" };

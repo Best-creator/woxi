@@ -75,6 +75,30 @@ describe("reviewContent", () => {
     expect(seen).toEqual([{ presentation: "story_comic" }]);
   });
 
+  it("forwards the outline storyline to the reviewer so foreshadow payoff can be judged", async () => {
+    const fixture = await articleWithGeneratedContent();
+    const storyline = "从翻车讲起，中段搭梯子，末段收在分工上。";
+    const saved = await fixture.articles.save(
+      { ...fixture.article, planning: { ...fixture.article.planning, storyline } },
+      fixture.article.updatedAt
+    );
+    if (saved.kind !== "saved") throw new Error("expected saved");
+    const seen: Array<{ storyline?: string }> = [];
+    const reviewer: ContentReviewer = {
+      async review(input) {
+        seen.push({ storyline: input.storyline });
+        return fixture.reviewer.review(input);
+      }
+    };
+
+    await reviewContent(
+      { articleId: saved.article.id, expectedUpdatedAt: saved.article.updatedAt },
+      { articles: fixture.articles, sources: fixture.sources, reviewer, workflow: fixture.contentWorkflow }
+    );
+
+    expect(seen).toEqual([{ storyline }]);
+  });
+
   it("creates a new content revision after the body is edited", async () => {
     const fixture = await articleWithGeneratedContent();
     const edited = {

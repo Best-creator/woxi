@@ -77,7 +77,10 @@ export const articlePlanningSchema = z.object({
   // 必须在此登记：整篇文章的 PATCH 会带 planning 过一遍本 schema，未登记的字段会被 strip 掉。
   storyboardTextScaleId: z.string().trim().max(64).nullable().optional(),
   // 呈现形态（剧情漫画 / 讲解式）：原样透传，消费端用 resolveStoryboardPresentation 解析。
-  presentation: z.string().trim().max(64).nullable().optional()
+  presentation: z.string().trim().max(64).nullable().optional(),
+  // 全篇剧情推演（大纲步骤写入）：原样透传，第三步设计器按它编排段间衔接。
+  // 必须在此登记：整篇文章的 PATCH 会带 planning 过一遍本 schema，未登记的字段会被 strip 掉。
+  storyline: z.string().trim().max(1200).nullable().optional()
 });
 
 export const knowledgeBriefSchema = z.object({

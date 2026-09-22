@@ -70,7 +70,9 @@ export async function loadOutlineWorkspaceState(input: {
       outline: input.article.outline,
       lengthPreset: input.article.planning.lengthPreset,
       recommendedTotalWords: input.article.planning.recommendedTotalWords,
-      sourceContextSnapshot: readySourceContext(input.sources)
+      sourceContextSnapshot: readySourceContext(input.sources),
+      // 与 reviewOutline 的 checkpoint 快照同构（哈希必须逐字节一致）。
+      ...(input.article.planning.storyline ? { storyline: input.article.planning.storyline } : {})
     }
   });
   return { versions, review, versionReviews };

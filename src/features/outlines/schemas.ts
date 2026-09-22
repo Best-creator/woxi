@@ -45,6 +45,18 @@ function normalizeGeneratedOutline(value: unknown) {
   });
   const sectionWords = normalizedSections.reduce((total, section) => total + section.recommendedWords, 0);
   const topic = typeof inputBrief.topic === "string" ? inputBrief.topic : "知识点";
+  // 剧情推演：接受 storyline/storyLine/narrativeLine/plotOutline 字段名变体；
+  // 模型没给时用各章 goal 拼接兜底——拼接版不如真正的推演，但至少让章节钩子链进入下游，
+  // 比整条链路硬失败更可用。质量由大纲审核（storyline 判据）兜底。
+  const rawStoryline = [
+    input.storyline,
+    input.storyLine,
+    input.narrativeLine,
+    input.plotOutline
+  ].find((value) => typeof value === "string" && value.trim().length > 0);
+  const storyline = typeof rawStoryline === "string"
+    ? rawStoryline.trim()
+    : normalizedSections.map((section) => section.goal).join(" ");
   const explicitConcepts = stringArray(inputBrief.concepts);
   const concepts = explicitConcepts.length
     ? explicitConcepts
@@ -65,7 +77,8 @@ function normalizeGeneratedOutline(value: unknown) {
       ),
       unsupportedNotes: stringArray(inputBrief.unsupportedNotes)
     },
-    outline: normalizedSections
+    outline: normalizedSections,
+    storyline
   };
 }
 
@@ -137,7 +150,10 @@ export const generatedOutlineSchema = z.preprocess(normalizeGeneratedOutline, z.
     .min(MIN_RECOMMENDED_WORDS)
     .max(MAX_RECOMMENDED_WORDS),
   brief: knowledgeBriefSchema.strict(),
-  outline: z.array(generatedOutlineSectionSchema).min(2).max(12)
+  outline: z.array(generatedOutlineSectionSchema).min(2).max(12),
+  // 全篇剧情推演：下限只拦空串——体量门槛（≥60 字）由 OpenAiOutlineGenerator.validateGeneratedOutline
+  // 把守（那里能带上「重新生成」的重试语义）；这里宽一点，兼容 goal 拼接的兜底路径。
+  storyline: z.string().trim().min(1).max(1200)
 })) satisfies z.ZodType<GeneratedOutline>;
 
 const outlineReviewIssueSchema = z.strictObject({

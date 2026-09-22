@@ -92,6 +92,45 @@ describe("generateContent", () => {
     expect(segments[1]?.route).toBe("image_text_image");
   });
 
+  it("forwards the outline storyline to the designer when planning carries one", async () => {
+    const fixture = await articleWithConfirmedOutline();
+    const storyline = "从翻车讲起，中段搭梯子，末段收在分工上。";
+    const saved = await fixture.articles.save(
+      { ...fixture.article, planning: { ...fixture.article.planning, storyline } },
+      fixture.article.updatedAt
+    );
+    if (saved.kind !== "saved") throw new Error("expected saved");
+    const seen: string[] = [];
+    const demo = new DemoStoryboardDesigner();
+    const recordingDesigner: StoryboardDesigner = {
+      async design(input) {
+        seen.push(input.storyline ?? "");
+        return demo.design(input);
+      },
+      async revise(input) {
+        seen.push(input.storyline ?? "");
+        return demo.revise(input);
+      }
+    };
+
+    await generateContent(
+      {
+        articleId: fixture.article.id,
+        expectedUpdatedAt: saved.article.updatedAt,
+        styleProfile: resolveStyleProfile("friend_chat")
+      },
+      {
+        articles: fixture.articles,
+        sources: fixture.sources,
+        designer: recordingDesigner,
+        workflow: fixture.contentWorkflow,
+        images: fixture.imageAssets
+      }
+    );
+
+    expect(seen).toEqual([storyline]);
+  });
+
   it("records the storyboard design in the version snapshot for step-four resubmission", async () => {
     const fixture = await articleWithConfirmedOutline();
     const result = await generateContent(

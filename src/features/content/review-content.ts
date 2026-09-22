@@ -125,6 +125,7 @@ export async function reviewContent(
       ...(storyboardSegments.length ? { storyboardSegments } : {}),
       // 全篇字数预算（快照口径）：审核据此给出超预算警告。
       recommendedTotalWords: snapshot.recommendedTotalWords,
+      ...(article.planning.storyline ? { storyline: article.planning.storyline } : {}),
       outline: article.outline.map((section) => ({
         id: section.id,
         title: section.title,

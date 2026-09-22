@@ -48,7 +48,8 @@ export async function reviewOutline(
     outline: article.outline,
     lengthPreset: article.planning.lengthPreset,
     recommendedTotalWords: article.planning.recommendedTotalWords,
-    sourceContextSnapshot: sourceContext
+    sourceContextSnapshot: sourceContext,
+    ...(article.planning.storyline ? { storyline: article.planning.storyline } : {})
   });
   if (checkpoint.kind !== "checkpointed") return checkpoint;
   let result;
@@ -60,6 +61,7 @@ export async function reviewOutline(
       recommendedTotalWords: article.planning.recommendedTotalWords,
       brief: article.brief,
       outline: article.outline.map((section) => ({ ...section, key: section.id })),
+      ...(article.planning.storyline ? { storyline: article.planning.storyline } : {}),
       ...(sourceContext ? { sourceContext } : {}),
       model
     });

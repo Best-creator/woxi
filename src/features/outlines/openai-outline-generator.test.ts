@@ -1,8 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { OpenAiOutlineGenerator } from "./openai-outline-generator";
+import {
+  OUTLINE_GENERATOR_SYSTEM_PROMPT,
+  OUTLINE_REVISION_SYSTEM_PROMPT,
+  OpenAiOutlineGenerator
+} from "./openai-outline-generator";
 
 const validOutline = {
   workingTitle: "理解机会成本",
+  storyline: "从一次周末只能二选一的真实两难讲起，让读者先承认「我放弃的那个也在花钱」；顺势给出机会成本这个词，把取舍讲清楚；再回到开场那个周末，用同样的算法比较两个选项，收在「会算放弃的人选得更准」上。",
   recommendedTotalWords: 1_000,
   brief: {
     oneSentence: "机会成本是为了一个选择而放弃的最佳替代选择。",
@@ -143,5 +148,56 @@ describe("OpenAiOutlineGenerator", () => {
     });
 
     expect(complete.mock.calls[0][0].systemPrompt).not.toContain("userInstructions");
+  });
+
+  it("requires a storyline and rejects a model response that skips it or sends a stub", async () => {
+    const withoutStoryline: Record<string, unknown> = { ...validOutline };
+    delete withoutStoryline.storyline;
+    const complete = vi.fn().mockResolvedValue(withoutStoryline);
+    const generator = new OpenAiOutlineGenerator({ complete });
+
+    // storyline 缺失时 schema 归一化会用各章 goal 拼接兜底，兜底产物太短会被体量闸门拦下重试。
+    await expect(generator.generate({
+      topic: "机会成本",
+      targetAudience: "零基础读者",
+      lengthPreset: "short",
+      wordRange: { min: 800, max: 1200 },
+      sourceContext: "机会成本是放弃的最佳替代方案。"
+    })).rejects.toThrow("大纲生成结果不符合要求");
+
+    complete.mockResolvedValue({ ...validOutline, storyline: "就讲讲机会成本。" });
+    await expect(generator.generate({
+      topic: "机会成本",
+      targetAudience: "零基础读者",
+      lengthPreset: "short",
+      wordRange: { min: 800, max: 1200 },
+      sourceContext: "机会成本是放弃的最佳替代方案。"
+    })).rejects.toThrow("大纲生成结果不符合要求");
+  });
+
+  it("treats the storyline as the top narrative constraint in prompts and forwards it on revision", async () => {
+    const complete = vi.fn().mockResolvedValue(validOutline);
+    const generator = new OpenAiOutlineGenerator({ complete });
+
+    await generator.generate({
+      topic: "机会成本",
+      targetAudience: "对该知识点零基础的普通读者",
+      lengthPreset: "short",
+      wordRange: { min: 800, max: 1200 },
+      sourceContext: "机会成本是放弃的最佳替代方案。",
+      currentBrief: validOutline.brief,
+      currentOutline: validOutline.outline,
+      currentStoryline: validOutline.storyline,
+      userInstructions: "开场换成上班族的通勤选择。"
+    });
+
+    // 只断言稳定锚点：字段名与口径数字，不锁整句自然语言。
+    expect(OUTLINE_GENERATOR_SYSTEM_PROMPT).toContain("storyline");
+    expect(OUTLINE_GENERATOR_SYSTEM_PROMPT).toContain("剧情推演");
+    expect(OUTLINE_REVISION_SYSTEM_PROMPT).toContain("currentStoryline");
+    const sent = complete.mock.calls[0][0];
+    expect(sent.userPayload).toEqual(expect.objectContaining({
+      currentStoryline: validOutline.storyline
+    }));
   });
 });

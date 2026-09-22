@@ -5,7 +5,8 @@ import { outlineReviewResultSchema } from "./schemas";
 
 export const OUTLINE_REVIEWER_SYSTEM_PROMPT = `你是独立的大纲审核员，不要延续或美化生成者的判断。只返回 JSON，不要 Markdown 或解释。
 返回对象必须严格使用以下字段名：{"status":"passed|needs_revision|blocked","summary":"总体判断","coverage":1,"granularity":1,"beginnerFriendliness":1,"logicalOrder":1,"sourceSupport":null,"hiddenPrerequisites":[],"complexDependencies":[],"issues":[{"sectionKey":"输入中的章节键","severity":"warning|blocking","message":"问题"}]}。
-coverage、granularity、beginnerFriendliness、logicalOrder、sourceSupport（有资料时）均为1到5的整数。没有资料时 sourceSupport 必须为 null。blocked 必须至少包含一个 severity 为 blocking 的 issue。所有问题只能引用输入中给出的 sectionKey；不能虚构章节。`;
+coverage、granularity、beginnerFriendliness、logicalOrder、sourceSupport（有资料时）均为1到5的整数。没有资料时 sourceSupport 必须为 null。blocked 必须至少包含一个 severity 为 blocking 的 issue。所有问题只能引用输入中给出的 sectionKey；不能虚构章节。
+输入给出 storyline（全篇剧情推演）时，把它当成 logicalOrder 的主要判据：它必须是一条 200-400 字的连续叙事——开场怎么进、场景怎么切换、哪里埋伏笔、哪里回收、末尾落位到哪，章节要能按它逐拍对上。推演写成了章节列表摘要、只列知识点不串剧情、埋了伏笔没有交代回收位置、章节顺序与推演对不上，都按连贯性问题在 logicalOrder 上扣分并把具体问题写进 issues（挂在第一节或对应章节的 sectionKey 上）。没有 storyline 时按原口径只审章节本身。`;
 
 type JsonClient = Pick<OpenAiJsonClient, "complete">;
 

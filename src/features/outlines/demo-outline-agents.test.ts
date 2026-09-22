@@ -14,6 +14,8 @@ describe("demo outline agents", () => {
     const review = await reviewer.review({ topic: "机会成本", outline: outline.outline });
 
     expect(outline.recommendedTotalWords).toBe(1_000);
+    // demo 也要产剧情推演：E2E 全离线，剧情推演链路靠它走通。
+    expect(outline.storyline).toContain("开场");
     expect(outline.outline.map((section) => section.key)).toEqual([
       "start_with_a_choice",
       "name_the_tradeoff",

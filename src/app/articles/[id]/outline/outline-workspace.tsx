@@ -88,6 +88,7 @@ function outlineReviewIsStale(article: Article, sources: SourceDocument[], revie
     || snapshot.recommendedTotalWords !== article.planning.recommendedTotalWords
     || JSON.stringify(snapshot.brief) !== JSON.stringify(article.brief)
     || JSON.stringify(snapshot.outline) !== JSON.stringify(article.outline)
+    || (snapshot.storyline ?? null) !== (article.planning.storyline ?? null)
     || snapshot.sourceContextSnapshot !== sourceContextSnapshot(sources);
 }
 
@@ -200,6 +201,10 @@ export function OutlineWorkspace({
   const previewVersion = versions.find((version) => version.id === previewVersionId) ?? null;
   const displayedBrief = previewVersion ? previewVersion.snapshot.brief : article.brief;
   const displayedOutline = previewVersion ? previewVersion.snapshot.outline : article.outline;
+  // 剧情推演随版本预览切换：旧版本快照没有该字段时回落 null（不显示）。
+  const displayedStoryline = previewVersion
+    ? previewVersion.snapshot.storyline ?? null
+    : article.planning.storyline ?? null;
   const isPreviewing = previewVersion !== null;
   const displayedReview = isPreviewing
     ? reviewForOutlineVersion(previewVersion, versions, versionReviews)
@@ -480,6 +485,7 @@ export function OutlineWorkspace({
             </div>
             <OutlineNav
               sections={displayedOutline}
+              storyline={displayedStoryline}
               readOnly={isPreviewing}
               disabled={isBusy}
               onChange={(outline) => changeArticle({ outline, blocks: [], planning: { ...article.planning, confirmedOutlineRevisionId: null, contentOutlineRevisionId: null }, outlineConfirmedAt: null, status: article.brief ? "brief_ready" : "draft" })}

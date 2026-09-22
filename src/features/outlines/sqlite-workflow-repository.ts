@@ -139,7 +139,8 @@ export class SqliteOutlineWorkflowRepository implements OutlineWorkflowRepositor
           lengthPreset: input.lengthPreset,
           recommendedTotalWords: input.recommendedTotalWords,
           confirmedOutlineRevisionId: null,
-          contentOutlineRevisionId: null
+          contentOutlineRevisionId: null,
+          storyline: input.storyline ?? null
         },
         outlineConfirmedAt: null
       });
@@ -222,7 +223,9 @@ export class SqliteOutlineWorkflowRepository implements OutlineWorkflowRepositor
         outline: article.outline,
         lengthPreset: article.planning.lengthPreset,
         recommendedTotalWords: article.planning.recommendedTotalWords,
-        sourceContextSnapshot: this.currentSourceContext(article.id)
+        sourceContextSnapshot: this.currentSourceContext(article.id),
+        // 与 reviewOutline 的 checkpoint 快照同构（哈希必须逐字节一致）。
+        ...(article.planning.storyline ? { storyline: article.planning.storyline } : {})
       };
       if (hashSnapshot(currentSnapshot) !== hashSnapshot(toOutlineRevisionSnapshot(input))) {
         return { kind: "conflict" };
@@ -309,7 +312,8 @@ export class SqliteOutlineWorkflowRepository implements OutlineWorkflowRepositor
           lengthPreset: snapshot.lengthPreset,
           recommendedTotalWords: snapshot.recommendedTotalWords,
           confirmedOutlineRevisionId: null,
-          contentOutlineRevisionId: null
+          contentOutlineRevisionId: null,
+          storyline: snapshot.storyline ?? null
         },
         outlineConfirmedAt: null
       });

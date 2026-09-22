@@ -52,6 +52,23 @@ describe("OutlineNav", () => {
     expect(screen.queryByRole("button", { name: "编辑章节结构" })).not.toBeInTheDocument();
   });
 
+  it("shows the storyline block when present and hides it for legacy articles", () => {
+    // 2026-09-22 剧情推演上屏：作者要能看见生成器串出来的故事线，判断大纲是否真的连贯。
+    const { rerender } = render(
+      <OutlineNav
+        sections={sections}
+        storyline="从一次加班后的深夜放纵讲起，先让读者看见报复性熬夜的爽点；再切到身体的代价，解释睡眠负债；最后回到深夜场景，把补觉方法用回那晚。"
+        onChange={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText("剧情推演")).toBeVisible();
+    expect(screen.getByText(/报复性熬夜的爽点/)).toBeVisible();
+
+    rerender(<OutlineNav sections={sections} onChange={vi.fn()} />);
+    expect(screen.queryByText("剧情推演")).not.toBeInTheDocument();
+  });
+
   it("moves and deletes only the selected section", async () => {
     const onChange = vi.fn();
     render(<OutlineNav sections={sections} onChange={onChange} />);

@@ -51,6 +51,11 @@ export interface OutlineRevisionSnapshot {
   lengthPreset: LengthPreset;
   recommendedTotalWords: number;
   sourceContextSnapshot: string;
+  /**
+   * 全篇剧情推演（2026-09-22 起大纲生成器随纲要一并产出）。
+   * 可选：旧版本快照没有该字段，恢复旧版时推演随快照走，缺失就按无推演处理。
+   */
+  storyline?: string;
 }
 
 /** 正文快照只保存非图片正文块；配图由图片资产独立管理，不参与正文内容哈希。 */

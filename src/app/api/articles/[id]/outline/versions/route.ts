@@ -59,7 +59,8 @@ export function createOutlineVersionsRouteHandlers(dependencies: OutlineVersions
         outline: article.outline,
         lengthPreset: article.planning.lengthPreset,
         recommendedTotalWords: article.planning.recommendedTotalWords,
-        sourceContextSnapshot
+        sourceContextSnapshot,
+        ...(article.planning.storyline ? { storyline: article.planning.storyline } : {})
       });
       if (result.kind === "not_found") return Response.json({ error: "文章不存在" }, { status: 404 });
       if (result.kind === "conflict") return Response.json({ error: "文章已在其他位置更新，请刷新后重试" }, { status: 409 });

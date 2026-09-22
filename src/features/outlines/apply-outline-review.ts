@@ -53,7 +53,9 @@ export async function applyOutlineReview(
       outline: article.outline,
       lengthPreset: article.planning.lengthPreset,
       recommendedTotalWords: article.planning.recommendedTotalWords,
-      sourceContextSnapshot: sourceContext
+      sourceContextSnapshot: sourceContext,
+      // 与 reviewOutline 的 checkpoint 快照同构（哈希必须逐字节一致）。
+      ...(article.planning.storyline ? { storyline: article.planning.storyline } : {})
     }
   });
 
@@ -90,6 +92,7 @@ export async function applyOutlineReview(
         goal: section.goal ?? section.title,
         recommendedWords: section.recommendedWords ?? 50
       })),
+      ...(article.planning.storyline ? { currentStoryline: article.planning.storyline } : {}),
       ...(reviewFeedback ? { reviewFeedback } : {}),
       ...(userInstructions ? { userInstructions } : {}),
       ...(sourceContext ? { sourceContext } : {}),
@@ -119,7 +122,8 @@ export async function applyOutlineReview(
     outline,
     lengthPreset: article.planning.lengthPreset,
     recommendedTotalWords: generated.recommendedTotalWords,
-    sourceContextSnapshot: sourceContext
+    sourceContextSnapshot: sourceContext,
+    storyline: generated.storyline
   });
   return result.kind === "saved" ? { kind: "revised", article: result.article, revision: result.revision } : result;
 }
