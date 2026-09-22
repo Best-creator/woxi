@@ -24,6 +24,7 @@ export const CONTENT_REVIEWER_SYSTEM_PROMPT = `你是独立的正文审核员，
 返回对象必须严格使用以下字段名：{"status":"passed|needs_revision|blocked","summary":"总体判断","clarity":1,"beginnerFriendliness":1,"coherence":1,"engagement":1,"hookStrength":1,"outlineCoverage":1,"sourceFidelity":null,"styleMatch":1,"issues":[{"blockIds":["输入中的块 id"],"severity":"warning|blocking","message":"问题"}]}。
 八个维度分别检查：清晰度、零基础友好度、连贯性、吸引力、钩子强度、大纲覆盖、资料一致性、人物风格匹配，取值均为 1 到 5 的整数。
 hookStrength 只看「前几句话有没有让人想读下去」：开场是不是具体画面或反常事实、有没有一句让人想继续滑的钩子；空泛的万金油提问（「你有没有想过」「你知道吗」——问题不具体、答案也不当场兑现）、先给结论再举例、开头就说「今天我们来聊聊」都要扣分并在 issues 里指出。
+coherence（连贯性）判的是**跨段衔接**，逐段往下读：上一段结尾抛出的钩子（问题/悬念/反常的话），下一段开头有没有接住并作答；段与段是否共守同一条主线，还是各自为政的独立卡片；段首是否凭空重起开场。AI 味总结腔——「综上」「综上所述」「总而言之」「值得一提的是」「不容忽视」「首先…其次…最后」式分点——出现即扣分，并在 issues 里点名是哪一段的哪一句。整篇互相独立、钩子大量不接、或总结腔成片，coherence 给 2 或更低。
 检查时要代入 targetAudience 描述的读者：他们的兴趣、痛点和禁忌就是判断标准，不要用泛泛的「普通人」标准打分。
 styleMatch 还要检查标题与表达是否守规矩：悬念式标题、夸大或施压句式（如「90% 的人都不知道」「不看就晚了」）、促销引流措辞，一律扣分并在 issues 里指出。
 presentation 为 story_comic（剧情漫画）时，文案按剧情漫画的红线判：每段文案不超过 ${STORY_COMIC_MAX_SEGMENT_CHARS} 字（段名是内部用的，不进正文也不占这 ${STORY_COMIC_MAX_SEGMENT_CHARS} 字）、每句话不超过 ${STORY_COMIC_MAX_SENTENCE_CHARS} 字，全篇总字数要落在 recommendedTotalWords 的七成到预算之间，明显不足和明显超出都要在 issues 里指出；出现「首先 / 其次 / 最后 / 因为…所以」这类解释连接词、超过 3 项的并列列举、教科书式推进，都要在 issues 里指出并扣 engagement 与 hookStrength 的分——读者要的是「有意思」，不是「讲得全」。冷开场设问（具体问题 + 当场抖出荒谬答案）、外号命名、段末设问钩子是剧情漫画的合法节拍，不要按提问式开场或过渡词扣分。你只管判文案：分镜提示词是否要求画面写字、台词是否超长、全篇对白帧够不够这类机械红线由服务端逐条核对，不必重复检查。
@@ -170,15 +171,23 @@ export function sanitizeContentReview(
   // 没资料却打了资料一致分 → 视为不适用；有资料却漏评 → 取中性分 3，
   // 不高估也不美化，只是不让整份审核因一个数字作废。
   const sourceFidelity = input.sourceContext?.trim() ? (result.sourceFidelity ?? 3) : null;
-  // 状态只降不升，两条降级理由：
+  // 状态只降不升，三条降级理由：
   // 1) blocked 必须有阻断级问题支撑；模型忘了给就降级，避免误锁死确认。
   // 2) 模型说 passed 但机械红线有越界 → 降级为需要修订。生成阶段已经不拦这些红线，
   //    审核是唯一的把关点；「通过」配上满屏 warning 会让作者以为可以放心提交。
+  // 3) 连贯性烂到阈值（coherence ≤ 2）却报 passed → 降级为需要修订。2026-09-22
+  //    用户拍板「不连贯要有牙齿」：跨段钩子不接、整篇卡片化是审核语义的判分题，
+  //    模型打了低分就不允许状态层面「passed」自相矛盾；阈值取 2 是留出 3 分中性带，
+  //    避免普通瑕疵的文章被推倒重写（生成阶段不打回的哲学不变，这里拦的是审核确认）。
   const blockedWithoutSupport =
     result.status === "blocked" && !issues.some((issue) => issue.severity === "blocking");
   const passedWithMechanicalIssues = result.status === "passed" && mechanical.length > 0;
+  const passedButIncoherent =
+    result.status === "passed" && typeof result.coherence === "number" && result.coherence <= 2;
   const status =
-    blockedWithoutSupport || passedWithMechanicalIssues ? "needs_revision" : result.status;
+    blockedWithoutSupport || passedWithMechanicalIssues || passedButIncoherent
+      ? "needs_revision"
+      : result.status;
   return { ...result, issues, sourceFidelity, status };
 }
 

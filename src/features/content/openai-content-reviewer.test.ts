@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 import { resolveStyleProfile } from "./style-profile";
-import { sanitizeContentReview } from "./openai-content-reviewer";
+import { CONTENT_REVIEWER_SYSTEM_PROMPT, sanitizeContentReview } from "./openai-content-reviewer";
 import type { ContentReviewResult, ReviewContentInput } from "./ports";
 import { STORY_COMIC_MAX_SENTENCE_CHARS } from "./story-comic-rules";
 
@@ -60,6 +60,23 @@ describe("sanitizeContentReview", () => {
     });
 
     expect(sanitizeContentReview(result, reviewInput())).toEqual(result);
+  });
+
+  it("downgrades a passed review to needs_revision when coherence is at or below 2", () => {
+    // 2026-09-22 用户拍板「不连贯要有牙齿」：模型自己把连贯性打到 2 分以下
+    // 却报 passed，属于状态自相矛盾——审核语义里整篇割裂不允许「通过」。
+    const sanitized = sanitizeContentReview(
+      reviewResult({ status: "passed", coherence: 2 }),
+      reviewInput()
+    );
+    expect(sanitized.status).toBe("needs_revision");
+
+    // 3 分是中性带：普通瑕疵不至于推倒重写（生成不打回的哲学不变）。
+    const neutral = sanitizeContentReview(
+      reviewResult({ status: "passed", coherence: 3 }),
+      reviewInput()
+    );
+    expect(neutral.status).toBe("passed");
   });
 
   it("coerces sourceFidelity to null without sources, and to a neutral score when the model omits it", () => {
@@ -363,5 +380,16 @@ describe("sanitizeContentReview 的剧情漫画红线", () => {
     });
 
     expect(sanitizeContentReview(reviewResult({ status: "passed" }), input).issues).toEqual([]);
+  });
+});
+
+describe("CONTENT_REVIEWER_SYSTEM_PROMPT 连贯性判据", () => {
+  it("pins the cross-segment hook criteria and the AI-flavor phrase list", () => {
+    // 2026-09-22 连贯性长牙齿：判据必须落在提示词里，模型的 coherence 分才有依据可依；
+    // AI 味总结腔逐词点名（与 story-comic-rules 的机械词表同口径）。
+    expect(CONTENT_REVIEWER_SYSTEM_PROMPT).toContain("跨段衔接");
+    expect(CONTENT_REVIEWER_SYSTEM_PROMPT).toContain("下一段开头有没有接住并作答");
+    expect(CONTENT_REVIEWER_SYSTEM_PROMPT).toContain("总而言之");
+    expect(CONTENT_REVIEWER_SYSTEM_PROMPT).toContain("coherence 给 2 或更低");
   });
 });

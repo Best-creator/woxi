@@ -3,6 +3,7 @@
 import { History, Images, Loader2, MessageSquarePlus, Pencil, RefreshCw, Wand2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { STORYBOARD_ROUTE_LABELS, type Article } from "@/features/articles/domain";
+import { BUILT_IN_MINIMAL_ACTION_STYLE_NAME } from "@/features/style-library/built-in-styles";
 import {
   SPEECH_LINE_KINDS,
   SPEECH_LINE_KIND_LABELS,
@@ -119,6 +120,8 @@ export function SegmentFramesPanel({
   // 生成偏好：settingsSaved 是已保存基线（用于 dirty 判断），settingsDraft 是表单草稿。
   const [settingsSaved, setSettingsSaved] = useState<PlanSettingsChoice | null>(null);
   const [settingsDraft, setSettingsDraft] = useState<PlanSettingsChoice | null>(null);
+  // 文风→画风联动是否生效（影响提示文案，见下方 loadPlanSettings）。
+  const [styleAutoLinked, setStyleAutoLinked] = useState(false);
   const [styleOptions, setStyleOptions] = useState<PlanSettingsOption[]>([]);
   const [characterOptions, setCharacterOptions] = useState<PlanSettingsOption[]>([]);
   const [settingsBusy, setSettingsBusy] = useState(false);
@@ -191,6 +194,10 @@ export function SegmentFramesPanel({
     void refreshGenerations();
   }, [refreshGenerations]);
 
+  // 文风预设是联动判据：提升为派生局部变量（稳定字符串），useCallback 依赖它
+  // 而不是整个 styleProfile 对象——文章每次保存都会换对象引用，依赖对象会让
+  // 配置行每次保存后都重新拉三路接口。
+  const stylePreset = article.styleProfile?.preset;
   const loadPlanSettings = useCallback(async () => {
     // 偏好 + 画风库 + 参考形象三路并行；任一失败配置行保持隐藏（静默降级，同 refreshGenerations）。
     try {
@@ -211,8 +218,35 @@ export function SegmentFramesPanel({
         style: settings.style ?? "",
         characterId: settings.characterId ?? null
       };
+      // 文风→画风联动（2026-09-22 用户拍板）：作者没手选过画风（存量为空）且文风是
+      // 「连贯叙事·小说感」时，默认选中配套内置画风「简约主体·白底动作戏」。
+      // 作者手选过或换过文风，就以作者的选择为准（存量非空不覆盖）。
+      let autoLinked = false;
+      if (!initial.style && stylePreset === "novel_narrator") {
+        const paired = (stylesPayload.styles ?? []).find(
+          (style) => style.name === BUILT_IN_MINIMAL_ACTION_STYLE_NAME
+        );
+        if (paired) {
+          initial.style = `library:${paired.id}`;
+          autoLinked = true;
+        }
+      }
       setSettingsSaved(initial);
       setSettingsDraft(initial);
+      setStyleAutoLinked(autoLinked);
+      if (autoLinked) {
+        // 首次联动即落库：生成侧读的是已保存偏好，不落库联动只停在界面上。
+        // 失败不阻断——下拉仍显示联动值，作者手动保存亦可。
+        try {
+          await fetch(`/api/articles/${article.id}/image-settings`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ style: initial.style, characterId: initial.characterId })
+          });
+        } catch {
+          // 静默：下次进入面板会重试。
+        }
+      }
       setStyleOptions(
         (stylesPayload.styles ?? []).map((style) => ({
           value: `library:${style.id}`,
@@ -228,7 +262,8 @@ export function SegmentFramesPanel({
     } catch {
       // 离线/测试环境：配置行保持隐藏，不影响生成主链路。
     }
-  }, [article.id]);
+    // 联动只依赖文风预设：preset 是稳定字符串，避免整个 styleProfile 对象进依赖数组。
+  }, [article.id, stylePreset]);
 
   useEffect(() => {
     if (!planSettingsEnabled) return;
@@ -450,6 +485,7 @@ export function SegmentFramesPanel({
             {settingsBusy ? "保存中..." : "保存偏好"}
           </button>
           <p className="segment-frames-settings-note">
+            {styleAutoLinked ? "已按「连贯叙事」文风联动选中配套画风（简约主体），可手动换。" : ""}
             对之后新发起的帧生成生效：画风注入每帧提示词；参考形象同时附上形象图做图生图，保持角色一致。
           </p>
         </form>

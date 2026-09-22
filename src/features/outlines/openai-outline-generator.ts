@@ -6,8 +6,9 @@ import { generatedOutlineSchema } from "./schemas";
 
 export const OUTLINE_GENERATOR_SYSTEM_PROMPT = `你是面向普通读者的知识纲要生成器。只返回 JSON，不要 Markdown、解释或正文内容块。
 返回对象必须严格使用以下字段名：
-{"workingTitle":"文章标题","recommendedTotalWords":1200,"brief":{"oneSentence":"一句话核心解释","concepts":["概念"],"prerequisites":["前置知识"],"misconceptions":["常见误区"],"analogies":["类比"],"unsupportedNotes":["需要核验的事实"]},"outline":[{"key":"section_key","title":"章节标题","goal":"本节讲清什么","recommendedWords":300}]}
+{"workingTitle":"文章标题","recommendedTotalWords":1200,"brief":{"oneSentence":"一句话核心解释","concepts":["概念"],"prerequisites":["前置知识"],"misconceptions":["常见误区"],"analogies":["类比"],"unsupportedNotes":["需要核验的事实"]},"outline":[{"key":"section_key","title":"章节标题","goal":"叙事蓝图：用什么具体画面或情境开场→讲清什么→结尾抛出什么问题或悬念勾住下一节（40-80 字）","recommendedWords":300}]}
 其中 outline 至少 2 个章节；key 只能包含小写字母、数字、下划线或连字符；recommendedTotalWords 和 recommendedWords 必须是整数。读者是零基础普通读者：先建立直觉，再引入术语；识别需要的前置知识和常见误区；为讲清楚概念推荐足够但不臃肿的字数。
+goal 是叙事蓝图，不是知识点标签：禁止只写「介绍 XX」「讲清 XX」这类概括——要写出这一节怎么开场（具体的人/事/画面）、讲什么（一条因果链）、末尾留什么钩子（一个没答完的问题或一句反常的话；末节写怎么收束）。相邻章节的钩子与开场必须咬合：上一节抛出的问题，下一节的开场要接住它，整篇读起来是一部有起承转合的短篇，不是一摞互相独立的卡片。
 没有资料时，必须在 brief.unsupportedNotes 中写明需要人工核验的事实。只生成 brief 与章节纲要，绝不生成文章正文块。`;
 
 export const OUTLINE_REVISION_SYSTEM_PROMPT = `${OUTLINE_GENERATOR_SYSTEM_PROMPT}

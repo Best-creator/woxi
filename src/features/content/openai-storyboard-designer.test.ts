@@ -228,6 +228,30 @@ describe("OpenAiStoryboardDesigner", () => {
     expect(STORYBOARD_DESIGNER_SYSTEM_PROMPT).toContain("知识卡片");
   });
 
+  it("anchors subject-first framing, minimal background and the look anchor in both prompts", () => {
+    // 2026-09-22 用户拍板「简约突出人物主体动作、弱化背景」：主体动作优先 + 道具减法 +
+    // 极简留白背景 + 外观锚点短语，是两形态共用的画面口径，钉在提示词里防回退。
+    for (const prompt of [STORYBOARD_DESIGNER_SYSTEM_PROMPT, STORYBOARD_DESIGNER_STORY_COMIC_PROMPT]) {
+      expect(prompt).toContain("主体动作优先");
+      expect(prompt).toContain("最多保留 1 个对解释必需的道具");
+      expect(prompt).toContain("背景一律极简留白");
+      expect(prompt).toContain("角色外观锚点");
+      expect(prompt).toContain("不画完整环境");
+    }
+    // 修订提示词同样要守这套口径（改一帧不能把背景改回全景实拍）。
+    expect(STORYBOARD_REVISER_SYSTEM_PROMPT).toContain("背景一律极简留白");
+    expect(STORYBOARD_REVISER_STORY_COMIC_PROMPT).toContain("背景一律极简留白");
+    expect(STORYBOARD_REVISER_STORY_COMIC_PROMPT).toContain("主角造型锚点短语逐格原样复用");
+  });
+
+  it("anchors the cross-segment hook chain in both prompts", () => {
+    // 2026-09-22 连贯性改造：上一段结尾抛的钩子，下一段必须接住——讲解式与剧情漫画
+    // 两套提示词都要有这条；剧情漫画额外把「设问过渡」升级成钩子链硬规则。
+    expect(STORYBOARD_DESIGNER_SYSTEM_PROMPT).toContain("下一段开头要接住并作答");
+    expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).toContain("禁止抛了不接");
+    expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).toContain("只有末段允许纯收束不抛钩");
+  });
+
   it("switches to the story comic prompt when the form is 剧情漫画", async () => {
     const complete = vi.fn(async (request: { schema: { parse: (value: unknown) => unknown } }) => {
       const raw = { title: "三只柴犬推箱子", segments: storyComicDesign().segments };

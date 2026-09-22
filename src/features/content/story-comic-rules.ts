@@ -113,8 +113,17 @@ const CONNECTIVE_PAIRS: Array<{ words: [string, string]; label: string }> = [
   { words: ["因为", "所以"], label: "「因为…所以…」式的论证连接" }
 ];
 
-/** 书面过渡语：口语叙述里不会这么说话，出现即扣分。 */
-const CONNECTIVE_PHRASES = ["由此可见", "综上所述", "总之", "让我们来看看", "值得注意的是"];
+/** 书面过渡语：口语叙述里不会这么说话，出现即扣分（2026-09-22 补齐 AI 味总结腔）。 */
+const CONNECTIVE_PHRASES = [
+  "由此可见",
+  "综上所述",
+  "总之",
+  "让我们来看看",
+  "值得注意的是",
+  "总而言之",
+  "值得一提的是",
+  "不容忽视"
+];
 
 /** 并列列举的顿号阈值：一句话里超过 3 个顿号 = 堆列表，读起来就是课本。 */
 const LIST_SEPARATOR_LIMIT = 3;

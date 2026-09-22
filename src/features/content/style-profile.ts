@@ -14,6 +14,7 @@ export const STYLE_PRESET_IDS = [
   "rational_analyst",
   "friend_chat",
   "storyteller",
+  "novel_narrator",
   "funny_storyteller",
   "hunzhi_comic",
   "knowledge_cards",
@@ -62,6 +63,7 @@ export const STYLE_PRESET_LABELS: Record<StylePreset, string> = {
   rational_analyst: "理性分析者",
   friend_chat: "朋友聊天式",
   storyteller: "故事讲述者",
+  novel_narrator: "连贯叙事·小说感",
   funny_storyteller: "搞笑剧情解说",
   hunzhi_comic: "混知风吐槽漫画",
   knowledge_cards: "简洁知识卡片",
@@ -142,6 +144,38 @@ export const STYLE_PRESETS: Record<Exclude<StylePreset, "custom">, StylePresetSh
     contentDensity: "medium",
     customInstructions: "",
     avoid: ["流水账式叙事", "只有情节没有概念", "人物动机模糊", "结尾强行升华"]
+  },
+  /**
+   * 连贯叙事·小说感（2026-09-22 新增，借鉴「内容工厂」参考系统的蓝图式写法）：
+   * 与 storyteller 的区别是它管**篇章**不管单段——跨段钩子链（段尾抛、段首接）
+   * 写进句式与讲解方式的硬规则里，去 AI 味禁令成体系。
+   * 第四步画风默认联动「简约主体·白底动作戏」画像（segment-frames-panel 处理）。
+   */
+  novel_narrator: {
+    preset: "novel_narrator",
+    persona: "写长故事出身的知识作者，整篇像一部有起承转合的短篇小说，读者顺着情节一路滑到底",
+    tone: "口语、有画面、有推进感；像人说话，不像写文章",
+    readerAddress: "你",
+    sentenceStyle:
+      "长短句交替，关键处短句收束；每段开头必须接住上一段结尾抛出的问题或悬念，禁止每段自起炉灶重新开场",
+    explanationStyle:
+      "整篇一条主线：开头用一个具体的人或事把读者拽进来；中间每段只讲一步机制，同时把好奇心推向下一个小问题；" +
+      "每段结尾必留钩子——一个没答完的问题或一句反常的话，下一段开场直接作答；知识长在情节里，不单独成块；" +
+      "术语第一次出现先用大白话定义，禁止术语先行。",
+    humorLevel: "light",
+    questionFrequency: "high",
+    contentDensity: "medium",
+    customInstructions: "",
+    avoid: [
+      "每段自起炉灶、互相独立的卡片式结构",
+      "「综上」「总而言之」「值得一提的是」「不容忽视」等总结腔",
+      "「首先…其次…最后」式分点推进",
+      "「你有没有想过」「你知道吗」等空泛开场",
+      "「今天我们来聊聊」式开场白",
+      "术语先行、未经大白话定义",
+      "结尾强行升华成做人道理",
+      "书面腔、翻译腔"
+    ]
   },
   funny_storyteller: {
     preset: "funny_storyteller",

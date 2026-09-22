@@ -96,6 +96,39 @@ describe("funny storyteller preset", () => {
   });
 });
 
+describe("novel narrator preset", () => {
+  it("enforces a cross-segment hook chain at the profile level", () => {
+    const novel = STYLE_PRESETS.novel_narrator;
+
+    // 篇章级规则是这个预设的立身之本：钩子链（段尾抛、段首接）必须写进
+    // 句式与讲解方式两处，describeStyleProfile 会把它们一起送进生成提示词。
+    expect(novel.sentenceStyle).toContain("接住上一段结尾抛出的问题或悬念");
+    expect(novel.sentenceStyle).toContain("禁止每段自起炉灶重新开场");
+    expect(novel.explanationStyle).toContain("整篇一条主线");
+    expect(novel.explanationStyle).toContain("每段结尾必留钩子");
+    expect(novel.explanationStyle).toContain("术语第一次出现先用大白话定义");
+  });
+
+  it("carries the de-AI-flavor ban list", () => {
+    const novel = STYLE_PRESETS.novel_narrator;
+
+    // 去 AI 味清单借鉴自「内容工厂」参考系统：总结腔、分点推进、空泛开场全部点名。
+    expect(novel.avoid).toContain("「综上」「总而言之」「值得一提的是」「不容忽视」等总结腔");
+    expect(novel.avoid).toContain("「首先…其次…最后」式分点推进");
+    expect(novel.avoid).toContain("「你有没有想过」「你知道吗」等空泛开场");
+    expect(novel.avoid).toContain("结尾强行升华成做人道理");
+  });
+
+  it("is selectable through resolveStyleProfile with its own label", () => {
+    expect(resolveStyleProfile("novel_narrator")).toMatchObject({
+      preset: "novel_narrator",
+      humorLevel: "light",
+      questionFrequency: "high"
+    });
+    expect(STYLE_PRESET_LABELS.novel_narrator).toBe("连贯叙事·小说感");
+  });
+});
+
 describe("preset registry", () => {
   it("keeps the id list, the labels and the definitions in sync", () => {
     // 三处必须一一对应。清单是唯一事实源，漏登记的表现是「下拉里没有」或「提交被 400」。

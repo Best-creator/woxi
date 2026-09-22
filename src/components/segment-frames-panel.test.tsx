@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Article, ContentBlock, StoryboardSegment } from "@/features/articles/domain";
 import type { ImageAsset, ImageLibraryItem } from "@/features/images/domain";
 import { articleFixture } from "../../tests/fixtures/article";
+import { DEFAULT_STYLE_PROFILE } from "@/features/content/style-profile";
+import { BUILT_IN_MINIMAL_ACTION_STYLE_NAME } from "@/features/style-library/built-in-styles";
 import { SegmentFramesPanel } from "./segment-frames-panel";
 
 /** 两段覆盖两种排法，帧资产状态各异，覆盖面板的全部按钮分支。 */
@@ -498,7 +500,8 @@ describe("SegmentFramesPanel 生成偏好配置行", () => {
 
   /** stub 偏好三接口（image-settings / style-library / characters）与素材库。 */
   function stubPlanSettingsFetch(
-    settings: { style: string; characterId: string | null } = { style: "", characterId: null }
+    settings: { style: string; characterId: string | null } = { style: "", characterId: null },
+    styles: Array<{ id: string; name: string }> = [{ id: "s1", name: "暖调扁平" }]
   ) {
     const fetchMock = vi.fn(async (url: unknown, init?: RequestInit) => {
       const href = String(url);
@@ -509,7 +512,7 @@ describe("SegmentFramesPanel 生成偏好配置行", () => {
         return { ok: true, json: async () => settings };
       }
       if (href.includes("/style-library")) {
-        return { ok: true, json: async () => ({ styles: [{ id: "s1", name: "暖调扁平" }] }) };
+        return { ok: true, json: async () => ({ styles }) };
       }
       if (href.includes("/characters")) {
         return { ok: true, json: async () => ({ characters: [{ id: "c1", name: "蘑菇老师" }] }) };
@@ -586,5 +589,59 @@ describe("SegmentFramesPanel 生成偏好配置行", () => {
 
     expect(screen.getByText("段 1 · 开场")).toBeInTheDocument();
     expect(screen.queryByLabelText("绘制风格")).toBeNull();
+  });
+
+  it("auto-links the paired minimal style for novel_narrator articles without a saved choice", async () => {
+    // 文风→画风联动（2026-09-22）：「连贯叙事·小说感」+ 存量画风为空时，
+    // 默认选中配套内置画风「简约主体·白底动作戏」，并立即落库（生成侧读已保存偏好）。
+    const fetchMock = stubPlanSettingsFetch(
+      { style: "", characterId: null },
+      [
+        { id: "s-min", name: BUILT_IN_MINIMAL_ACTION_STYLE_NAME },
+        { id: "s1", name: "暖调扁平" }
+      ]
+    );
+    setup({
+      planSettingsEnabled: true,
+      article: segmentArticle({
+        styleProfile: { ...DEFAULT_STYLE_PROFILE, preset: "novel_narrator" }
+      })
+    });
+
+    const styleSelect = (await screen.findByLabelText("绘制风格")) as HTMLSelectElement;
+    expect(styleSelect.value).toBe("library:s-min");
+    expect(screen.getByText(/已按「连贯叙事」文风联动选中配套画风/)).toBeInTheDocument();
+
+    const put = fetchMock.mock.calls.find(
+      ([, init]) => (init as RequestInit | undefined)?.method === "PUT"
+    );
+    expect(put).toBeTruthy();
+    expect(JSON.parse(String((put![1] as RequestInit).body))).toMatchObject({
+      style: "library:s-min"
+    });
+    // 联动落库后回到未修改基线：作者没改任何东西，保存按钮保持禁用。
+    await waitFor(() => expect(screen.getByRole("button", { name: "保存偏好" })).toBeDisabled());
+  });
+
+  it("keeps the author's explicit style choice over the pairing", async () => {
+    // 作者手选过画风（存量非空）时联动让位：以作者的选择为准。
+    stubPlanSettingsFetch(
+      { style: "library:s1", characterId: null },
+      [
+        { id: "s-min", name: BUILT_IN_MINIMAL_ACTION_STYLE_NAME },
+        // 作者已保存的选择必须仍出现在画风库里，否则下拉无法回显（值不在选项中会显示为空）。
+        { id: "s1", name: "暖调扁平" }
+      ]
+    );
+    setup({
+      planSettingsEnabled: true,
+      article: segmentArticle({
+        styleProfile: { ...DEFAULT_STYLE_PROFILE, preset: "novel_narrator" }
+      })
+    });
+
+    const styleSelect = (await screen.findByLabelText("绘制风格")) as HTMLSelectElement;
+    expect(styleSelect.value).toBe("library:s1");
+    expect(screen.queryByText(/已按「连贯叙事」文风联动/)).toBeNull();
   });
 });

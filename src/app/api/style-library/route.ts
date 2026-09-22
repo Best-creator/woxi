@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { StyleLibraryRepository } from "@/features/style-library/domain";
+import { ensureBuiltInStyles } from "@/features/style-library/built-in-styles";
 import { importStyles } from "@/features/style-library/import-styles";
 import { getStyleLibraryRepository } from "@/server/services";
 
@@ -13,6 +14,9 @@ const importSchema = z.object({
 export function createStyleLibraryRouteHandler(repository: StyleLibraryRepository) {
   return {
     async GET() {
+      // 列表返回前先确保内置画风存在（幂等 upsert）——第四步画风下拉与
+      // 「连贯叙事→简约主体」联动都吃这个列表，内置条目缺席联动就静默失效。
+      await ensureBuiltInStyles(repository);
       const entries = await repository.list();
       return Response.json({
         styles: entries.map((entry) => ({

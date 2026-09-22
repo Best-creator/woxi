@@ -144,6 +144,16 @@ describe("连接词：只抓成对，不误伤口语", () => {
       expect(inspectStoryComicSegment({ copy }).join("")).toContain("书面过渡语");
     }
   });
+
+  it("AI 味总结腔（2026-09-22 补齐）单独出现即判", () => {
+    for (const copy of [
+      "总而言之，试过就知道",
+      "值得一提的是，这招很多人不知道",
+      "细节虽小，却不容忽视"
+    ]) {
+      expect(inspectStoryComicSegment({ copy }).join("")).toContain("书面过渡语");
+    }
+  });
 });
 
 describe("列举与画面写字", () => {
