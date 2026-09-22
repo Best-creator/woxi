@@ -47,35 +47,29 @@ function renderKnowledgeCard(block: ContentBlock, theme: WechatTheme) {
   return `<section style="display:grid;gap:10px;margin:24px 0;padding:18px 20px;background:${theme.surface};border:1px solid ${theme.border};border-left:4px solid ${theme.accent};"><strong style="color:${theme.accent};font-size:16px;line-height:1.5;">${escapeHtml(title)}</strong>${items}</section>`;
 }
 
-// 纯文字段（text_only）正文条带的固定视觉参数：**按段图文字带的几何等比折算**，
-// 不是独立设计（2026-09-21 用户拍板：四个路由的文字必须是同一种「段」的形态）。
-// 段图文字带（comic-strip.ts）：画布 1080、内容区 984（占 91%）、字号 52、行高 76、
-// 内边距 48×44、圆角 16；段图在正文里恒 100% 宽，手机 ~375px 时缩放 ≈0.347，
-// 等比观感 = 字号 18px / 行高 26px / 内边距 17×15px / 圆角 6px——条带照抄这套折算值，
-// 手机上与段图里的文字带几乎无差。配色不进主题：段图是固定色烘死的像素，
-// 条带跟着主题换色反而会与上下段图脱节。微信粘贴过滤 box-shadow，硬阴影省略。
-const PLAIN_TEXT_CARD_BACKGROUND = "#FCFAF4";
-const PLAIN_TEXT_CARD_BORDER = "#E8E1D2";
-const PLAIN_TEXT_CARD_TEXT = "#2C2C2A";
-const PLAIN_TEXT_CARD_FONT_SIZE = 18;
-const PLAIN_TEXT_CARD_LINE_HEIGHT = 26;
+// 纯文字段（text_only）正文条带的固定视觉参数：与段图文字带同款——文字直接印在
+// 白底上，**无卡片底、无边框**（2026-09-21 用户拍板「去除段中的边框和文字背景」，
+// 段图渲染器同步去卡）。留白与宽度沿用段图内容区折算（91%），居中短行节奏不变。
+const PLAIN_TEXT_TEXT_COLOR = "#2C2C2A";
+const PLAIN_TEXT_FONT_SIZE = 18;
+const PLAIN_TEXT_LINE_HEIGHT = 26;
 
 /**
  * 纯文字段（text_only）的正文条带：与段图里的文字带**同一种段的形态**。
  *
- * 「图+文+图」里的文是段图内容区里的一条暖纸白带（占画布 91%、文字居中、13 字/行）；
- * 纯文字段不拼图，这条带直接以 HTML 复刻进正文流——宽度 91%（与段图内容区同比例）、
- * 断行复用段图同一套 wrapText 三步算法与 13 字口径，「四个路由里的文字按标点换行」
- * 由此全覆盖。服务端预断行后任何屏宽下断点一致，不依赖客户端的自动折行。
+ * 「图+文+图」里的文是段图内容区里的一条文字带；纯文字段不拼图，这条带直接以
+ * HTML 复刻进正文流——宽度 91%（与段图内容区同比例）、断行复用段图同一套
+ * wrapText 三步算法与 13 字口径。视觉与段图同步：无卡片底、无边框，字印在白底上。
+ * 服务端预断行后任何屏宽下断点一致，不依赖客户端的自动折行。
  */
 function renderPlainTextCard(block: ContentBlock) {
   const lines = wrapText(
     block.content,
-    TEXT_BAND_MAX_CHARS_PER_LINE * PLAIN_TEXT_CARD_FONT_SIZE,
-    PLAIN_TEXT_CARD_FONT_SIZE
+    TEXT_BAND_MAX_CHARS_PER_LINE * PLAIN_TEXT_FONT_SIZE,
+    PLAIN_TEXT_FONT_SIZE
   );
   const body = lines.map((line) => escapeHtml(line)).join("<br>");
-  return `<section style="margin:12px auto;width:91%;max-width:616px;box-sizing:border-box;padding:15px 17px;background:${PLAIN_TEXT_CARD_BACKGROUND};border:2px solid ${PLAIN_TEXT_CARD_BORDER};border-radius:6px;text-align:center;"><p style="margin:0;color:${PLAIN_TEXT_CARD_TEXT};font-size:${PLAIN_TEXT_CARD_FONT_SIZE}px;line-height:${PLAIN_TEXT_CARD_LINE_HEIGHT}px;">${body}</p></section>`;
+  return `<section style="margin:12px auto;width:91%;max-width:616px;box-sizing:border-box;padding:15px 17px;text-align:center;"><p style="margin:0;color:${PLAIN_TEXT_TEXT_COLOR};font-size:${PLAIN_TEXT_FONT_SIZE}px;line-height:${PLAIN_TEXT_LINE_HEIGHT}px;">${body}</p></section>`;
 }
 
 function renderBlock(block: ContentBlock, theme: WechatTheme) {  switch (block.type) {

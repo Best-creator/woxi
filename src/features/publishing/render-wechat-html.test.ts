@@ -177,8 +177,8 @@ describe("renderWechatStripFlowHtml", () => {
     expect(html).not.toContain('src="/api/image-assets/strip-2/content"');
   });
 
-  it("纯文字段正文渲染成文字卡：与段图文字带同款视觉，且按标点预断行", () => {
-    // 一段 20 字无句读文案 + 显式标点文案：卡片自带居中窄栏，断点跟标点走。
+  it("纯文字段正文渲染成文字条带：与段图文字带同款（无卡片底、无边框），按标点预断行", () => {
+    // 一段 20 字无句读文案 + 显式标点文案：条带自带居中窄栏，断点跟标点走。
     const textOnlyBlocks: ContentBlock[] = [
       { id: "s1", type: "image", content: "/api/image-assets/strip-1/content", altText: "段图", order: 0, version: 1 },
       {
@@ -194,17 +194,18 @@ describe("renderWechatStripFlowHtml", () => {
       plainTextBlockIds: new Set(["plain-1"])
     });
 
-    // 条带视觉：与段图文字带同一形态——内容区宽占比 91%、暖纸白底 + 描边 + 居中。
+    // 条带视觉：与段图文字带同一形态——内容区宽占比 91%、居中、**无背景无边框**
+    // （2026-09-21 用户拍板「去除段中的边框和文字背景」，段图渲染器同步去卡）。
     expect(html).toContain("width:91%");
-    expect(html).toContain("background:#FCFAF4");
-    expect(html).toContain("border:2px solid #E8E1D2");
     expect(html).toContain("text-align:center");
+    expect(html).not.toContain("background:#FCFAF4");
+    expect(html).not.toContain("border:2px solid #E8E1D2");
     // 13 字预算下 21 字文案断成两行，行间用 <br>，断行由服务端预排。
     expect(html).toContain("<br>");
     expect(html).toContain("雾蒙蒙的清晨小鹿踩着露水");
   });
 
-  it("预览模式（includeResidualText）下纯文字段同样是文字卡，残留块仍是普通段落", () => {
+  it("预览模式（includeResidualText）下纯文字段同样是文字条带，残留块仍是普通段落", () => {
     const html = renderWechatStripFlowHtml(
       [
         ...blocks,
@@ -215,8 +216,8 @@ describe("renderWechatStripFlowHtml", () => {
       { includeResidualText: true, plainTextBlockIds: new Set(["plain-1"]) }
     );
 
-    // 纯文字段走卡片；普通残留导语走通用 <p>。
-    expect(html).toContain("background:#FCFAF4");
+    // 纯文字段走条带；普通残留导语走通用 <p>。
+    expect(html).toContain('style="margin:12px auto;width:91%');
     expect(html).toContain("纯文字段");
     expect(html).toContain('<p style="margin:0 0 18px;');
   });

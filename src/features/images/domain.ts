@@ -215,6 +215,25 @@ export const STORYBOARD_FONT_OPTIONS: readonly StoryboardFontOption[] = [
     id: "fangsong",
     label: "仿宋",
     fontFamily: "'FangSong','STFangsong','FangSong_GB2312',serif"
+  },
+  {
+    // 自媒体图文的事实标准正文黑体（开源可商用），Windows 上以 Noto Sans SC 可变字体
+    // 形态常见；macOS 用户多装有思源黑体或由苹方兜底。
+    id: "noto_sans",
+    label: "思源黑体",
+    fontFamily: "'Noto Sans SC','Source Han Sans SC','Source Han Sans CN','PingFang SC','Microsoft YaHei',sans-serif"
+  },
+  {
+    // 自媒体长文常用的宋体正文（开源可商用），与思源黑体同族、观感更「文」一些。
+    id: "noto_serif",
+    label: "思源宋体",
+    fontFamily: "'Noto Serif SC','Source Han Serif SC','Source Han Serif CN','Songti SC','SimSun',serif"
+  },
+  {
+    // Windows 自带的圆体：自媒体封面与金句卡的常见风格，正文里当差异化风格用。
+    id: "youyuan",
+    label: "幼圆",
+    fontFamily: "'YouYuan','Yuanti SC','PingFang SC','Microsoft YaHei',sans-serif"
   }
 ];
 
@@ -228,40 +247,55 @@ export function resolveStoryboardFont(fontId?: string | null): StoryboardFontOpt
 }
 
 /**
- * 段图文字大小的档位。
+ * 段图文字大小的档位：**直接以手机上的观感 px 为锚**（2026-09-21 用户拍板
+ * 「字体大小修正直接给我 px 值控制」——「紧凑/标准/特大」这种名字等于让作者猜）。
  *
  * 段图在公众号里恒为 100% 宽显示，手机上约 340-400px，也就是 1080 的画布整体缩到
- * 约 0.32 倍——「字够不够大」完全由烘进图里的字号决定，界面上的任何缩放都帮不上忙。
- * 基准值（`DEFAULT_COMIC_STRIP_METRICS`）已按 0.32 倍反推到与微信正文同量级（约 17px），
- * 这三档是给作者按自己的读者和设备微调用的：`scale` 只作用于文字带（字号/行高/内边距），
- * 画布宽度与分镜图尺寸不动。
+ * 约 0.32 倍——「字够不够大」完全由烘进图里的字号决定。基准 metrics 的 52px 画布字号
+ * ≈ 手机 17px 观感（与微信正文同量级），所以每个档位的缩放系数 = phonePx / 17，
+ * `scale` 只作用于文字带（字号/行高/内边距），画布宽度与分镜图尺寸不动。
  */
 export interface StoryboardTextScaleOption {
   id: string;
-  label: string;
-  /** 文字度量的缩放系数；1 = 基准档。 */
+  /** 手机上（公众号正文约 345px 宽）的实际观感字号，作者就按这个挑。 */
+  phonePx: number;
+  /** 相对基准档（17px 观感）的缩放系数，派生值：phonePx / 17。 */
   scale: number;
-  /** 界面上的一句话说明：手机上大概多少 px，好让作者不必靠猜。 */
+  label: string;
+  /** 界面上的一句话说明，帮助在相邻 px 档之间做取舍。 */
   hint: string;
 }
 
-export const DEFAULT_STORYBOARD_TEXT_SCALE_ID = "standard";
+export const DEFAULT_STORYBOARD_TEXT_SCALE_ID = "px-17";
 
-/** 手机正文宽约 0.32 倍缩放下的实际观感：52 × 0.32 ≈ 17px（≈ 微信正文字号）。 */
+/** 旧档位 id（紧凑/标准/特大）到新 px 档位的映射：planning 里已存的旧 id 平滑迁移。 */
+const LEGACY_TEXT_SCALE_IDS: Record<string, string> = {
+  compact: "px-14",
+  standard: "px-17",
+  large: "px-20"
+};
+
 export const STORYBOARD_TEXT_SCALE_OPTIONS: readonly StoryboardTextScaleOption[] = [
-  { id: "compact", label: "紧凑", scale: 0.85, hint: "手机上约 14px，段更短" },
-  { id: "standard", label: "标准", scale: 1, hint: "手机上约 17px，与微信正文同大" },
-  { id: "large", label: "特大", scale: 1.2, hint: "手机上约 20px，最好读，段最长" }
+  { id: "px-14", phonePx: 14, scale: 14 / 17, label: "14px", hint: "最小最省空间，段更短" },
+  { id: "px-15", phonePx: 15, scale: 15 / 17, label: "15px", hint: "偏小，信息更密" },
+  { id: "px-16", phonePx: 16, scale: 16 / 17, label: "16px", hint: "略小于微信正文" },
+  { id: "px-17", phonePx: 17, scale: 1, label: "17px", hint: "与微信正文同大（推荐）" },
+  { id: "px-18", phonePx: 18, scale: 18 / 17, label: "18px", hint: "略大，读着更松" },
+  { id: "px-20", phonePx: 20, scale: 20 / 17, label: "20px", hint: "最大最易读，段最长" }
 ];
 
-/** 解析文字大小档位：空值/未知 id 一律回落标准档，拼接不因一个档位 id 卡住。 */
+/** 解析文字大小档位：空值/未知 id 走旧 id 映射后回落标准档（17px），拼接不因一个档位 id 卡住。 */
 export function resolveStoryboardTextScale(
   textScaleId?: string | null
 ): StoryboardTextScaleOption {
   const normalized = textScaleId?.trim() ?? "";
+  const legacy = LEGACY_TEXT_SCALE_IDS[normalized];
+  const candidate = legacy ?? normalized;
   return (
-    STORYBOARD_TEXT_SCALE_OPTIONS.find((option) => option.id === normalized) ??
-    (STORYBOARD_TEXT_SCALE_OPTIONS[1] as StoryboardTextScaleOption)
+    STORYBOARD_TEXT_SCALE_OPTIONS.find((option) => option.id === candidate) ??
+    (STORYBOARD_TEXT_SCALE_OPTIONS.find(
+      (option) => option.id === DEFAULT_STORYBOARD_TEXT_SCALE_ID
+    ) as StoryboardTextScaleOption)
   );
 }
 

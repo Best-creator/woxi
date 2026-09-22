@@ -128,7 +128,7 @@ describe("SegmentStripsControl", () => {
     expect(props.composeSegmentStrips).toHaveBeenCalledWith(
       articleFixture().updatedAt,
       "sans_default",
-      "standard"
+      "px-17"
     );
   });
 
@@ -178,7 +178,7 @@ describe("SegmentStripsControl", () => {
     expect(props.composeSegmentStrips).toHaveBeenCalledWith(
       articleFixture().updatedAt,
       "yahei",
-      "standard"
+      "px-17"
     );
   });
 
@@ -195,31 +195,33 @@ describe("SegmentStripsControl", () => {
   it("sends the selected text size with the compose request", async () => {
     const props = setup();
 
-    await userEvent.selectOptions(screen.getByLabelText("文字大小"), "large");
+    // 档位直接以手机观感 px 命名（2026-09-21 用户拍板），选大档就是 20px。
+    await userEvent.selectOptions(screen.getByLabelText("文字大小"), "px-20");
     await userEvent.click(screen.getByRole("button", { name: "拼接段图" }));
 
     expect(props.composeSegmentStrips).toHaveBeenCalledWith(
       articleFixture().updatedAt,
       "sans_default",
-      "large"
+      "px-20"
     );
   });
 
   it("initializes the text size dropdown from the persisted planning choice", () => {
+    // 旧档位 id（compact）经兼容映射落到新 px 档下拉上。
     const planning = {
       ...segmentArticle().planning,
       storyboardTextScaleId: "compact"
     };
     setup({ article: segmentArticle({ planning }) });
 
-    expect(screen.getByLabelText("文字大小")).toHaveValue("compact");
+    expect(screen.getByLabelText("文字大小")).toHaveValue("px-14");
   });
 
   it("spells out what each text size looks like on a phone", () => {
-    // 段图在公众号里只有约 1/3 宽，档位光写「大 / 小」等于没说：必须给手机上换算后的实际观感。
+    // 档位名已经是 px 值，说明行只补充「这一档和其他档比」的取舍信息。
     setup();
 
-    expect(screen.getByText("手机上约 17px，与微信正文同大")).toBeInTheDocument();
+    expect(screen.getByText("与微信正文同大（推荐）")).toBeInTheDocument();
   });
 
   it("summarizes the compose result with the font label", async () => {
@@ -238,7 +240,7 @@ describe("SegmentStripsControl", () => {
     const statuses = screen.getAllByRole("status").map((node) => node.textContent).join("");
     expect(statuses).toContain("已拼接 2 段");
     expect(statuses).toContain("字体「微软雅黑」");
-    expect(statuses).toContain("文字「标准」");
+    expect(statuses).toContain("文字「17px」");
   });
 
   it("offers re-composing and cancellation once strips exist", async () => {

@@ -388,7 +388,8 @@ describe("composeSegmentStrips", () => {
     if (result.kind !== "composed") throw new Error(`expected composed, got ${JSON.stringify(result)}`);
 
     const persisted = await fixture.articles.findById(fixture.articleId);
-    expect(persisted?.planning.storyboardTextScaleId).toBe("large");
+    // 旧档位 id（large）经兼容映射落库为新 px 档 id。
+    expect(persisted?.planning.storyboardTextScaleId).toBe("px-20");
 
     // 字号只放大文字带，画布宽度不动：图上字更大 = 段图更高，而不是图更宽。
     const baseline = await storyboardFixture();

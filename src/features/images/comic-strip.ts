@@ -68,7 +68,6 @@ export interface ComicStripMetrics {
   textPadX: number;
   textPadY: number;
   background: string;
-  textBackground: string;
   textColor: string;
   titleColor: string;
   accent: string;
@@ -90,10 +89,9 @@ export const DEFAULT_COMIC_STRIP_METRICS: ComicStripMetrics = {
   textPadX: 48,
   textPadY: 44,
   background: "#FFFFFF",
-  // 文字带是暖纸白卡片：纯白会「素得像没设计」，与精致的分镜插图落差太大；
-  // 卡片底 + 细描边 + 圆角 + 硬阴影（见 TEXT_CARD_* 常量）让文字带成为
-  // 长图里的杂志小节卡——比纯白有设计感，又足够浅，不破坏「一整张纸」的连续感。
-  textBackground: "#FCFAF4",
+  // 文字带不再有卡片底（2026-09-21 用户拍板「去除段中的边框和文字背景」）：
+  // 字直接印在画布白底上——暖纸白卡片 + 描边 + 阴影的「杂志小节卡」方案废弃，
+  // 画面干净了，与去掉装饰的分镜帧并排也更统一。
   textColor: "#2C2C2A",
   // 标题用深绿呼应强调色：杂志小节标题的常规做法，黑标题在卡片上太闷。
   titleColor: "#1E5B37",
@@ -129,11 +127,8 @@ function titleGap(metrics: ComicStripMetrics) {
   return Math.round(metrics.bodySize * 0.23);
 }
 
-// 文字卡片的固定视觉参数：不进 metrics——这是设计决策，不是可调参数。
-const TEXT_CARD_BORDER = "#E8E1D2";
-const TEXT_CARD_SHADOW = "#E7ECE3";
-const TEXT_CARD_RADIUS = 16;
-const TEXT_CARD_SHADOW_OFFSET = 5;
+// 台词/旁白条的卡片阴影色（旧文字卡共用色；文字带已去卡片，只剩台词条在用）。
+const STRIP_CARD_SHADOW = "#E7ECE3";
 
 /**
  * 分镜帧在段图画布内容区里的宽度占比（2026-09-20 从占满调小到 0.85）。
@@ -144,7 +139,7 @@ const TEXT_CARD_SHADOW_OFFSET = 5;
  */
 export const STORYBOARD_PANEL_WIDTH_RATIO = 0.85;
 
-// 台词/旁白条的固定视觉参数（橙条家族，与暖纸白文字卡同属一个设计语言）。
+// 台词/旁白条的固定视觉参数（橙条家族；旁白橙底/对白白底橙描边是功能性区分，不去除）。
 const SPEECH_BAR_RADIUS = 16;
 const SPEECH_BAR_SHADOW_OFFSET = 5;
 const SPEECH_NARRATION_BACKGROUND = "#FFB03A";
@@ -182,9 +177,8 @@ export function layoutComicStripTextBlock(
   block: ComicStripTextBlock,
   metrics: ComicStripMetrics = DEFAULT_COMIC_STRIP_METRICS
 ): ComicStripTextLayout {
-  // 预算扣掉阴影偏移：卡片本体比带子窄一拍，折行不能贴到阴影里去。
-  const contentWidth =
-    metrics.width - metrics.padding * 2 - metrics.textPadX * 2 - TEXT_CARD_SHADOW_OFFSET;
+  // 文字直接印在画布上（无卡片），预算就是内容区宽减去两侧文字留白。
+  const contentWidth = metrics.width - metrics.padding * 2 - metrics.textPadX * 2;
   // 正文是居中短行：即使卡片很宽，每行也最多 13 个全角字——行宽吃满就是课文脸。
   const bodyBudget = Math.min(contentWidth, metrics.bodySize * TEXT_BAND_MAX_CHARS_PER_LINE);
   const title = block.title?.trim() ?? "";
@@ -243,10 +237,9 @@ function renderComicStripTextBlockSvg(
       }" rx="${barWidth / 2}" fill="${metrics.accent}"/>`
     : "";
 
-  const cardWidth = blockWidth - TEXT_CARD_SHADOW_OFFSET;
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${blockWidth}" height="${layout.height + TEXT_CARD_SHADOW_OFFSET}">
-  <rect x="${TEXT_CARD_SHADOW_OFFSET}" y="${TEXT_CARD_SHADOW_OFFSET}" width="${cardWidth}" height="${layout.height}" rx="${TEXT_CARD_RADIUS}" fill="${TEXT_CARD_SHADOW}"/>
-  <rect x="0" y="0" width="${cardWidth}" height="${layout.height}" rx="${TEXT_CARD_RADIUS}" fill="${metrics.textBackground}" stroke="${TEXT_CARD_BORDER}" stroke-width="2"/>
+  // 文字直接印在画布白底上：无卡片底、无描边、无阴影、无圆角
+  // （2026-09-21 用户拍板「去除段中的边框和文字背景」）——只留排版本身。
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${blockWidth}" height="${layout.height}">
   ${titleBar}
   ${parts.join("\n  ")}
 </svg>`;
@@ -262,7 +255,7 @@ async function renderComicStripTextBlock(
   return {
     input: binary,
     width: layout.width - metrics.padding * 2,
-    height: layout.height + TEXT_CARD_SHADOW_OFFSET
+    height: layout.height
   };
 }
 
@@ -354,7 +347,7 @@ function renderComicStripSpeechBlockSvg(
     : "";
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${blockWidth}" height="${layout.height + SPEECH_BAR_SHADOW_OFFSET}">
-  <rect x="${SPEECH_BAR_SHADOW_OFFSET}" y="${SPEECH_BAR_SHADOW_OFFSET}" width="${cardWidth}" height="${layout.height}" rx="${SPEECH_BAR_RADIUS}" fill="${TEXT_CARD_SHADOW}"/>
+  <rect x="${SPEECH_BAR_SHADOW_OFFSET}" y="${SPEECH_BAR_SHADOW_OFFSET}" width="${cardWidth}" height="${layout.height}" rx="${SPEECH_BAR_RADIUS}" fill="${STRIP_CARD_SHADOW}"/>
   <rect x="0" y="0" width="${cardWidth}" height="${layout.height}" rx="${SPEECH_BAR_RADIUS}" fill="${background}" stroke="${border}" stroke-width="2"/>
   ${avatarSvg}
   ${parts.join("\n  ")}

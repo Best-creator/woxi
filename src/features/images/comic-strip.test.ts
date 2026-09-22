@@ -180,12 +180,12 @@ describe("composeComicStrip", () => {
 
     expect(width).toBe(METRICS.width);
     // 两张图各被压到内容区（400-40=360）的 85% 宽、居中摆放（混知式图文比例：画面收窄，
-    // 文字带仍满宽）；中间那块按排版算出的高度，外加文字卡右下的 5px 硬阴影。
+    // 文字带仍满宽）；中间那块按排版算出的高度——文字带已无卡片阴影（去卡片装饰）。
     const contentWidth = METRICS.width - METRICS.padding * 2;
     const panelWidth = Math.round(contentWidth * STORYBOARD_PANEL_WIDTH_RATIO);
     // 400×300 的帧压进 panelWidth 宽 → 高等比 229.5，sharp 取整为 230。
     const panelHeight = Math.round((300 / 400) * panelWidth);
-    const textHeight = layoutComicStripTextBlock(text, METRICS).height + 5;
+    const textHeight = layoutComicStripTextBlock(text, METRICS).height;
     expect(height).toBe(METRICS.padding * 2 + METRICS.gap * 2 + panelHeight * 2 + textHeight);
 
     // 帧居中收窄：取第一帧中部的一行，蓝色画面左右边界之外应是画布白底。
@@ -228,21 +228,21 @@ describe("composeComicStrip", () => {
     expect(info.channels).toBeGreaterThanOrEqual(3);
   });
 
-  it("fills the text band with the warm card background", async () => {
+  it("prints the text band straight on the white canvas without a card", async () => {
     const { buffer } = await composeComicStrip([{ kind: "text", body: "一句话" }], METRICS);
-    // 取文字带右侧、文字够不到的一点：那里是文字卡的底色而不是画布。
-    // 卡片化后底色是暖纸白 #FCFAF4——比纯白暖一点，给文字带「杂志小节卡」的质感。
+    // 取文字带右侧、文字够不到的一点：去卡片后（2026-09-21 用户拍板）那里就是画布纯白，
+    // 不再有任何暖纸白底、描边或阴影。
     const { data } = await sharp(buffer)
       .extract({ left: METRICS.width - 30, top: METRICS.padding + 8, width: 1, height: 1 })
       .raw()
       .toBuffer({ resolveWithObject: true });
 
-    expect([data[0], data[1], data[2]]).toEqual([252, 250, 244]);
+    expect([data[0], data[1], data[2]]).toEqual([255, 255, 255]);
   });
 
-  it("keeps the copy inside its text card instead of bleeding past the border", async () => {
+  it("keeps the copy inside the content area instead of bleeding past the edge", async () => {
     // 回归：文字块 SVG 的坐标原点就是内容区左边缘，早先又加了一次 metrics.padding，
-    // 于是文字整体右移一拍——左侧内边距看着是两倍、右侧则压到卡片边框上。
+    // 于是文字整体右移一拍——左侧内边距看着是两倍、右侧则压出内容区。
     // 默认画布（padding 48 > 文字内边距 40）下满行会溢出 8px，这一段就是钉住它的。
     const metrics = DEFAULT_COMIC_STRIP_METRICS;
     const body =
@@ -261,8 +261,8 @@ describe("composeComicStrip", () => {
         const r = data[at]!;
         const g = data[at + 1]!;
         const b = data[at + 2]!;
-        // 只认正文字色 #2C2C2A（亮度约 43）：卡片底/边框/阴影都更亮，
-        // 标题竖条 #2F7D47 亮度约 81 也会被这个阈值挡在外面。
+        // 只认正文字色 #2C2C2A（亮度约 43）：白画布、标题竖条 #2F7D47 亮度约 81
+        // 都会被这个阈值挡在外面。
         if ((r + g + b) / 3 < 60) {
           leftmost = Math.min(leftmost, x);
           rightmost = Math.max(rightmost, x);
@@ -270,11 +270,11 @@ describe("composeComicStrip", () => {
       }
     }
 
-    const cardLeft = metrics.padding;
-    const cardRight = metrics.padding + (width - metrics.padding * 2) - 5;
-    expect(leftmost).toBeGreaterThanOrEqual(cardLeft + 30);
-    // 关键断言：文字不得越过卡片本体右边缘（修之前这里是 1030 > 1027）。
-    expect(rightmost).toBeLessThanOrEqual(cardRight - 25);
+    const contentLeft = metrics.padding;
+    const contentRight = metrics.padding + (width - metrics.padding * 2);
+    expect(leftmost).toBeGreaterThanOrEqual(contentLeft + 30);
+    // 关键断言：文字不得越过内容区右边缘。
+    expect(rightmost).toBeLessThanOrEqual(contentRight - 25);
   });
 
   it("caps a tall panel so one竖图 cannot blow the strip up", async () => {
