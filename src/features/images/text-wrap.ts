@@ -33,14 +33,19 @@ export function characterWidthRatio(character: string) {
  *
  * 2026-09-21 重写（修用户反馈的「换行没啥逻辑」）。旧实现是纯贪心按宽折行——
  * 30 字的长句在 13 字预算下断在任意位置，标点被拦腰截断、还常留 1-2 个字的孤行。
- * 现在分三步：
+ * 2026-09-22 二次修正（修「……一家老小 / 在聚会。」「没有血缘关系的 / 鲸」）：
+ * 贪心填满即断会制造内嵌孤行，末两行重排又不认识「的」字悬尾。现在分四步：
  *
  * 1. **句读优先**：先按断行点（。！？；：，、…与收尾引号括号）把文本切成
  *    「断行单元」，行与行优先落在句读上——换行跟着语义走；
- * 2. **禁则**：收尾标点不落行首（并回前一个单元），开引号/开括号不挂行尾
- *    （贪心兜底断行时挪到下一行）；
- * 3. **孤行平衡**：末行只剩 1-2 个全角字时，在末两行之间重找断点——
- *    优先句读位置，没有句读才按宽度均分；两行都放得下才生效。
+ * 2. **均衡切分**：超宽单元不再填满即断，而是按最小行数用 DP 联合选断点，
+ *    各行宽度贴近均分目标，断点优先句读、避开行尾悬字；
+ * 3. **禁则**：收尾标点不落行首，开引号/开括号不挂行尾；
+ * 4. **孤行平衡**：末行只剩 1-2 个全角字时，在末两行之间重找断点。
+ *
+ * 断点罚分口径（字宽单位）：句读 0 罚；断在任意字之间两字宽；行尾是悬字
+ * （的/是/在/把…）再加一档半——词组拦腰斩断比普通断行更难读。断点并列时取
+ * 更靠后的：上长下短的重心更稳，也顺手少拆「抹香鲸」这类三字词。
  *
  * 行宽上限、超宽单字符自成一行、空文本给单空格占位这些旧语义一个都没动。
  * 这是纯函数：行数直接决定长图高度，必须在测试里钉死。
@@ -64,7 +69,21 @@ const LINE_END_FORBIDDEN = new Set([
   "\u300C", "\u300E", "\uFF08", "\u3010", "\u300A", "\u201C", "\u2018"
 ]);
 
-/** 末行少于等于 2 个全角字宽视为孤行，触发末两行重排。 */
+/**
+ * 行尾悬字：这些字挂在一个断行行尾，等于把词组拦腰斩断——
+ * 「没有血缘关系的 / 鲸」「网上总说这是 / 抹香鲸」都比普通断行更难读。
+ * 覆盖助词（的地得之了着过们）、语气词（吗呢吧啊呀哪啦哦嘛么）、
+ * 先行动词/介词（是有在把被让给向从对）和连词（和或与及而但则）。
+ * 只做罚分不做硬禁则：逼到墙角时宁可悬着，也不能为躲它断出一行超宽。
+ */
+const LINE_END_DANGLING = new Set(
+  "的地得之了着过们吗呢吧啊呀哪啦哦嘛么是有在把被让给向从对和或与及而但则".split("")
+);
+
+/** 行尾悬字的额外罚分（字宽单位），叠加在非句读断点的基础罚分之上。 */
+const DANGLING_END_PENALTY_IN_CHARS = 1.5;
+
+/** 末行少于等于 2 个全角字宽视为孤行，触发末两行重排；同时是断点罚分的基础档。 */
 const ORPHAN_LINE_WIDTH_IN_CHARS = 2;
 
 function textWidth(text: string, fontSize: number): number {
@@ -98,8 +117,112 @@ function breakUnits(paragraph: string): string[] {
   return units;
 }
 
-/** 贪心兜底：没有句读可借力的超宽单元按宽度硬切；行尾不挂开引号、行首不落收尾标点。 */
+/**
+ * 断点罚分（字宽单位，调用方决定是否乘字号换算成像素）：
+ * 断在句读之后 0 罚——换行跟着语义走；断在任意字之间两字宽；
+ * 行尾是悬字再加一档半，词组拦腰斩断的断点只在均衡度明显更优时才轮得到。
+ */
+function breakPenaltyInChars(charBeforeBreak: string): number {
+  if (BREAK_AFTER.has(charBeforeBreak)) return 0;
+  let penalty = ORPHAN_LINE_WIDTH_IN_CHARS;
+  if (LINE_END_DANGLING.has(charBeforeBreak)) {
+    penalty += DANGLING_END_PENALTY_IN_CHARS;
+  }
+  return penalty;
+}
+
+/** 均衡切分的安全阀：字符数超过这个量级就不跑 DP（行数×字数² 会烧时间），退回贪心。 */
+const BALANCED_CHUNK_CHAR_LIMIT = 240;
+
+/**
+ * 在固定行数内联合选断点：costs[line][end] = 前 end 个字排成 line 行的最小代价。
+ * 每行代价 = 与均分目标的方差（字宽单位）+ 行尾断点罚分；行首/行尾禁则与行宽
+ * 是硬约束（单个超宽字符自成一行除外）。返回 null 表示该行数下无解。
+ * 断点并列时 `<=` 让更靠后的断点胜出——上长下短的重心更稳。
+ */
+function splitIntoBalancedLines(
+  chars: string[],
+  lineCount: number,
+  maxWidth: number,
+  fontSize: number
+): string[] | null {
+  const count = chars.length;
+  const prefixWidths: number[] = [0];
+  for (let index = 0; index < count; index += 1) {
+    prefixWidths.push(
+      prefixWidths[index]! + characterWidthRatio(chars[index]!) * fontSize
+    );
+  }
+  const target = prefixWidths[count]! / lineCount;
+  const infeasible = Number.POSITIVE_INFINITY;
+
+  const costs: number[][] = [];
+  const cuts: number[][] = [];
+  for (let line = 0; line <= lineCount; line += 1) {
+    costs.push(new Array<number>(count + 1).fill(infeasible));
+    cuts.push(new Array<number>(count + 1).fill(0));
+  }
+  costs[0]![0] = 0;
+
+  for (let line = 1; line <= lineCount; line += 1) {
+    for (let end = line; end <= count; end += 1) {
+      for (let start = line - 1; start < end; start += 1) {
+        const previous = costs[line - 1]![start]!;
+        if (previous === infeasible) continue;
+        const width = prefixWidths[end]! - prefixWidths[start]!;
+        const singleOversizedChar = end - start === 1 && width > maxWidth;
+        if (width > maxWidth && !singleOversizedChar) continue;
+        if (LINE_END_FORBIDDEN.has(chars[end - 1]!)) continue;
+        if (LINE_START_FORBIDDEN.has(chars[start]!)) continue;
+        const deviation = (width - target) / fontSize;
+        let cost = deviation * deviation;
+        // 单元末尾不是断点，罚分只落在真实断行上。
+        if (end < count) cost += breakPenaltyInChars(chars[end - 1]!);
+        if (previous + cost <= costs[line]![end]!) {
+          costs[line]![end] = previous + cost;
+          cuts[line]![end] = start;
+        }
+      }
+    }
+  }
+  if (costs[lineCount]![count] === infeasible) return null;
+
+  const bounds: number[] = [count];
+  let cursor = count;
+  for (let line = lineCount; line >= 1; line -= 1) {
+    const start = cuts[line]![cursor]!;
+    bounds.unshift(start);
+    cursor = start;
+  }
+  const lines: string[] = [];
+  for (let index = 0; index < lineCount; index += 1) {
+    lines.push(chars.slice(bounds[index]!, bounds[index + 1]!).join(""));
+  }
+  return lines;
+}
+
+/**
+ * 超宽单元的均衡切分：行数取宽度的最小可行值，断点由 DP 在该行数下联合选取——
+ * 各行宽度贴近均分目标，断点优先句读、避开行尾悬字。
+ * 2026-09-22 之前是贪心填满即断，17 字的句子在 13 字预算下会断成 13+4 的
+ * 内嵌孤行（「……一家老小 / 在聚会。」），且孤行重排只看末两行救不了它。
+ * 行数逐次 +1 重试吸收禁则挤压；超长文本或全部无解时退回旧贪心兜底。
+ */
 function chunkOversized(unit: string, maxWidth: number, fontSize: number): string[] {
+  const chars = Array.from(unit);
+  const total = textWidth(unit, fontSize);
+  const minLines = Math.max(1, Math.ceil(total / maxWidth - 1e-9));
+  if (chars.length <= BALANCED_CHUNK_CHAR_LIMIT) {
+    for (let lineCount = minLines; lineCount <= minLines + 2; lineCount += 1) {
+      const lines = splitIntoBalancedLines(chars, lineCount, maxWidth, fontSize);
+      if (lines) return lines;
+    }
+  }
+  return chunkGreedy(unit, maxWidth, fontSize);
+}
+
+/** 旧贪心兜底：没有句读可借力的超宽单元按宽度硬切；行尾不挂开引号、行首不落收尾标点。 */
+function chunkGreedy(unit: string, maxWidth: number, fontSize: number): string[] {
   const chunks: string[] = [];
   let current = "";
   let currentWidth = 0;
@@ -132,8 +255,9 @@ function chunkOversized(unit: string, maxWidth: number, fontSize: number): strin
 
 /**
  * 末两行重排：在两行合计文本里重找断点，两行尽量均衡。
- * 候选断点统一打分（差值越小越均衡），非句读断点加「两字宽」的罚分——
- * 句读断点在均衡度接近时胜出（换行跟语义走），但不会为一句读制造 8 字 vs 2 字的失衡。
+ * 候选断点统一打分（差值越小越均衡），罚分与均衡切分同源（breakPenaltyInChars）——
+ * 句读断点在均衡度接近时胜出（换行跟语义走），行尾悬字被压下去
+ * （「没有血缘关系的 / 鲸」与「…鲸 / 也会凑成一排。」并列时选后者）。
  * 断点必须让两行都不超宽，且不得违反行首/行尾禁则。找不到就原样返回。
  */
 function balanceLastTwoLines(
@@ -157,11 +281,11 @@ function balanceLastTwoLines(
     if (headWidth > maxWidth || tailWidth > maxWidth) continue;
     if (LINE_END_FORBIDDEN.has(combined[at - 1]!)) continue;
     if (LINE_START_FORBIDDEN.has(combined[at]!)) continue;
-    const penalty = BREAK_AFTER.has(combined[at - 1]!)
-      ? 0
-      : ORPHAN_LINE_WIDTH_IN_CHARS * fontSize;
-    const score = Math.abs(headWidth - tailWidth) + penalty;
-    if (!best || score < best.score) best = { at, score };
+    const score =
+      Math.abs(headWidth - tailWidth) / fontSize +
+      breakPenaltyInChars(combined[at - 1]!);
+    // <= ：并列取更靠后的断点，上长下短的重心更稳。
+    if (!best || score <= best.score) best = { at, score };
   }
   if (!best) return [head, tail];
   return [combined.slice(0, best.at).join(""), combined.slice(best.at).join("")];

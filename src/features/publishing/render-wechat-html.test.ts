@@ -201,8 +201,9 @@ describe("renderWechatStripFlowHtml", () => {
     expect(html).not.toContain("background:#FCFAF4");
     expect(html).not.toContain("border:2px solid #E8E1D2");
     // 13 字预算下 21 字文案断成两行，行间用 <br>，断行由服务端预排。
+    // 均衡切分（2026-09-22）后两行 11/10——旧贪心是 13/8，尾巴一截短一截。
     expect(html).toContain("<br>");
-    expect(html).toContain("雾蒙蒙的清晨小鹿踩着露水");
+    expect(html).toContain("雾蒙蒙的清晨小鹿踩着露<br>水走进森林深处寻找蘑菇");
   });
 
   it("预览模式（includeResidualText）下纯文字段同样是文字条带，残留块仍是普通段落", () => {

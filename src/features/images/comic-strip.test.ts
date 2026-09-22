@@ -72,8 +72,9 @@ describe("wrapText", () => {
   });
 
   it("never lets closing punctuation start a line", () => {
-    // 5 字预算：「，」放不进第一行时带一个字陪它（五，），而不是孤零零落在新行行首。
-    expect(wrapText("一二三四五，七八九十", 160, 32)).toEqual(["一二三四", "五，", "七八九十"]);
+    // 5 字预算：「，」不能落行首。旧实现靠「带一个字陪它」（4/2 断法），
+    // 均衡切分后直接给 3/3——禁则依然成立，孤行却消失了。
+    expect(wrapText("一二三四五，七八九十", 160, 32)).toEqual(["一二三", "四五，", "七八九十"]);
   });
 
   it("rebalances the last two lines when the tail is a 1-2 char orphan", () => {
@@ -89,6 +90,33 @@ describe("wrapText", () => {
     expect(wrapText("一二三四五六七八九十十一「三", 676, 52)).toEqual([
       "一二三四五六七",
       "八九十十一「三"
+    ]);
+  });
+
+  it("balances an oversized sentence instead of dumping orphan tails (抹香鲸文字带回归)", () => {
+    // 2026-09-22 用户反馈的原文：13 字预算下旧贪心切成 13/4/11/13→重排→7/8，
+    // 出现内嵌孤行「在聚会。」和悬「的」断口「没有血缘关系的 / 鲸」。
+    // 均衡切分后五行 9/8/11/8/7，断口全部落在词组边界。
+    expect(
+      wrapText(
+        "网上总说这是抹香鲸一家老小在聚会。其实这往往是临时拼车，没有血缘关系的鲸也会凑成一排。",
+        676,
+        52
+      )
+    ).toEqual([
+      "网上总说这是抹香鲸",
+      "一家老小在聚会。",
+      "其实这往往是临时拼车，",
+      "没有血缘关系的鲸",
+      "也会凑成一排。"
+    ]);
+  });
+
+  it("refuses to leave a dangling 的 at the end of a line", () => {
+    // 15 字单元两行均分时 7/8 与 8/7 方差并列，悬「的」断点被罚分压下去取 8/7。
+    expect(wrapText("没有血缘关系的鲸也会凑成一排。", 676, 52)).toEqual([
+      "没有血缘关系的鲸",
+      "也会凑成一排。"
     ]);
   });
 });
@@ -112,14 +140,15 @@ describe("layoutComicStripTextBlock", () => {
 
   it("caps the body at 13 full-width characters per line on the real canvas", () => {
     // 默认画布宽 1080，卡片内容区放得下 ~16 字；13 字上限是设计决策（混知式居中短行）。
+    // 30 字无句读长句按最小行数均分成 10/10/10——旧贪心是 13/13/8，尾巴一截短一截。
     const body = "一二三四五六七八九十一二三四五六七八九十一二三四五六七八九十";
     const layout = layoutComicStripTextBlock({ kind: "text", body });
 
     expect(TEXT_BAND_MAX_CHARS_PER_LINE).toBe(13);
     expect(layout.bodyLines).toEqual([
-      "一二三四五六七八九十一二三",
-      "四五六七八九十一二三四五六",
-      "七八九十"
+      "一二三四五六七八九十",
+      "一二三四五六七八九十",
+      "一二三四五六七八九十"
     ]);
   });
 
