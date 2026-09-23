@@ -112,13 +112,48 @@ export async function buildGenerationEnhancements(
  * 模型会往帧里自己画标题和气泡（实测出图里就冒出了手写对白气泡和「柳州螺蛳粉」标牌），
  * 与渲染器烘的台词条重复。所以单格帧额外要求「画面里不出现任何文字」。
  */
+/**
+ * 单格分镜帧的画字禁令（挂在 prompt 末尾）：画像里「居中章节标题、橙色对话框、圆形
+ * 旁白头像」描述的是**整页条漫**的排版，我们出的是**单格**帧、文字由渲染器另行烘字——
+ * 不压住它，模型会往帧里自己画标题和气泡（实测出图里就冒出了手写对白气泡和
+ * 「柳州螺蛳粉」标牌），与渲染器烘的台词条重复。所以单格帧额外要求「画面里不出现任何文字」。
+ * 单独提常量：内容策略降级路径剥掉画风引导时，这条禁令也必须保留（见 fallback）。
+ */
+const STORYBOARD_TEXT_SUPPRESSION =
+  "【不画文字】这一格画面里不要出现任何文字：标题、对白气泡、旁白框、字幕一律不画；" +
+  "场景道具上也不带字——招牌、柜台牌、店招、告示牌、价目表等一律画成无字的空白牌面" +
+  "（台词与排版由我们另行完成）；上面关于标题/对话框/旁白头像/文字排版的描述只适用于整页长图。";
+
+/**
+ * 剥掉帧 prompt 里旧口径的「画字」子句（2026-09-23 前的剧情漫画要求台词写进 prompt）：
+ * 「…纯白背景。画面文字：对白气泡『多吃点长力气。』」。台词现在只进 speechLine、
+ * 由渲染器烘成图外台词条，这种子句与末尾的画字禁令直接打架——实测模型照画 prompt 里
+ * 的旧台词，作者改了台词字段重新生图也还是旧对白（2026-09-23 用户实锤）。
+ * 存量文章的 prompt 无需迁移：生成前统一剥掉，重新生图即干净。
+ *
+ * 台词本身可能含句号（『多吃点长力气。』），所以带引号的子句必须按「引号对」整体匹配，
+ * 不能在句号处断；剥空了退原文——prompt 再不合规也不能为空。
+ */
+export function stripInImageTextClauses(prompt: string): string {
+  const stripped = prompt
+    // 带引号的完整子句：画面文字：[对白气泡/旁白框/字幕]『台词』
+    .replace(/[，,。；;、\s]*画面文字[：:][^『』]*『[^』]*』/g, "")
+    // 无引号的裸格式（早期视觉规划器口径）：画面文字：XXX（吃到空白或结尾）
+    .replace(/[，,。；;、\s]*画面文字[：:][^\s]*/g, "");
+  return stripped.trim() || prompt;
+}
+
 export function composeEnhancedPrompt(
   assetPrompt: string,
   enhancements: GenerationEnhancements,
   options: { suppressText?: boolean } = {}
 ) {
-  if (!enhancements.promptPrefix) return assetPrompt;
-  const blocks = [enhancements.promptPrefix, assetPrompt];
+  // 画字禁令是分镜帧的正确性要求，不依赖画风配置——没有注入任何增强时也要加
+  // （旧逻辑在没有 promptPrefix 时整体短路，分镜帧会裸奔出图、自己画字）。
+  if (!enhancements.promptPrefix && !options.suppressText) return assetPrompt;
+  const blocks: string[] = [];
+  if (enhancements.promptPrefix) blocks.push(enhancements.promptPrefix);
+  blocks.push(assetPrompt);
   if (enhancements.styleText) {
     blocks.push(
       "【画风优先】上面【绘制风格】是全图唯一的画风来源：本段描述里的角色、动作、场景、道具照画，" +
@@ -126,11 +161,7 @@ export function composeEnhancedPrompt(
     );
   }
   if (options.suppressText) {
-    blocks.push(
-      "【不画文字】这一格画面里不要出现任何文字：标题、对白气泡、旁白框、字幕一律不画；" +
-        "场景道具上也不带字——招牌、柜台牌、店招、告示牌、价目表等一律画成无字的空白牌面" +
-        "（台词与排版由我们另行完成）；上面关于标题/对话框/旁白头像/文字排版的描述只适用于整页长图。"
-    );
+    blocks.push(STORYBOARD_TEXT_SUPPRESSION);
   }
   return blocks.join("\n\n");
 }
@@ -158,15 +189,22 @@ export async function generateWithEnhancementFallback(
   enhancements: GenerationEnhancements,
   model?: string
 ): Promise<GeneratedImagePayload> {
+  const isStoryboard = asset.type === "storyboard";
   const shared = {
     aspectRatio: asset.aspectRatio,
     ...referenceImagesField(enhancements),
     ...(model ? { model } : {})
   };
+  // 分镜帧先剥掉旧口径的画字子句（存量文章的 prompt 里还焊着旧台词，见函数注释）。
   // 两条分支的文本都先净化：降级路径直接发原文，不能漏。
-  const rawPrompt = sanitizeImagePrompt(asset.prompt);
+  // 降级剥掉的只是画风引导；画字禁令是正确性要求，两条分支都得带——
+  // 否则被拦一次的帧就裸奔出图，把模型自拟的文字画进画面、与台词条重复。
+  const basePrompt = isStoryboard ? stripInImageTextClauses(asset.prompt) : asset.prompt;
+  const rawPrompt = sanitizeImagePrompt(
+    isStoryboard ? `${basePrompt}\n\n${STORYBOARD_TEXT_SUPPRESSION}` : basePrompt
+  );
   const enhancedPrompt = sanitizeImagePrompt(
-    composeEnhancedPrompt(asset.prompt, enhancements, { suppressText: asset.type === "storyboard" })
+    composeEnhancedPrompt(basePrompt, enhancements, { suppressText: isStoryboard })
   );
   try {
     return await generator.generate({ prompt: enhancedPrompt, ...shared });

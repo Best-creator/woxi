@@ -5,6 +5,7 @@ import {
   composeEnhancedPrompt,
   generateWithEnhancementFallback,
   referenceImagesField,
+  stripInImageTextClauses,
   type GenerationEnhancements
 } from "./generation-enhancements";
 import { ImageGeneratorError } from "./image-generator";
@@ -62,6 +63,28 @@ describe("composeEnhancedPrompt / referenceImagesField", () => {
     // 收尾指令在最后（最后一句权重最大），点名忽略帧描述里的画风词。
     expect(prompt.trimEnd().endsWith("不得套用。")).toBe(true);
     expect(prompt).toContain("画风、媒介与技法词");
+  });
+});
+
+describe("stripInImageTextClauses", () => {
+  it("剥掉旧口径画字子句；台词里含句号也不误断", () => {
+    // 2026-09-23 真实数据：旧口径把台词焊在 prompt 里，改了 speechLine 重新生图
+    // 也画旧台词——生成前必须剥干净。
+    expect(
+      stripInImageTextClauses(
+        "黑白线条漫画风。近景，两只考拉。纯白背景。画面文字：对白气泡『多吃点长力气。』"
+      )
+    ).toBe("黑白线条漫画风。近景，两只考拉。纯白背景");
+  });
+
+  it("旁白框与无引号的裸格式同样剥掉", () => {
+    expect(stripInImageTextClauses("主角讲解。画面文字：旁白框『先看一步』")).toBe("主角讲解");
+    expect(stripInImageTextClauses("主角讲解。画面文字：机会成本")).toBe("主角讲解");
+  });
+
+  it("没有画字子句原样返回；剥空了退原文兜底", () => {
+    expect(stripInImageTextClauses("干净的帧描述")).toBe("干净的帧描述");
+    expect(stripInImageTextClauses("画面文字：对白气泡『…』")).toBe("画面文字：对白气泡『…』");
   });
 });
 
@@ -134,6 +157,48 @@ describe("generateWithEnhancementFallback", () => {
 
     expect(recorder.inputs[0]!.prompt).toContain("【不画文字】");
     expect(recorder.inputs[1]!.prompt).not.toContain("【不画文字】");
+  });
+
+  it("分镜帧生成前剥掉旧口径的画字子句；没配画风也压住画字", async () => {
+    // 2026-09-23 用户实锤：改了台词字段，重新生图仍画旧台词——旧口径把台词焊在
+    // prompt 里（画面文字：对白气泡『多吃点长力气。』），与【不画文字】直接打架。
+    // 生成前统一剥掉；画字禁令不依赖画风注入（旧逻辑无 promptPrefix 时整体短路）。
+    const recorder = recordingGenerator([payload]);
+    await generateWithEnhancementFallback(
+      recorder.generator,
+      {
+        prompt: "近景，两只考拉。纯白背景。画面文字：对白气泡『多吃点长力气。』",
+        aspectRatio: "portrait",
+        type: "storyboard"
+      },
+      { styleText: "", promptPrefix: "", referenceImages: [] }
+    );
+    expect(recorder.inputs[0]!.prompt).toContain("近景，两只考拉。纯白背景");
+    expect(recorder.inputs[0]!.prompt).not.toContain("画面文字");
+    expect(recorder.inputs[0]!.prompt).not.toContain("多吃点长力气");
+    expect(recorder.inputs[0]!.prompt).toContain("【不画文字】");
+  });
+
+  it("内容策略拦截降级时，原始 prompt 同样剥子句并保留画字禁令", async () => {
+    const recorder = recordingGenerator([
+      new ImageGeneratorError("content_blocked", "拦截。"),
+      payload
+    ]);
+    await generateWithEnhancementFallback(
+      recorder.generator,
+      {
+        prompt: "近景，两只考拉。纯白背景。画面文字：对白气泡『多吃点长力气。』",
+        aspectRatio: "portrait",
+        type: "storyboard"
+      },
+      enhanced
+    );
+    expect(recorder.inputs[1]!.prompt).not.toContain("画面文字");
+    expect(recorder.inputs[1]!.prompt).not.toContain("多吃点长力气");
+    expect(recorder.inputs[1]!.prompt).toContain("【不画文字】");
+    // 降级只剥画风引导：【绘制风格】不再出现，禁令与参考图照旧保留。
+    expect(recorder.inputs[1]!.prompt).not.toContain("【绘制风格】");
+    expect(recorder.inputs[1]!.referenceImages).toHaveLength(1);
   });
 
   it("净化掉两条分支里的平台词（它们正是上游拦人的原因）", async () => {
