@@ -430,6 +430,54 @@ describe("SegmentFramesPanel 帧台词条", () => {
       expectedUpdatedAt: articleFixture().updatedAt
     });
   });
+
+  it("段落台词清单：展开后一键切换对白/旁白，文本原样保留", async () => {
+    const props = speechSetup();
+
+    await userEvent.click(screen.getByRole("button", { name: /本段台词（1\/2）/ }));
+    await userEvent.click(screen.getByRole("button", { name: "把第 1 段帧 1 台词切为对白" }));
+
+    expect(props.updateAsset).toHaveBeenCalledWith("frame-1", {
+      speechLine: { kind: "dialogue", text: "饭量越大干劲越足" },
+      expectedUpdatedAt: articleFixture().updatedAt
+    });
+  });
+
+  it("段落台词清单：从清单里编辑台词，同一资产只有清单这一处表单", async () => {
+    const props = speechSetup();
+
+    await userEvent.click(screen.getByRole("button", { name: /本段台词（1\/2）/ }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "在台词清单里编辑第 1 段帧 1 台词" })
+    );
+
+    // origin 守卫：清单表单打开时，帧卡片上不再渲染第二份表单。
+    expect(screen.getAllByLabelText("第 1 段帧 1 台词")).toHaveLength(1);
+    const input = screen.getByLabelText("第 1 段帧 1 台词");
+    await userEvent.type(input, "！");
+    await userEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    expect(props.updateAsset).toHaveBeenCalledWith("frame-1", {
+      speechLine: { kind: "narration", text: "饭量越大干劲越足！" },
+      expectedUpdatedAt: articleFixture().updatedAt
+    });
+  });
+
+  it("段落台词清单：从清单里给无台词帧加台词", async () => {
+    const props = speechSetup();
+
+    await userEvent.click(screen.getByRole("button", { name: /本段台词（1\/2）/ }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "在台词清单里给第 1 段帧 2 加台词" })
+    );
+    await userEvent.type(screen.getByLabelText("第 1 段帧 2 台词"), "冲呀！");
+    await userEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    expect(props.updateAsset).toHaveBeenCalledWith("frame-2", {
+      speechLine: { kind: "dialogue", text: "冲呀！" },
+      expectedUpdatedAt: articleFixture().updatedAt
+    });
+  });
 });
 
 describe("SegmentFramesPanel 帧版本抽屉", () => {

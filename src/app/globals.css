@@ -3712,6 +3712,75 @@ h2 {
   padding: 0 8px;
 }
 
+.segment-speech-list {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin: 6px 0;
+}
+
+.segment-speech-list-toggle {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  display: block;
+  font-size: 11px;
+  padding: 5px 8px;
+  text-align: left;
+  width: 100%;
+}
+
+.segment-speech-list-toggle:hover {
+  color: var(--text);
+}
+
+.segment-speech-rows {
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  list-style: none;
+  margin: 0;
+  padding: 7px 8px;
+}
+
+.segment-speech-row {
+  align-items: center;
+  display: flex;
+  font-size: 11px;
+  gap: 6px;
+  min-width: 0;
+}
+
+.segment-speech-row-frame {
+  color: var(--muted);
+  flex: 0 0 auto;
+  min-width: 32px;
+}
+
+.segment-speech-row .segment-frame-speech-text {
+  flex: 1 1 auto;
+}
+
+.segment-speech-row-empty {
+  color: var(--muted);
+  flex: 1 1 auto;
+}
+
+/* 台词清单就是「专门管理台词」的地方：渲染口径提示留在帧卡片的编辑表单里，这里不重复。 */
+.segment-speech-rows .segment-frame-speech-hint {
+  display: none;
+}
+
+.segment-speech-kind-toggle {
+  border: 1px solid transparent;
+  cursor: pointer;
+  flex: 0 0 auto;
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 5px;
+}
+
 .segment-frame-speech-add {
   align-items: center;
   align-self: flex-start;

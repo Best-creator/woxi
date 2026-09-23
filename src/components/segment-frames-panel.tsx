@@ -122,7 +122,11 @@ export function SegmentFramesPanel({
     assetId: string;
     kind: SpeechLineKind;
     value: string;
+    /** 表单挂在哪：帧卡片上还是段落台词清单里——同一个资产只渲染一处表单。 */
+    origin: "card" | "list";
   } | null>(null);
+  // 段落台词清单的展开状态：同一时间至多展开一段，再点收起。
+  const [speechListOpenId, setSpeechListOpenId] = useState<string | null>(null);
   // 生成偏好：settingsSaved 是已保存基线（用于 dirty 判断），settingsDraft 是表单草稿。
   const [settingsSaved, setSettingsSaved] = useState<PlanSettingsChoice | null>(null);
   const [settingsDraft, setSettingsDraft] = useState<PlanSettingsChoice | null>(null);
@@ -431,6 +435,31 @@ export function SegmentFramesPanel({
     }
   }
 
+  /**
+   * 段落台词清单里的一键切换：对白 ↔ 旁白，文本原样保留。
+   * 类型切换不影响拼接口径（两种台词条都由渲染器烘在图外），所以不用确认弹层。
+   */
+  async function toggleSpeechKind(asset: ImageAsset) {
+    if (!updateAsset || !asset.speechLine) return;
+    setBusyAssetId(asset.id);
+    setError("");
+    try {
+      onResult(
+        await updateAsset(asset.id, {
+          speechLine: {
+            kind: asset.speechLine.kind === "dialogue" ? "narration" : "dialogue",
+            text: asset.speechLine.text
+          },
+          expectedUpdatedAt: article.updatedAt
+        })
+      );
+    } catch (caught) {
+      showError(caught instanceof Error ? caught.message : "操作失败，请稍后重试");
+    } finally {
+      setBusyAssetId(null);
+    }
+  }
+
   if (!segments.length) return null;
 
   return (
@@ -595,6 +624,161 @@ export function SegmentFramesPanel({
                 </span>
               </div>
               {frames.length ? (
+                <div className="segment-speech-list">
+                  <button
+                    type="button"
+                    className="segment-speech-list-toggle"
+                    aria-expanded={speechListOpenId === segment.id}
+                    onClick={() =>
+                      setSpeechListOpenId((current) =>
+                        current === segment.id ? null : segment.id
+                      )
+                    }
+                  >
+                    本段台词（{frames.filter((asset) => asset.speechLine).length}/{frames.length}）
+                    ——集中编辑与切换对白/旁白
+                  </button>
+                  {speechListOpenId === segment.id ? (
+                    <ul className="segment-speech-rows">
+                      {frames.map((asset, frameIndex) => (
+                        <li key={asset.id} className="segment-speech-row">
+                          <span className="segment-speech-row-frame">帧 {frameIndex + 1}</span>
+                          {speechEdit?.assetId === asset.id && speechEdit.origin === "list" ? (
+                            <form
+                              className="segment-frame-speech-form"
+                              onSubmit={(event) => {
+                                event.preventDefault();
+                                void saveSpeechLine();
+                              }}
+                            >
+                              <select
+                                className="segment-frame-speech-kind-select"
+                                value={speechEdit.kind}
+                                aria-label={`第 ${segmentIndex + 1} 段帧 ${frameIndex + 1} 台词类型`}
+                                onChange={(event) =>
+                                  setSpeechEdit((current) =>
+                                    current && current.assetId === asset.id
+                                      ? { ...current, kind: event.target.value as SpeechLineKind }
+                                      : current
+                                  )
+                                }
+                              >
+                                {SPEECH_LINE_KINDS.map((kind) => (
+                                  <option key={kind} value={kind}>
+                                    {SPEECH_LINE_KIND_LABELS[kind]}
+                                  </option>
+                                ))}
+                              </select>
+                              <input
+                                className="segment-frame-speech-input"
+                                value={speechEdit.value}
+                                maxLength={60}
+                                placeholder="留空保存即删除台词条"
+                                title="对白 ≤10 字、旁白 ≤25 字；留空后保存即删除台词条"
+                                aria-label={`第 ${segmentIndex + 1} 段帧 ${frameIndex + 1} 台词`}
+                                onChange={(event) =>
+                                  setSpeechEdit((current) =>
+                                    current && current.assetId === asset.id
+                                      ? { ...current, value: event.target.value }
+                                      : current
+                                  )
+                                }
+                              />
+                              <button
+                                className="button button-secondary segment-frame-speech-save"
+                                type="submit"
+                                disabled={locked}
+                              >
+                                保存
+                              </button>
+                              <button
+                                className="button button-secondary segment-frame-speech-cancel"
+                                type="button"
+                                disabled={busyAssetId === asset.id}
+                                onClick={() => setSpeechEdit(null)}
+                              >
+                                取消
+                              </button>
+                            </form>
+                          ) : asset.speechLine ? (
+                            <>
+                              {!readOnly && updateAsset && asset.status !== "generating" ? (
+                                <button
+                                  type="button"
+                                  className={`segment-frame-speech-kind segment-frame-speech-kind-${asset.speechLine.kind} segment-speech-kind-toggle`}
+                                  disabled={locked || busyAssetId === asset.id}
+                                  title="点击在 对白/旁白 之间切换"
+                                  aria-label={`把第 ${segmentIndex + 1} 段帧 ${frameIndex + 1} 台词切为${
+                                    asset.speechLine.kind === "dialogue" ? "旁白" : "对白"
+                                  }`}
+                                  onClick={() => void toggleSpeechKind(asset)}
+                                >
+                                  {SPEECH_LINE_KIND_LABELS[asset.speechLine.kind]}
+                                </button>
+                              ) : (
+                                <span
+                                  className={`segment-frame-speech-kind segment-frame-speech-kind-${asset.speechLine.kind}`}
+                                >
+                                  {SPEECH_LINE_KIND_LABELS[asset.speechLine.kind]}
+                                </span>
+                              )}
+                              <span
+                                className="segment-frame-speech-text"
+                                title={asset.speechLine.text}
+                              >
+                                {asset.speechLine.text}
+                              </span>
+                              {!readOnly && updateAsset && asset.status !== "generating" ? (
+                                <button
+                                  className="icon-button segment-frame-speech-button"
+                                  type="button"
+                                  title="编辑台词"
+                                  aria-label={`在台词清单里编辑第 ${segmentIndex + 1} 段帧 ${frameIndex + 1} 台词`}
+                                  disabled={locked}
+                                  onClick={() =>
+                                    setSpeechEdit({
+                                      assetId: asset.id,
+                                      kind: asset.speechLine!.kind,
+                                      value: asset.speechLine!.text,
+                                      origin: "list"
+                                    })
+                                  }
+                                >
+                                  <Pencil size={12} aria-hidden="true" />
+                                </button>
+                              ) : null}
+                            </>
+                          ) : (
+                            <>
+                              <span className="segment-speech-row-empty">无台词</span>
+                              {!readOnly && updateAsset && asset.status !== "generating" ? (
+                                <button
+                                  className="segment-frame-speech-add"
+                                  type="button"
+                                  aria-label={`在台词清单里给第 ${segmentIndex + 1} 段帧 ${frameIndex + 1} 加台词`}
+                                  disabled={locked}
+                                  onClick={() =>
+                                    setSpeechEdit({
+                                      assetId: asset.id,
+                                      kind: "dialogue",
+                                      value: "",
+                                      origin: "list"
+                                    })
+                                  }
+                                >
+                                  <MessageSquarePlus size={12} aria-hidden="true" />
+                                  加台词
+                                </button>
+                              ) : null}
+                            </>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              ) : null}
+              {frames.length ? (
                 <ul className="segment-frames-cards">
                   {frames.map((asset, frameIndex) => (
                     <li key={asset.id} className="segment-frame-card">
@@ -668,7 +852,7 @@ export function SegmentFramesPanel({
                           ) : null}
                         </div>
                       )}
-                      {speechEdit?.assetId === asset.id ? (
+                      {speechEdit?.assetId === asset.id && speechEdit.origin === "card" ? (
                         <form
                           className="segment-frame-speech-form"
                           onSubmit={(event) => {
@@ -750,7 +934,8 @@ export function SegmentFramesPanel({
                                 setSpeechEdit({
                                   assetId: asset.id,
                                   kind: asset.speechLine!.kind,
-                                  value: asset.speechLine!.text
+                                  value: asset.speechLine!.text,
+                                  origin: "card"
                                 })
                               }
                             >
@@ -765,7 +950,12 @@ export function SegmentFramesPanel({
                           aria-label={`给第 ${segmentIndex + 1} 段帧 ${frameIndex + 1} 加台词`}
                           disabled={locked}
                           onClick={() =>
-                            setSpeechEdit({ assetId: asset.id, kind: "dialogue", value: "" })
+                            setSpeechEdit({
+                              assetId: asset.id,
+                              kind: "dialogue",
+                              value: "",
+                              origin: "card"
+                            })
                           }
                         >
                           <MessageSquarePlus size={12} aria-hidden="true" />
