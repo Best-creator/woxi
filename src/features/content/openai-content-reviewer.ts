@@ -57,8 +57,8 @@ export function storyComicRedlineIssues(input: ReviewContentInput): ContentRevie
   for (const segment of segments) {
     for (const complaint of inspectStoryComicSegment({
       copy: segment.copy,
-      // prompt 与台词按帧成对：对白帧查「台词是否写进 prompt」（气泡要画这句词），
-      // 旁白帧与无台词帧查「画面里是否出现画字指令」。
+      // prompt 与台词按帧成对：所有帧都查「画面里是否出现画字指令」——
+      // 对白与旁白一样由排版层烘成图外台词条，台词只进 speechLine、不进 prompt。
       frames: segment.frames.map((frame) => ({
         prompt: frame.prompt,
         speechLine: frame.speechLine ?? null

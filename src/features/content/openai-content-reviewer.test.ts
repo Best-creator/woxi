@@ -333,7 +333,8 @@ describe("sanitizeContentReview 的剧情漫画红线", () => {
           copy: "一群小家伙围上来。",
           frames: [
             {
-              prompt: "全景。三只柴犬围上来。纯白背景。画面文字：对白气泡『让让呗』",
+              // 2026-09-23 起台词不进 prompt：对白帧的 prompt 与无台词帧一样干净。
+              prompt: "全景。三只柴犬围上来。纯白背景。",
               speechLine: { kind: "dialogue", text: "让让呗" }
             }
           ]
@@ -344,7 +345,7 @@ describe("sanitizeContentReview 的剧情漫画红线", () => {
           copy: "带头的先跳上去。",
           frames: [
             {
-              prompt: "近景。带头的跳上去，旁边那只捂嘴看它。纯白背景。画面文字：对白气泡『你行你上』",
+              prompt: "近景。带头的跳上去，旁边那只捂嘴看它。纯白背景。",
               speechLine: { kind: "dialogue", text: "你行你上" }
             }
           ]

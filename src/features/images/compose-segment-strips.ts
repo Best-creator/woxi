@@ -303,13 +303,14 @@ export async function composeSegmentStrips(
 
       // 段内路由在设计期就定了：图+文 / 文+图 / 图+文+图，两图夹一文时帧序即设计序。
       // 文案按块拆成多条文字带——每块一条短卡，不再是一整段长文。
-      // 帧与它的台词绑定成组，但只有**旁白**落成台词条（旁白=橙底头像条，挂在图外）；
-      // **对白已经画进这一格的气泡里**（生图阶段按 prompt 末尾的「画面文字：对白气泡」烘字），
-      // 再排一条带就重复了。旧帧没有台词 → 只有图，零迁移。
+      // 帧与它的台词绑定成组：**对白与旁白都落成图外的台词条**（旁白=橙底头像条、
+      // 对白=白底橙描边条，渲染器同一条路径）。画面里一个字都不画——生图阶段全局
+      // 抑制画字，台词只存在 speechLine 里，改一句台词只需重拼段图（秒级、纯 CPU），
+      // 绝不作废已生成的帧图。旧帧没有台词 → 只有图，零迁移。
       const frameBlocksWithSpeech = (index: number): ComicStripBlock[] => {
         const line = entry.frameAssets[index]?.speechLine;
         const blocks: ComicStripBlock[] = [{ kind: "image", binary: binaries[index]! }];
-        if (line?.kind === "narration" && line.text.trim()) {
+        if (line?.text.trim()) {
           blocks.push({
             kind: "speech",
             speechKind: line.kind,

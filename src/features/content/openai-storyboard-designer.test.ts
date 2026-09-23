@@ -333,15 +333,18 @@ describe("OpenAiStoryboardDesigner", () => {
     expect(reviseRequest.systemPrompt).toBe(STORYBOARD_REVISER_STORY_COMIC_PROMPT);
   });
 
-  it("anchors the group-anthropomorphism and bubble-text rules in the story comic prompts", () => {
-    // 群体拟人化（R5）与「画面文字只允许对白气泡」是新形态的两条命脉，钉在提示词里防回退。
+  it("anchors the group-anthropomorphism and no-in-image-text rules in the story comic prompts", () => {
+    // 群体拟人化（R5）与「画面里一个字都不画」是新形态的两条命脉，钉在提示词里防回退。
     expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).toContain("角色可以复数");
     expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).toContain(`${STORY_COMIC_MAX_SEGMENT_CHARS} 字`);
     expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).toContain("一段一个梗");
-    // 对白画进格内气泡：prompt 末尾带「画面文字：对白气泡『台词』」，台词一字不改。
-    expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).toContain("对白气泡");
-    expect(STORYBOARD_REVISER_STORY_COMIC_PROMPT).toContain("对白气泡");
-    // 但旁白与无台词的格仍然一个字都不画。
+    // 2026-09-23 起对白与旁白同路：都由排版层烘成图外台词条，台词只进 speechLine、
+    // 不进 prompt——「对白气泡」的旧口径从两份提示词里整体退场。
+    expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).toContain("台词条");
+    expect(STORYBOARD_REVISER_STORY_COMIC_PROMPT).toContain("台词条");
+    expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).not.toContain("对白气泡");
+    expect(STORYBOARD_REVISER_STORY_COMIC_PROMPT).not.toContain("对白气泡");
+    // 所有帧（含对白帧）都禁画字。
     expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).toContain("不要旁白框");
     expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).not.toContain("旁白气泡");
     expect(STORYBOARD_REVISER_STORY_COMIC_PROMPT).not.toContain("旁白气泡");
@@ -358,12 +361,12 @@ describe("OpenAiStoryboardDesigner", () => {
       // 数量下限是插值，不是手抄（与段数公式同一条纪律）。
       expect(prompt).toContain(`段数 ÷ ${STORY_COMIC_SEGMENTS_PER_DIALOGUE}`);
       expect(prompt).toContain(`最少 ${STORY_COMIC_MIN_DIALOGUE_FRAMES} 个`);
-      // 一来一往与禁止单一气泡的口径。
+      // 一来一往的口径，以及「台词只进 speechLine、不进 prompt」的新口径。
       expect(prompt).toContain("一来一往");
       expect(prompt).toContain("自问自答");
-      expect(prompt).toContain("对白气泡");
+      expect(prompt).toContain("台词条");
     }
-    expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).toContain("悬在半空没人认领");
+    expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).toContain("谁在说、谁在听");
     expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).toContain("听讲反应");
     // 「宁缺毋滥」只留给 narration——对白不再适用这个口径。
     expect(STORYBOARD_DESIGNER_STORY_COMIC_PROMPT).not.toContain("宁缺毋滥），未点名");
@@ -596,11 +599,11 @@ describe("DemoStoryboardDesigner 的剧情漫画形态", () => {
     const frames = design.segments.flatMap((segment) => segment.frames);
     expect(frames.length).toBeGreaterThan(0);
     expect(frames.every((frame) => frame.prompt.includes("三只"))).toBe(true);
-    // 画字指令只允许出现在对白帧（气泡要画台词）；旁白帧与无台词帧一个字都不画。
+    // 2026-09-23 起任何帧的 prompt 都不带画字指令：台词只进 speechLine，由拼接层烘成图外台词条。
     const dialogueFrames = frames.filter((frame) => frame.speechLine?.kind === "dialogue");
     expect(dialogueFrames.length).toBeGreaterThan(0);
     for (const frame of frames) {
-      expect(frame.prompt.includes("画面文字")).toBe(frame.speechLine?.kind === "dialogue");
+      expect(frame.prompt.includes("画面文字")).toBe(false);
     }
     // 末段不再追加「一句话记住」（落点由梗本身收尾，避免超出 60 字）。
     expect(design.segments.at(-1)!.copy).not.toContain("一句话记住");
@@ -626,9 +629,10 @@ describe("DemoStoryboardDesigner 的剧情漫画形态", () => {
     expect(dialogueFrames.length).toBeGreaterThanOrEqual(
       storyComicDialogueTarget(design.segments.length)
     );
-    // 对白帧的台词必须原样写进 prompt（气泡里画的就是这句）。
+    // 2026-09-23 起台词不进 prompt：对白帧的 prompt 与无台词帧一样干净，
+    // 改台词只需重拼段图、绝不作废已生成的帧图。
     for (const frame of dialogueFrames) {
-      expect(frame.prompt).toContain(frame.speechLine!.text);
+      expect(frame.prompt).not.toContain(frame.speechLine!.text);
     }
   });
 

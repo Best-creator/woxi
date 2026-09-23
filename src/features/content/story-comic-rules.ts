@@ -96,9 +96,9 @@ const NARRATION_LIMIT = Math.round(STORY_COMIC_MAX_NARRATION_CHARS * STORY_COMIC
  * 不能朴素地禁「文字」二字：提示词本身就要求画面不得出现文字，
  * 模型会把这句话抄进每条 prompt——只有「画字」的指令才算违规。
  *
- * ⚠️ 这组模式只用于**旁白帧与无台词帧**（对白帧走另一条路：查台词是否原样写进 prompt，
- * 在下面的分支里提前 continue，不会落到这里）——因为从 2026-09-20 起对白画进图内气泡，
- * 对白帧的 prompt 里合法地出现「气泡」与「画面文字」字样；旁白帧与无台词帧则一个都不许有。
+ * ⚠️ 从 2026-09-23 起这组模式适用于**所有帧**：对白不再画进图内气泡——
+ * 台词（对白与旁白）一律由排版层烘成图外的台词条，prompt 里合法地连
+ * 「气泡」「画面文字」都不该出现；出现即违规。
  */
 export const DRAW_TEXT_PATTERNS = ["画面文字", "气泡", "旁白框", "字幕", "『", "』"];
 
@@ -150,11 +150,11 @@ function truncate(text: string, max = 20): string {
  * 既不进正文也不进段图，所以不占每段 60 字的预算（讲解式才有小标题进正文的事）。
  * 审核器逐条贴成警告（定位到该段），并据此把「内容没问题」降级成「需要修订」。
  *
- * 帧按「prompt + 台词」成对核对，两条路：
- * - **对白帧**（speechLine.kind = dialogue）：台词要画进这一格的气泡里，所以
- *   prompt 必须原样带上这句台词——没带，气泡里就画不出读者该读到的那句话；
- * - **旁白帧 / 无台词帧**：画面里一个字都不许出现（旁白由排版层挂在图外），
- *   prompt 里出现任何「画字」指令都算违规。
+ * 帧按「prompt + 台词」成对核对（2026-09-23 起单一口径）：
+ * - **台词长度**：对白 ≤10 字、旁白 ≤25 字（含容差），只在有台词时判；
+ * - **画面零文字**：任何帧的 prompt 都不许出现「画字」指令——对白与旁白一样
+ *   由排版层烘成图外的台词条，台词不进 prompt（生图阶段本就全局抑制画字，
+ *   写了也画不出来，只会让审核与提示词互相打架）。
  */
 export function inspectStoryComicSegment(input: {
   copy: string;
@@ -193,37 +193,29 @@ export function inspectStoryComicSegment(input: {
   for (const frame of input.frames ?? []) {
     const prompt = frame.prompt ?? "";
     const line = frame.speechLine ?? null;
-    if (line?.kind === "dialogue") {
+    if (line) {
+      const isDialogue = line.kind === "dialogue";
       const length = charCount(line.text);
-      if (length > DIALOGUE_LIMIT) {
+      const limit = isDialogue ? DIALOGUE_LIMIT : NARRATION_LIMIT;
+      const max = isDialogue ? STORY_COMIC_MAX_DIALOGUE_CHARS : STORY_COMIC_MAX_NARRATION_CHARS;
+      if (length > limit) {
         complaints.push(
-          `对白「${truncate(line.text)}」有 ${length} 字，要求不超过 ${STORY_COMIC_MAX_DIALOGUE_CHARS} 字`
+          `${isDialogue ? "对白" : "旁白"}「${truncate(line.text)}」有 ${length} 字，要求不超过 ${max} 字`
         );
       }
-      // 气泡里画的就是这句台词，所以它必须原样出现在 prompt 里。
-      if (prompt && !prompt.includes(line.text)) {
-        complaints.push(
-          `对白「${truncate(line.text)}」没有写进分镜提示词，气泡里画不出这句台词`
-        );
-      }
-      continue;
     }
+    // 任何帧的 prompt 都不许出现画字指令：对白与旁白一样由排版层烘成图外台词条，
+    // 台词不进 prompt——写了生图也画不出来（全局抑制），只会让口径互相打架。
     for (const pattern of DRAW_TEXT_PATTERNS) {
       if (prompt.includes(pattern)) {
         complaints.push(
           `分镜提示词里出现「${pattern}」：${
             line?.kind === "narration"
               ? "旁白由我们排在图外"
-              : "画面里不得出现任何文字，台词由我们排版"
+              : line?.kind === "dialogue"
+                ? "对白由我们烘成图外的台词条"
+                : "画面里不得出现任何文字"
           }`
-        );
-      }
-    }
-    if (line) {
-      const length = charCount(line.text);
-      if (length > NARRATION_LIMIT) {
-        complaints.push(
-          `旁白「${truncate(line.text)}」有 ${length} 字，要求不超过 ${STORY_COMIC_MAX_NARRATION_CHARS} 字`
         );
       }
     }

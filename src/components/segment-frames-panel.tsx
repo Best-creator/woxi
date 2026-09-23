@@ -188,7 +188,9 @@ export function SegmentFramesPanel({
   function showError(message: string) {
     setError(message);
     requestAnimationFrame(() => {
-      errorRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      // scrollIntoView 用可选调用：jsdom 的元素没有这个方法（测试环境），
+      // 可选链只防 ref 为空、防不了方法缺失——缺了就直接短路，浏览器里照常滚动。
+      errorRef.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
     });
   }
 

@@ -287,7 +287,7 @@ describe("composeSegmentStrips", () => {
 
   it("bakes a frame's narration line as an extra band and keeps it on the asset", async () => {
     // 帧带台词（剧情漫画）：设计计划 → 帧资产 → 段图台词条的全链路。
-    // 旁白落成图外的台词条；对白不排带（已画进格内气泡，见下一条用例）。
+    // 对白与旁白都落成图外的台词条（旁白=橙底头像条、对白=白底橙描边条）。
     const plans = segmentPlans().map((segment) => ({
       ...segment,
       frames: segment.frames.map((frame, index) => ({
@@ -326,9 +326,12 @@ describe("composeSegmentStrips", () => {
     expect(withSpeech.strips[1]!.height).toBeGreaterThan(plain.strips[1]!.height);
   });
 
-  it("keeps dialogue inside the image bubble instead of a band（对白不再重复排带）", async () => {
-    // 对白由生图阶段画进格内气泡（prompt 末尾的「画面文字：对白气泡」），
-    // 排版层若再排一条台词条，读者就会把同一句话读两遍。所以对白帧的高度必须与无台词时一致。
+  it("renders a dialogue line as an extra band（对白与旁白同路，不再寄望气泡）", async () => {
+    // 画面里一个字都不画（生图阶段全局抑制画字），对白与旁白一样由排版层
+    // 烘成图外的台词条（对白=白底橙描边条）。这是 2026-09-23 用户实报
+    // 「改了对白、拼出来的图没变」的修复：台词只存在 speechLine 里，改台词
+    // 只需重拼段图、帧图不动——所以带对白的段图必须比无台词基线更高。
+    // 纯文字段没有帧，高度与基线一致。
     const plans = segmentPlans().map((segment) => ({
       ...segment,
       frames: segment.frames.map((frame) => ({
@@ -349,9 +352,8 @@ describe("composeSegmentStrips", () => {
       { articles: baseline.articles, images: baseline.images, storageDir: baseline.storageDir }
     );
     if (plain.kind !== "composed") throw new Error("baseline compose should pass");
-    expect(withDialogue.strips.map((strip) => strip.height)).toEqual(
-      plain.strips.map((strip) => strip.height)
-    );
+    expect(withDialogue.strips[0]!.height).toBeGreaterThan(plain.strips[0]!.height);
+    expect(withDialogue.strips[1]!.height).toBeGreaterThan(plain.strips[1]!.height);
   });
 
   it("bakes the chosen font and persists the choice for recomposition", async () => {

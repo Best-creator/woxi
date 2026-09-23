@@ -179,13 +179,15 @@ describe("列举与画面写字", () => {
     ).toContain("画面里不得出现任何文字");
   });
 
-  it("对白帧：台词必须原样写进 prompt，气泡里才画得出这句话", () => {
+  it("对白帧：台词只进 speechLine，prompt 里不许出现画字指令", () => {
+    // 2026-09-23 起对白与旁白同路：都由排版层烘成图外台词条，台词不进 prompt——
+    // prompt 带「画面文字/气泡」反而是违规（生图阶段全局抑制画字，写了也画不出来）。
     expect(
       inspectStoryComicSegment({
         copy: "三只柴犬排成一队",
         frames: [
           {
-            prompt: "近景，一只柴犬张嘴喊话，画面文字：对白气泡『插队的出去！』",
+            prompt: "近景，一只柴犬张嘴喊话，旁边一只捂嘴憋笑",
             speechLine: { kind: "dialogue", text: "插队的出去！" }
           }
         ]
@@ -196,12 +198,12 @@ describe("列举与画面写字", () => {
         copy: "三只柴犬排成一队",
         frames: [
           {
-            prompt: "近景，一只柴犬张嘴喊话，头顶画一个空白气泡",
+            prompt: "近景，一只柴犬张嘴喊话，画面文字：对白气泡『插队的出去！』",
             speechLine: { kind: "dialogue", text: "插队的出去！" }
           }
         ]
       }).join("")
-    ).toContain("没有写进分镜提示词");
+    ).toContain("对白由我们烘成图外的台词条");
   });
 
   it("多个违规一次报全，段内不短路", () => {

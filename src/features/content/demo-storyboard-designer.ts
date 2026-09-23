@@ -152,13 +152,13 @@ function demoStoryComicCopy(index: number): string {
 
 /**
  * 剧情漫画的演示帧：同一物种的复数角色、各自分工。文字红线与真实设计器同口径——
- * 旁白帧与无台词帧的画面里一个字都不写；**对白帧画进气泡**，prompt 末尾按
- * 「画面文字：对白气泡『台词』」带上台词原句（红线会查台词是否写进 prompt）。
+ * 画面里一个字都不写，台词只进 speechLine（2026-09-23 起对白与旁白都由拼接层
+ * 烘成图外台词条，prompt 不带台词、不带画字指令）。
  * 对白密度红线（全篇 ≥ 段数÷5 且最少 2 个）同样要满足：3 章 demo 的路由是
  * [image_text, image_text_image, text_only]——首段单帧 + 中段 iti 落点帧各带一句
  * dialogue，恰好 2 个达标；纯文字段没有帧，天然不参与对白与画面红线。
- * E2E 与组件测试靠首段「单帧无旁白条 + 对白气泡」、中段「旁白橙条 + 对白气泡」
- * 同时覆盖「旁白渲染橙条」「对白只在气泡里」「旧帧无台词跳过渲染」三条路径。
+ * E2E 与组件测试靠首段「单帧对白条」、中段「旁白橙条 + 对白白条」
+ * 同时覆盖「对白渲染白条」「旁白渲染橙条」「旧帧无台词跳过渲染」三条路径。
  */
 function demoStoryComicFrames(route: StoryboardRoute, title: string) {
   if (route === "text_only") return [];
@@ -172,7 +172,7 @@ function demoStoryComicFrames(route: StoryboardRoute, title: string) {
         speechLine: { kind: "narration" as const, text: "干活最卖力的，往往是饭量最大的。" }
       },
       {
-        prompt: `近景。同一场景的下一秒，箱子翻倒，三只柴犬一起摔在地上，最胖那只强撑体面但眼神已经垮下来，旁边一只捂嘴憋笑看它。${style}。画面文字：对白气泡『说好的轮流呢！』`,
+        prompt: `近景。同一场景的下一秒，箱子翻倒，三只柴犬一起摔在地上，最胖那只强撑体面但眼神已经垮下来，旁边一只捂嘴憋笑看它。${style}`,
         altText: `${title}剧情分镜（翻了）`,
         speechLine: { kind: "dialogue" as const, text: "说好的轮流呢！" }
       }
@@ -180,7 +180,7 @@ function demoStoryComicFrames(route: StoryboardRoute, title: string) {
   }
   return [
     {
-      prompt: `全景。${cast}，一只蹲在门口发呆，另外两只挤在门缝边探头探脑互相对吼，都盯着同一只打翻的食盆。${style}。画面文字：对白气泡『先吃的是赢家！』`,
+      prompt: `全景。${cast}，一只蹲在门口发呆，另外两只挤在门缝边探头探脑互相对吼，都盯着同一只打翻的食盆。${style}`,
       altText: `${title}剧情分镜`,
       speechLine: { kind: "dialogue" as const, text: "先吃的是赢家！" }
     }

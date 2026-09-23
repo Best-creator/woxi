@@ -56,7 +56,7 @@ export const speechLineSchema = z.object({
 });
 
 export const storyboardDesignFrameSchema = z.object({
-  // 完整生图提示词：角色动作、场景道具、情绪氛围、镜头景别 + 画面文字。
+  // 完整生图提示词：角色动作、场景道具、情绪氛围、镜头景别；台词不进 prompt，由 speechLine 单独携带。
   prompt: z.string().trim().min(1).max(2_000),
   altText: z.string().trim().min(1).max(120),
   speechLine: speechLineSchema.nullish()
