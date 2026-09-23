@@ -610,17 +610,25 @@ describe("resolveStoryboardTextScale", () => {
     expect(resolveStoryboardTextScale("compact").scale).toBeLessThan(standard.scale);
   });
 
-  it("keeps every tier readable once the strip is shrunk to a phone", () => {
-    // 段图画布 1080px，公众号正文区约 345px ⇒ 显示缩放 ≈0.32。字号烘进图里就没救了，
-    // 所以基准字号必须让最紧凑的档也落在能读的区间，标准档贴住微信正文的 17px。
+  it("opens every phone px from 5 to 20 and keeps the readable tiers readable", () => {
+    // 段图画布 1080px，公众号正文区约 345px ⇒ 显示缩放 ≈0.32，字号烘进图里就没救了。
+    // 2026-09-23 用户拍板：档位 5-20px 逐整数全开（旧下限 14px 太粗）。
+    // 14px 以下有意跌破 13px 可读下限——那是作者显式要的密度选择，不再守旧门槛；
+    // 14px 及以上仍须落在可读区间，标准档贴住微信正文的 17px。
     const phoneScale = 345 / DEFAULT_COMIC_STRIP_METRICS.width;
     const bodyPx = (scale: number) =>
       scaleStripTextMetrics(DEFAULT_COMIC_STRIP_METRICS, scale).bodySize * phoneScale;
 
+    expect(STORYBOARD_TEXT_SCALE_OPTIONS.map((option) => option.phonePx)).toEqual(
+      Array.from({ length: 16 }, (_, index) => index + 5)
+    );
     for (const option of STORYBOARD_TEXT_SCALE_OPTIONS) {
-      expect(bodyPx(option.scale)).toBeGreaterThanOrEqual(13);
+      if (option.phonePx >= 14) {
+        expect(bodyPx(option.scale)).toBeGreaterThanOrEqual(13);
+      }
     }
     expect(bodyPx(1)).toBeGreaterThanOrEqual(16);
+    expect(bodyPx(resolveStoryboardTextScale("px-5").scale)).toBeLessThan(bodyPx(1));
     expect(bodyPx(resolveStoryboardTextScale("large").scale)).toBeGreaterThan(bodyPx(1));
   });
 });

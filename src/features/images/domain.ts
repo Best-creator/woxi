@@ -275,14 +275,49 @@ const LEGACY_TEXT_SCALE_IDS: Record<string, string> = {
   large: "px-20"
 };
 
-export const STORYBOARD_TEXT_SCALE_OPTIONS: readonly StoryboardTextScaleOption[] = [
-  { id: "px-14", phonePx: 14, scale: 14 / 17, label: "14px", hint: "最小最省空间，段更短" },
-  { id: "px-15", phonePx: 15, scale: 15 / 17, label: "15px", hint: "偏小，信息更密" },
-  { id: "px-16", phonePx: 16, scale: 16 / 17, label: "16px", hint: "略小于微信正文" },
-  { id: "px-17", phonePx: 17, scale: 1, label: "17px", hint: "与微信正文同大（推荐）" },
-  { id: "px-18", phonePx: 18, scale: 18 / 17, label: "18px", hint: "略大，读着更松" },
-  { id: "px-20", phonePx: 20, scale: 20 / 17, label: "20px", hint: "最大最易读，段最长" }
+/** 档位范围（手机观感 px）：2026-09-23 用户拍板 5-20px 逐整数全开，不再守 14px 下限。 */
+export const STORYBOARD_TEXT_SCALE_MIN_PX = 5;
+export const STORYBOARD_TEXT_SCALE_MAX_PX = 20;
+
+/**
+ * 每档的一句话说明，按区间共用——相邻档位的取舍信息是一样的，逐档写 16 句是噪音。
+ * 17px 是锚点；14px 以下有意跌破 13px 可读下限，那是作者显式要的密度选择，
+ * 提示语里说清楚代价就行，不替作者做决定。
+ */
+const TEXT_SCALE_HINT_RANGES: ReadonlyArray<{ minPx: number; hint: string }> = [
+  { minPx: 5, hint: "极小，接近印刷注脚，仅特殊版式用" },
+  { minPx: 9, hint: "小字密排，用段高压换信息量" },
+  { minPx: 13, hint: "偏小，信息更密" },
+  { minPx: 15, hint: "略小于微信正文" },
+  { minPx: 17, hint: "与微信正文同大（推荐）" },
+  { minPx: 18, hint: "略大，读着更松" },
+  { minPx: 20, hint: "最大最易读，段最长" }
 ];
+
+function textScaleHint(phonePx: number): string {
+  // 从高往低找第一个覆盖该档的区间：minPx 是「进入该区间的下限」，
+  // 顺序 find 会让每个档都命中第一条（所有档都 >= 5）。
+  for (let index = TEXT_SCALE_HINT_RANGES.length - 1; index >= 0; index -= 1) {
+    const range = TEXT_SCALE_HINT_RANGES[index]!;
+    if (phonePx >= range.minPx) return range.hint;
+  }
+  return (TEXT_SCALE_HINT_RANGES[0] as { hint: string }).hint;
+}
+
+export const STORYBOARD_TEXT_SCALE_OPTIONS: readonly StoryboardTextScaleOption[] =
+  Array.from(
+    { length: STORYBOARD_TEXT_SCALE_MAX_PX - STORYBOARD_TEXT_SCALE_MIN_PX + 1 },
+    (_, index) => {
+      const phonePx = STORYBOARD_TEXT_SCALE_MIN_PX + index;
+      return {
+        id: `px-${phonePx}`,
+        phonePx,
+        scale: phonePx / 17,
+        label: `${phonePx}px`,
+        hint: textScaleHint(phonePx)
+      };
+    }
+  );
 
 /** 解析文字大小档位：空值/未知 id 走旧 id 映射后回落标准档（17px），拼接不因一个档位 id 卡住。 */
 export function resolveStoryboardTextScale(
