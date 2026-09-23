@@ -724,6 +724,10 @@ export function SegmentFramesPanel({
                           >
                             取消
                           </button>
+                          <p className="segment-frame-speech-hint">
+                            台词排在图外台词条：保存后重新拼接段图才出现在成图里；帧图里已画进去的
+                            旧文字，要重新生成该帧才会消失。
+                          </p>
                         </form>
                       ) : asset.speechLine ? (
                         <div className="segment-frame-speech">
