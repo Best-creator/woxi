@@ -286,4 +286,34 @@ describe("applyStoryboardRevision", () => {
       message: "有分镜图正在生成，请等生成结束或失败后再修订分镜；若长时间未动，可先在配图步骤点该帧的「取消生成并恢复占位图」"
     });
   });
+
+  it("lets storyboard frames save speech line and caption without a body anchor", async () => {
+    // 2026-09-23 用户实报：改对白必 400「正文插图必须关联正文锚点」——
+    // update 的锚点校验只认识 cover 豁免，而分镜帧归段落所有、天生 anchorBlockId 为 null。
+    // 组件测试 mock 了 updateAsset，仓储层一直没人钉这个契约，这里补上。
+    const { images, article, planned } = await planFixture();
+    const frameId = (planned.article.planning.storyboardSegments ?? [])[0]?.frameAssetIds[0];
+    if (!frameId) throw new Error("frame should exist");
+
+    const speech = await images.update(article.id, frameId, planned.article.updatedAt, {
+      speechLine: { kind: "dialogue", text: "干饭去喽！" }
+    });
+    if (speech.kind !== "saved") throw new Error(`speech save failed: ${JSON.stringify(speech)}`);
+    const speechAsset = speech.assets.find((asset) => asset.id === frameId);
+    expect(speechAsset?.speechLine).toEqual({ kind: "dialogue", text: "干饭去喽！" });
+    expect(speechAsset?.manuallyEdited).toBe(true);
+
+    const recaption = await images.update(article.id, frameId, speech.article.updatedAt, {
+      altText: "改错字后的图注"
+    });
+    if (recaption.kind !== "saved") throw new Error(`caption save failed: ${JSON.stringify(recaption)}`);
+    const recaptionAsset = recaption.assets.find((asset) => asset.id === frameId);
+    expect(recaptionAsset?.altText).toBe("改错字后的图注");
+    // 清空台词 = 删除台词条，同样合法。
+    const cleared = await images.update(article.id, frameId, recaption.article.updatedAt, {
+      speechLine: null
+    });
+    if (cleared.kind !== "saved") throw new Error("clearing speech should save");
+    expect(cleared.assets.find((asset) => asset.id === frameId)?.speechLine).toBeNull();
+  });
 });

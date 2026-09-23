@@ -1,7 +1,7 @@
 "use client";
 
 import { History, Images, Loader2, MessageSquarePlus, Pencil, RefreshCw, Wand2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { STORYBOARD_ROUTE_LABELS, type Article } from "@/features/articles/domain";
 import { BUILT_IN_MINIMAL_ACTION_STYLE_NAME } from "@/features/style-library/built-in-styles";
 import {
@@ -34,11 +34,16 @@ const statusLabels: Record<ImageAsset["status"], string> = {
 
 function frameSrc(asset: ImageAsset) {
   if (asset.status === "generated") {
-    // 生成成功：优先远程图；本地落盘图走 content 路由。URL 追加 updatedAt 破缓存，
-    // 否则重新生成后 src 不变，浏览器继续显示旧图。
+    // 生成成功：优先远程图；本地落盘图走 content 路由。
+    // 缓存戳用生成文件名而不是 updatedAt：文件名按「资产-代次」命名、换代必换，
+    // 而 updatedAt 改台词/图注也会推进——拿它当戳，保存一句台词就会让整张
+    // 帧图重新下载、卡片闪一下（2026-09-23 用户实报「编辑台词 UI 不稳定」）。
+    const pixelVersion = asset.filePath
+      ? encodeURIComponent(asset.filePath.split(/[\\/]/).pop() ?? asset.updatedAt)
+      : encodeURIComponent(asset.updatedAt);
     return (
       asset.publicUrl ??
-      `/api/image-assets/${asset.id}/content?v=${encodeURIComponent(asset.updatedAt)}`
+      `/api/image-assets/${asset.id}/content?v=${pixelVersion}`
     );
   }
   return asset.publicUrl ?? asset.placeholderUrl ?? `/api/image-assets/${asset.id}/content`;
@@ -109,6 +114,7 @@ export function SegmentFramesPanel({
   const [busyAssetId, setBusyAssetId] = useState<string | null>(null);
   const [batchBusy, setBatchBusy] = useState(false);
   const [error, setError] = useState("");
+  const errorRef = useRef<HTMLParagraphElement | null>(null);
   const [generations, setGenerations] = useState<ImageLibraryItem[]>([]);
   const [versionsAssetId, setVersionsAssetId] = useState<string | null>(null);
   const [altEdit, setAltEdit] = useState<{ assetId: string; value: string } | null>(null);
@@ -174,6 +180,17 @@ export function SegmentFramesPanel({
     }
     return byAsset;
   }, [generations]);
+
+  /**
+   * 失败提示渲染在面板底部（长列表里往往在视口外）：写完顺手滚到可视区。
+   * 「点了保存没反应」比失败本身更让作者觉得界面不稳定——错误必须看得见。
+   */
+  function showError(message: string) {
+    setError(message);
+    requestAnimationFrame(() => {
+      errorRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
+  }
 
   const refreshGenerations = useCallback(async () => {
     // 素材库接口失败时静默降级：版本抽屉显示为空，不影响生成/拼接本身。
@@ -319,7 +336,7 @@ export function SegmentFramesPanel({
       }
       setSettingsSaved({ ...settingsDraft });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "操作失败，请稍后重试");
+      showError(caught instanceof Error ? caught.message : "操作失败，请稍后重试");
     } finally {
       setSettingsBusy(false);
     }
@@ -345,7 +362,7 @@ export function SegmentFramesPanel({
       onResult(await action(article.updatedAt));
       await refreshGenerations();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "操作失败，请稍后重试");
+      showError(caught instanceof Error ? caught.message : "操作失败，请稍后重试");
     } finally {
       setBusyAssetId(null);
     }
@@ -366,7 +383,7 @@ export function SegmentFramesPanel({
       setBatchReport(payload.batch && payload.batch.failed > 0 ? payload.batch : null);
       await refreshGenerations();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "操作失败，请稍后重试");
+      showError(caught instanceof Error ? caught.message : "操作失败，请稍后重试");
     } finally {
       setBatchBusy(false);
     }
@@ -385,7 +402,7 @@ export function SegmentFramesPanel({
       );
       setAltEdit(null);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "操作失败，请稍后重试");
+      showError(caught instanceof Error ? caught.message : "操作失败，请稍后重试");
     } finally {
       setBusyAssetId(null);
     }
@@ -406,7 +423,7 @@ export function SegmentFramesPanel({
       );
       setSpeechEdit(null);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "操作失败，请稍后重试");
+      showError(caught instanceof Error ? caught.message : "操作失败，请稍后重试");
     } finally {
       setBusyAssetId(null);
     }
@@ -856,7 +873,7 @@ export function SegmentFramesPanel({
         </p>
       ) : null}
       {error ? (
-        <p className="comic-strip-error" role="alert">
+        <p className="comic-strip-error" role="alert" ref={errorRef}>
           {error}
         </p>
       ) : null}

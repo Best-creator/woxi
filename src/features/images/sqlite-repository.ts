@@ -319,7 +319,10 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
       if (asset.type === "cover" && proposedAnchor !== null) {
         return { kind: "invalid_state", message: "封面不能关联正文锚点" };
       }
-      if (asset.type !== "cover") {
+      // 分镜帧归段落所有（frameAssetIds 关联），天生 anchorBlockId 为 null——
+      // 台词/图注/提示词的手改不能被「插图必须挂锚点」拦成 400
+      // （2026-09-23 用户实报：改对白必报错）。锚点校验只管真正挂在正文里的插图。
+      if (asset.type !== "cover" && asset.type !== "storyboard") {
         if (!proposedAnchor) {
           return { kind: "invalid_state", message: "正文插图必须关联正文锚点" };
         }

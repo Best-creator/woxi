@@ -172,6 +172,18 @@ describe("SegmentFramesPanel", () => {
     expect(screen.getByText("生成失败")).toBeInTheDocument();
   });
 
+  it("busts the frame image cache by file name, not by updatedAt", () => {
+    // 生成文件名每代唯一（资产-代次.png）；updatedAt 改台词/图注也会推进——
+    // 拿它当缓存戳，保存一句台词就会让整张帧图重新下载、卡片闪烁
+    // （2026-09-23 用户实报「编辑台词 UI 不稳定」的一半来源）。
+    setup({
+      assets: [frame("frame-1", "generated", { updatedAt: "2026-09-23T08:00:00.000Z" })]
+    });
+
+    const image = screen.getByRole("img", { name: "分镜帧 frame-1" });
+    expect(image.getAttribute("src")).toBe("/api/image-assets/frame-1/content?v=frame-1.png");
+  });
+
   it("offers per-frame actions matching each frame status", () => {
     setup();
 
