@@ -1,3 +1,4 @@
+import { copyFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 
 /**
@@ -26,4 +27,20 @@ export async function removeGenerationFiles(
     if (await removeGenerationFile(filePath)) removed += 1;
   }
   return removed;
+}
+
+/**
+ * 同步复制一份生成文件（跨槽位「设为封面」时给封面做独立副本）。
+ *
+ * selectGeneration 跑在 sqlite 的同步事务里，不能 await，所以用 copyFileSync。
+ * 每条版本记录的 file_path 必须互相独立：删除版本会按 file_path 清文件，
+ * 共用路径会让删封面版本顺手删掉段落那张图。失败吞掉返回 false，由调用方回退。
+ */
+export function copyGenerationFile(sourcePath: string, targetPath: string): boolean {
+  try {
+    copyFileSync(sourcePath, targetPath);
+    return true;
+  } catch {
+    return false;
+  }
 }

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { dirname, extname, join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { parseStyleProfileJson } from "@/features/content/style-profile";
 import {
@@ -21,6 +22,7 @@ import {
 import { imageContentUrl, mergeImageBlocks } from "./merge-image-blocks";
 import { restoreConsumedBlocks, storyboardSegmentIds, withStripsRestored } from "./consumed-content";
 import type { ComicStripModeDecision } from "./comic-strip-mode-router";
+import { copyGenerationFile } from "./generation-files";
 import { parseImageAssetRow as parseAsset, type ImageAssetRow } from "./asset-row";
 import type {
   CompleteGenerationInput,
@@ -560,7 +562,14 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
       if (!target || target.article_id !== articleId) return { kind: "not_found" };
       const sourceAssetId = target.asset_id;
 
-      // 跨槽位复用＝把这一版「挪」到目标配图上，而不是让两个槽位共享同一张图。
+      // 封面跨槽位选用＝「复制」：给封面新建一条版本（新 id + 文件副本），
+      // 原槽位的版本与选中状态原封不动——否则选封面会把段落里的图「偷走」，
+      // 之后段落只剩占位图，素材库列表里也找不回那一版（作者实报的 bug）。
+      if (sourceAssetId !== assetId && asset.type === "cover") {
+        return this.selectCoverGenerationByCopy(article, asset, target, expectedUpdatedAt);
+      }
+
+      // 其他槽位跨槽位复用＝把这一版「挪」到目标配图上，而不是让两个槽位共享同一张图。
       // 共享引用会让删除无从判断文件还有没有人用，挪动则始终一图一主人，语义干净。
       if (sourceAssetId !== assetId) {
         this.db
@@ -594,6 +603,63 @@ export class SqliteImageAssetRepository implements ImageAssetRepository {
         null
       );
     });
+  }
+
+  /**
+   * 封面跨槽位选版的「复制」实现：不动来源，给封面建一条自己的版本。
+   * publicUrl 沿用远程链接（上游 CDN 可共享）；file_path 必须是独立副本——
+   * 删除版本按 file_path 清文件，共用路径会让删一版带走另一版的图。
+   * 来源槽位连 selected 标志都不碰：段落里的图、版本列表中的「使用中」都保持原样。
+   */
+  private selectCoverGenerationByCopy(
+    article: Article,
+    asset: ImageAsset,
+    target: ImageGenerationRow,
+    expectedUpdatedAt: string
+  ): ImageGenerationMutationResult {
+    const assetId = asset.id;
+    const generationId = randomUUID();
+    let filePath: string | null = null;
+    if (target.file_path) {
+      // 命名沿用 {assetId}-{generationId}.{ext} 约定，目录与源文件同处（尊重测试注入的 storageDir）。
+      filePath = join(
+        dirname(target.file_path),
+        `${assetId}-${generationId}${extname(target.file_path)}`
+      );
+      // 复制失败就放弃本次选择：版本行绝不能指向一个不存在的文件（预览裂图且删不干净）。
+      if (!copyGenerationFile(target.file_path, filePath)) {
+        return { kind: "invalid_state", message: "封面图复制失败，请稍后重试" };
+      }
+    }
+
+    const createdAt = nextTimestamp(asset.updatedAt);
+    this.clearSelectedGeneration(assetId);
+    this.insertGeneration({
+      id: generationId,
+      articleId: article.id,
+      assetId,
+      prompt: target.prompt,
+      model: target.model,
+      filePath,
+      publicUrl: target.public_url,
+      selected: true,
+      createdAt
+    });
+    // 选用即把该版镜像到资产上：正文块、content 路由、发布链路都只看资产。
+    this.updateAsset({
+      ...asset,
+      status: "generated",
+      publicUrl: target.public_url,
+      filePath,
+      manuallyEdited: true,
+      updatedAt: nextTimestamp(createdAt)
+    });
+    return this.saveGenerationAggregate(
+      article,
+      expectedUpdatedAt,
+      this.listSync(article.id),
+      null
+    );
   }
 
   /**

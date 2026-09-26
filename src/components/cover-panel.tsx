@@ -116,7 +116,10 @@ export interface CoverPanelProps {
     assetId: string,
     input: ImageAssetPatch & { expectedUpdatedAt: string }
   ) => Promise<ImageMutationPayload>;
-  /** 从素材库挑一张挪到封面槽位（一图一主人，原位置自动回落）。 */
+  /**
+   * 从素材库挑一张设为封面（复制语义：封面建自己的版本，原图所在槽位不受影响）。
+   * 没有封面槽位时调用方先用 ensureCover 建槽位再选。
+   */
   selectGeneration?: (
     assetId: string,
     generationId: string,
@@ -312,10 +315,20 @@ export function CoverPanel({
   }
 
   function pickFromLibrary(generation: ImageLibraryItem) {
-    if (!cover || !selectGeneration) return;
-    void run(() =>
-      selectGeneration(cover.id, generation.id, article.updatedAt)
-    );
+    if (!selectGeneration) return;
+    if (cover) {
+      void run(() => selectGeneration(cover.id, generation.id, article.updatedAt));
+      return;
+    }
+    // 还没有封面槽位也能挑：先幂等建一个（不动任何现有配置），再用新槽位选图。
+    // expectedUpdatedAt 必须取建槽位返回的新版本号，沿用旧值会 409。
+    if (!ensureCover) return;
+    void run(async () => {
+      const created = await ensureCover(article.updatedAt);
+      const createdCover = created.assets.find((asset) => asset.type === "cover");
+      if (!createdCover) throw new Error("封面槽位创建失败，请刷新后重试");
+      return selectGeneration(createdCover.id, generation.id, created.article.updatedAt);
+    });
   }
 
   const badge = cover
@@ -480,7 +493,7 @@ export function CoverPanel({
                       : "三帧横拼封面"}
               </button>
             ) : null}
-            {cover && selectGeneration ? (
+            {selectGeneration ? (
               <button
                 className="button button-secondary"
                 type="button"
@@ -581,10 +594,10 @@ export function CoverPanel({
             </div>
           ) : null}
 
-          {libraryOpen && cover ? (
+          {libraryOpen ? (
             <div className="cover-panel-library">
               <p className="cover-panel-library-hint">
-                点一张挪到封面槽位——同一张图只会出现在一个位置，移走之后原位置会自动回落到它剩下的最新一版。
+                点一张设为封面——封面会建自己的版本，原图不受影响，段落里的图和它的版本列表都保持原样。
               </p>
               {library === null ? (
                 <p className="cover-panel-library-state">正在读取素材库...</p>
@@ -599,7 +612,7 @@ export function CoverPanel({
                         className={`cover-panel-library-thumb${generation.selected ? " is-current" : ""}`}
                         disabled={locked}
                         title={`${generation.assetPurpose} · ${generation.prompt.slice(0, 40)}`}
-                        aria-label={`把这张图挪到封面槽位：${generation.assetPurpose}`}
+                        aria-label={`把这张图设为封面（原图不受影响）：${generation.assetPurpose}`}
                         onClick={() => pickFromLibrary(generation)}
                       >
                         {/* 版本文件按 generationId 命名，URL 不可变，不需要破缓存参数。 */}

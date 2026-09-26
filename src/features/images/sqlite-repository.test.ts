@@ -1,6 +1,9 @@
 // @vitest-environment node
 
 import { describe, expect, it } from "vitest";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { contentBlockSchema } from "@/features/articles/schemas";
 import { SqliteArticleRepository } from "@/features/articles/sqlite-repository";
@@ -595,6 +598,81 @@ describe("image generation history", () => {
     );
     expect(generations.filter((generation) => generation.selected)).toHaveLength(1);
     expect(generations.find((generation) => generation.selected)?.id).toBe("gen-1");
+  });
+
+  it("copies the source version for the cover instead of moving it out of its slot", async () => {
+    // 复制语义会真的 copyFileSync，源文件必须存在：临时目录里造一个。
+    const storageDir = await mkdtemp(join(tmpdir(), "woxi-cover-copy-"));
+    const sourceFile = join(storageDir, "concept-source.png");
+    await writeFile(sourceFile, "fake-png-bytes");
+    try {
+      const { images, article } = await createArticleWithBlocks();
+      const planned = await images.applyPlan(article.id, article.updatedAt, [cover, concept]);
+      if (planned.kind !== "saved") throw new Error("plan should save");
+      const conceptAsset = planned.assets.find((asset) => asset.type === "concept");
+      if (!conceptAsset) throw new Error("concept asset should exist");
+
+      const begun = await images.beginGeneration(
+        article.id,
+        conceptAsset.id,
+        planned.article.updatedAt
+      );
+      if (begun.kind !== "saved") throw new Error("begin should save");
+      const completed = await images.completeGeneration(
+        article.id,
+        conceptAsset.id,
+        begun.article.updatedAt,
+        {
+          publicUrl: "https://cdn.test/concept-1.png",
+          filePath: sourceFile,
+          generationId: "gen-concept-1"
+        }
+      );
+      if (completed.kind !== "saved") throw new Error("complete should save");
+
+      const coverAsset = completed.assets.find((asset) => asset.type === "cover");
+      if (!coverAsset) throw new Error("cover asset should exist");
+      const result = await images.selectGeneration(
+        article.id,
+        coverAsset.id,
+        "gen-concept-1",
+        completed.article.updatedAt
+      );
+      if (result.kind !== "saved") throw new Error("select should save");
+
+      // 封面拿到自己的新版本（新 id、独立文件副本）并镜像到资产。
+      const coverAfter = result.assets.find((asset) => asset.id === coverAsset.id);
+      expect(coverAfter).toMatchObject({
+        status: "generated",
+        publicUrl: "https://cdn.test/concept-1.png",
+        manuallyEdited: true
+      });
+      expect(coverAfter?.filePath).toBeTruthy();
+      expect(coverAfter?.filePath).not.toBe(sourceFile);
+      expect(coverAfter?.filePath).toContain(`${coverAsset.id}-`);
+      expect(await readFile(coverAfter!.filePath!, "utf8")).toBe("fake-png-bytes");
+
+      const coverVersions = await images.listGenerationsForAsset(article.id, coverAsset.id);
+      expect(coverVersions).toHaveLength(1);
+      expect(coverVersions[0]!.id).not.toBe("gen-concept-1");
+      expect(coverVersions[0]!.selected).toBe(true);
+      expect(coverVersions[0]!.publicUrl).toBe("https://cdn.test/concept-1.png");
+      expect(coverVersions[0]!.filePath).toBe(coverAfter?.filePath);
+
+      // 回归核心：concept 槽位原封不动——图还在、版本还在、选中标志没被动过。
+      const conceptAfter = result.assets.find((asset) => asset.id === conceptAsset.id);
+      expect(conceptAfter).toMatchObject({
+        status: "generated",
+        filePath: sourceFile,
+        publicUrl: "https://cdn.test/concept-1.png"
+      });
+      const conceptVersions = await images.listGenerationsForAsset(article.id, conceptAsset.id);
+      expect(conceptVersions).toHaveLength(1);
+      expect(conceptVersions[0]!.id).toBe("gen-concept-1");
+      expect(conceptVersions[0]!.selected).toBe(true);
+    } finally {
+      await rm(storageDir, { recursive: true, force: true });
+    }
   });
 
   it("exposes the whole article library with each version's owning slot", async () => {

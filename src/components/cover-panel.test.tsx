@@ -169,7 +169,7 @@ describe("CoverPanel", () => {
     });
   });
 
-  it("从素材库挑图：列表按需拉取，点一张就把那一版挪到封面槽位", async () => {
+  it("从素材库挑图：列表按需拉取，点一张就设为封面（原图不受影响）", async () => {
     stubApi({ generations: [generation("gen-1"), generation("gen-2")] });
     const props = setup({ assets: [coverAsset()], withSelectGeneration: true });
 
@@ -177,15 +177,44 @@ describe("CoverPanel", () => {
     await userEvent.click(screen.getByRole("button", { name: "从素材库挑图" }));
 
     const thumbs = await screen.findAllByRole("button", {
-      name: "把这张图挪到封面槽位：分段长图"
+      name: "把这张图设为封面（原图不受影响）：分段长图"
     });
     expect(thumbs).toHaveLength(2);
     await userEvent.click(thumbs[0] as HTMLElement);
 
     expect(props.selectGeneration).toHaveBeenCalledWith(
       "cover-1",
-      expect.any(String),
+      "gen-1",
       "2026-09-09T00:00:00.000Z"
+    );
+  });
+
+  it("没有封面槽位也能从素材库挑图：先幂等建槽位，再拿新槽位选图", async () => {
+    stubApi({ generations: [generation("gen-1")] });
+    const props = setup({ assets: [], withSelectGeneration: true });
+
+    // 回归：素材库入口不再要求已有封面。
+    await userEvent.click(screen.getByRole("button", { name: "从素材库挑图" }));
+
+    // 建槽位返回带新封面资产与推进后的文章版本号：选图必须用新版本号，否则 409。
+    const createdCover = coverAsset({ id: "cover-new", status: "placeholder" });
+    (props.ensureCover as ReturnType<typeof vi.fn>).mockResolvedValue({
+      article: { ...props.article, updatedAt: "2026-09-09T00:00:01.000Z" },
+      assets: [createdCover]
+    });
+
+    const thumb = await screen.findByRole("button", {
+      name: "把这张图设为封面（原图不受影响）：分段长图"
+    });
+    await userEvent.click(thumb);
+
+    expect(props.ensureCover).toHaveBeenCalledWith("2026-09-09T00:00:00.000Z");
+    await waitFor(() =>
+      expect(props.selectGeneration).toHaveBeenCalledWith(
+        "cover-new",
+        "gen-1",
+        "2026-09-09T00:00:01.000Z"
+      )
     );
   });
 
